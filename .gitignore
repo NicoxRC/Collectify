@@ -1,0 +1,5 @@
+# Claude Code / AI agent tooling
+.claude/
+.agents/
+skills-lock.json
+CLAUDE.md
