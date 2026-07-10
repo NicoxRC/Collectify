@@ -5,7 +5,7 @@ A working, empty NestJS API — deployed, connected to the database, with all cr
 
 ## Scope
 
-- [ ] Scaffold NestJS project (`nest new api` or equivalent) inside `api/`
+- [ ] Scaffold NestJS project (`nest new api` or equivalent) inside `apps/api/`
 - [ ] Configure TypeORM connection to PostgreSQL, using env vars per `docs/ENVIRONMENT_VARIABLES.md`
 - [ ] Set up `SnakeNamingStrategy` globally, per `docs/DATABASE.md`
 - [ ] Configure `@nestjs/config` with validated, typed configuration (`config/configuration.ts`), per `docs/CODING_STANDARDS.md` — never read `process.env` directly elsewhere

@@ -8,9 +8,10 @@ Collectify is a monorepo with two independent applications that communicate over
 
 ```
 collectify/
-├── api/       # NestJS REST API — business logic, database, WhatsApp integration
-├── client/    # React + Vite SPA — admin panel consumed by Owner and Collector roles
-└── docs/      # This documentation
+├── apps/
+│   ├── api/       # NestJS REST API — business logic, database, WhatsApp integration
+│   └── client/    # React + Vite SPA — admin panel consumed by Owner and Collector roles
+└── docs/          # This documentation
 ```
 
 The `api` and `client` are deployed independently (`api` on Railway, `client` on Cloudflare Pages) and can be developed, tested, and released independently. The only contract between them is the REST API defined by `api`.
@@ -24,7 +25,7 @@ The `api` and `client` are deployed independently (`api` on Railway, `client` on
 The API is organized by **business domain**, not by technical layer. Each domain owns its controllers, services, entities, and DTOs in a single folder. This makes it obvious where to find or add code for a given feature, and keeps related code together instead of scattered across `controllers/`, `services/`, `entities/` top-level folders.
 
 ```
-api/
+apps/api/
 └── src/
     ├── auth/
     │   ├── auth.controller.ts
@@ -174,7 +175,7 @@ This is an internal admin panel with no public-facing pages and no SEO requireme
 ### Folder organization — feature-based
 
 ```
-client/
+apps/client/
 └── src/
     ├── features/
     │   ├── auth/

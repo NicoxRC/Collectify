@@ -18,8 +18,9 @@ This is a **monorepo**. Backend and frontend live in the same repository, in sep
 
 ```
 collectify/
-├── api/               # REST API — NestJS
-├── client/             # Web panel — React + Vite
+├── apps/
+│   ├── api/           # REST API — NestJS
+│   └── client/        # Web panel — React + Vite
 ├── docs/              # Project documentation (this file and the rest)
 └── README.md
 ```
@@ -65,7 +66,7 @@ docker ps
 ### 3. Set up and run the API
 
 ```bash
-cd api
+cd apps/api
 npm install
 cp .env.example .env    # fill in the variables — see ENVIRONMENT_VARIABLES.md
 npm run migration:run   # run TypeORM migrations
@@ -79,7 +80,7 @@ The API runs at `http://localhost:3000`.
 In a separate terminal:
 
 ```bash
-cd client
+cd apps/client
 npm install
 cp .env.example .env.local   # fill in the variables
 npm run dev
@@ -91,12 +92,12 @@ The client runs at `http://localhost:5173` (Vite's default port).
 
 ```bash
 # API
-cd api
+cd apps/api
 npm run test          # unit tests
 npm run test:cov      # with coverage report
 
 # Client
-cd client
+cd apps/client
 npm run test
 ```
 

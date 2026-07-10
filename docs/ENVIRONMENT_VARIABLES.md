@@ -20,7 +20,7 @@ There is no `staging` environment yet. If one is introduced later, this document
 
 ---
 
-## API (`api/.env`)
+## API (`apps/api/.env`)
 
 ```bash
 # ── Server ──────────────────────────────────────────────
@@ -77,7 +77,7 @@ Since the client hasn't finished setting up their Meta Business account yet, the
 
 ---
 
-## Client (`client/.env.local`)
+## Client (`apps/client/.env.local`)
 
 Vite only exposes variables prefixed with `VITE_` to the frontend code — this is a security measure so that server-only secrets are never accidentally bundled into the browser build.
 
