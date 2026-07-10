@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,9 +10,14 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -21,11 +27,15 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { UserRole } from '../users/entities/user.entity';
 
-import { ClientsService } from './clients.service';
+import { ClientsService, ImportClientsResult } from './clients.service';
 import { CreateClientDto } from './dto/createClient.dto';
 import { QueryClientsDto } from './dto/queryClients.dto';
 import { UpdateClientDto } from './dto/updateClient.dto';
 import { Client } from './entities/client.entity';
+
+const XLSX_MIME_TYPE =
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const MAX_IMPORT_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 
 @ApiTags('clients')
 @ApiBearerAuth()
@@ -68,6 +78,46 @@ export class ClientsController {
     @Body() dto: UpdateClientDto,
   ): Promise<Client> {
     return this.clientsService.update(id, dto);
+  }
+
+  @Post('import')
+  @Roles(UserRole.Admin)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_IMPORT_FILE_SIZE_BYTES },
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiOperation({
+    summary: 'Bulk-import clients from an .xlsx file (admin only)',
+    description:
+      'Accepts Spanish (Nombre/Apellido/Cédula/Teléfono) or English (First Name/Last Name/Document ' +
+      'Number/Phone) headers, case- and accent-insensitive. A row with missing/invalid data or a ' +
+      'duplicate document number is skipped and reported in the response — it does not abort the rest ' +
+      'of the import. Max file size 5MB.',
+  })
+  @ApiResponse({ status: 201, description: 'Returns the import summary.' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'No file uploaded, wrong file type, unreadable file, or missing required column(s).',
+  })
+  importClients(
+    @UploadedFile() file?: Express.Multer.File,
+  ): Promise<ImportClientsResult> {
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+    if (file.mimetype !== XLSX_MIME_TYPE) {
+      throw new BadRequestException('Only .xlsx files are supported');
+    }
+    return this.clientsService.importFromExcel(file.buffer);
   }
 
   @Delete(':id')

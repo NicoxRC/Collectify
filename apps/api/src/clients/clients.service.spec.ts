@@ -1,9 +1,18 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import { parseClientsWorkbook } from './clientsImportParser';
 import { Client } from './entities/client.entity';
 import { ClientsService } from './clients.service';
+
+jest.mock('./clientsImportParser');
+
+const mockParseClientsWorkbook = parseClientsWorkbook as jest.Mock;
 
 describe('ClientsService', () => {
   let service: ClientsService;
@@ -166,6 +175,138 @@ describe('ClientsService', () => {
         NotFoundException,
       );
       expect(repository.softDelete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('importFromExcel', () => {
+    const buffer = Buffer.from('fake-xlsx');
+
+    beforeEach(() => {
+      mockParseClientsWorkbook.mockReset();
+    });
+
+    it('creates every valid row and reports the total', async () => {
+      mockParseClientsWorkbook.mockResolvedValue({
+        rows: [
+          {
+            row: 2,
+            firstName: 'Juana',
+            lastName: 'Pérez',
+            documentNumber: '1234567890',
+            phoneNumber: '+573001234567',
+          },
+          {
+            row: 3,
+            firstName: 'Carlos',
+            lastName: 'Gomez',
+            documentNumber: '9876543210',
+            phoneNumber: '+573002222222',
+          },
+        ],
+        errors: [],
+      });
+      repository.findOne.mockResolvedValue(null);
+      repository.save.mockImplementation((client: Partial<Client>) =>
+        Promise.resolve({ ...mockClient, ...client }),
+      );
+
+      const result = await service.importFromExcel(buffer);
+
+      expect(result).toEqual({ totalRows: 2, created: 2, skipped: [] });
+      expect(repository.save).toHaveBeenCalledTimes(2);
+    });
+
+    it('carries parse-level row errors straight into skipped', async () => {
+      mockParseClientsWorkbook.mockResolvedValue({
+        rows: [],
+        errors: [{ row: 5, reason: 'Missing value(s) for: lastName' }],
+      });
+
+      const result = await service.importFromExcel(buffer);
+
+      expect(result).toEqual({
+        totalRows: 1,
+        created: 0,
+        skipped: [{ row: 5, reason: 'Missing value(s) for: lastName' }],
+      });
+    });
+
+    it('skips a row that fails DTO validation instead of aborting the import', async () => {
+      mockParseClientsWorkbook.mockResolvedValue({
+        rows: [
+          {
+            row: 2,
+            firstName: 'Juana',
+            lastName: 'Pérez',
+            documentNumber: '1234567890',
+            phoneNumber: 'not-a-phone-number',
+          },
+          {
+            row: 3,
+            firstName: 'Carlos',
+            lastName: 'Gomez',
+            documentNumber: '9876543210',
+            phoneNumber: '+573002222222',
+          },
+        ],
+        errors: [],
+      });
+      repository.findOne.mockResolvedValue(null);
+      repository.save.mockImplementation((client: Partial<Client>) =>
+        Promise.resolve({ ...mockClient, ...client }),
+      );
+
+      const result = await service.importFromExcel(buffer);
+
+      expect(result.created).toBe(1);
+      expect(result.skipped).toHaveLength(1);
+      expect(result.skipped[0].row).toBe(2);
+    });
+
+    it('skips a row whose document number already exists instead of aborting the import', async () => {
+      mockParseClientsWorkbook.mockResolvedValue({
+        rows: [
+          {
+            row: 2,
+            firstName: 'Juana',
+            lastName: 'Pérez',
+            documentNumber: '1234567890',
+            phoneNumber: '+573001234567',
+          },
+          {
+            row: 3,
+            firstName: 'Carlos',
+            lastName: 'Gomez',
+            documentNumber: '9876543210',
+            phoneNumber: '+573002222222',
+          },
+        ],
+        errors: [],
+      });
+      repository.findOne
+        .mockResolvedValueOnce(mockClient) // row 2 — duplicate
+        .mockResolvedValueOnce(null); // row 3 — unique
+      repository.save.mockImplementation((client: Partial<Client>) =>
+        Promise.resolve({ ...mockClient, ...client }),
+      );
+
+      const result = await service.importFromExcel(buffer);
+
+      expect(result.created).toBe(1);
+      expect(result.skipped).toEqual([
+        { row: 2, reason: 'Document number 1234567890 already exists' },
+      ]);
+    });
+
+    it('wraps a structural parse failure in BadRequestException', async () => {
+      mockParseClientsWorkbook.mockRejectedValue(
+        new Error('The file is missing required column(s): phoneNumber'),
+      );
+
+      await expect(service.importFromExcel(buffer)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(repository.save).not.toHaveBeenCalled();
     });
   });
 
