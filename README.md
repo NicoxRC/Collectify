@@ -73,7 +73,12 @@ npm run migration:run   # run TypeORM migrations
 npm run start:dev
 ```
 
-The API runs at `http://localhost:3000`.
+The API runs at `http://localhost:3000`. There's no self-registration —
+create the first admin account with:
+
+```bash
+npm run seed:admin -- "Full Name" admin@example.com "a-strong-password"
+```
 
 ### 4. Set up and run the Client
 

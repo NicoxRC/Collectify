@@ -2,10 +2,12 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { AuthModule } from './auth/auth.module';
 import configuration, { Configuration } from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
 import { buildDataSourceOptions } from './database/typeOrmConfig';
 import { HealthModule } from './health/health.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { HealthModule } from './health/health.module';
         buildDataSourceOptions(configService.get('database', { infer: true })),
     }),
     HealthModule,
+    UsersModule,
+    AuthModule,
   ],
 })
 export class AppModule {}
