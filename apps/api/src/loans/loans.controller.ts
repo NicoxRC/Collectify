@@ -21,6 +21,7 @@ import { UserRole } from '../users/entities/user.entity';
 import { CreateLoanDto } from './dto/createLoan.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
 import { QueryLoansDto } from './dto/queryLoans.dto';
+import { RefinanceLoanDto } from './dto/refinanceLoan.dto';
 import { Loan } from './entities/loan.entity';
 import { LoansService, LoanDetail } from './loans.service';
 
@@ -43,7 +44,8 @@ export class LoansController {
   @ApiOperation({
     summary: 'Get a loan with its installments',
     description:
-      'overdueDays, interest, and totalDue on each installment are calculated on read, never stored.',
+      'overdueDays, interest, and totalDue on each installment are calculated on read, never stored. ' +
+      'refinancedToLoanId is a computed reverse lookup — the loan this one was later refinanced into, if any.',
   })
   @ApiResponse({
     status: 200,
@@ -84,5 +86,37 @@ export class LoansController {
   @ApiResponse({ status: 404, description: 'Loan not found.' })
   update(@Param('id') id: string, @Body() dto: UpdateLoanDto): Promise<Loan> {
     return this.loansService.update(id, dto);
+  }
+
+  @Post(':id/refinance')
+  @Roles(UserRole.Admin)
+  @ApiOperation({
+    summary: 'Refinance a loan: close it out and open a new one (admin only)',
+    description:
+      "Sets the old loan's status to 'refinanced' and cancels whatever installments it still had " +
+      "pending (marked 'cancelled' — excluded from active collection/reminders, kept as historical " +
+      'record). Creates a new loan linked back via refinancedFromLoanId, with its own promissory ' +
+      'note number and installments generated the same way as loan creation (explicit ' +
+      'installmentAmounts, must sum to principalAmount).',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Returns the new loan and its installments.',
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'The loan is not active (already paid or already refinanced), or installmentAmounts does not sum to principalAmount.',
+  })
+  @ApiResponse({ status: 404, description: 'Loan not found.' })
+  @ApiResponse({
+    status: 409,
+    description: 'Promissory note number already in use.',
+  })
+  refinance(
+    @Param('id') id: string,
+    @Body() dto: RefinanceLoanDto,
+  ): Promise<LoanDetail> {
+    return this.loansService.refinance(id, dto);
   }
 }

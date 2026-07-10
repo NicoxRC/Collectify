@@ -14,12 +14,14 @@ export interface InstallmentWithCalculated extends Installment {
 
 // A paid installment owes nothing further, regardless of how late it once
 // was — overdueDays/interest/totalDue are calculated-on-read per
-// docs/DATABASE.md, never stored, and only meaningful while unpaid.
+// docs/DATABASE.md, only meaningful while pending. A cancelled installment
+// (superseded by a refinance, per docs/DATABASE.md "Refinancing") is the
+// same: it's excluded from active collection, so it owes nothing either.
 export function enrichInstallment(
   installment: Installment,
   interestRate: number,
 ): InstallmentWithCalculated {
-  if (installment.status === InstallmentStatus.Paid) {
+  if (installment.status !== InstallmentStatus.Pending) {
     return { ...installment, overdueDays: 0, interest: 0, totalDue: 0 };
   }
 

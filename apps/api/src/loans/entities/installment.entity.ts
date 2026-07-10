@@ -17,6 +17,7 @@ import { Loan } from './loan.entity';
 export enum InstallmentStatus {
   Pending = 'pending',
   Paid = 'paid',
+  Cancelled = 'cancelled',
 }
 
 @Entity('installments')

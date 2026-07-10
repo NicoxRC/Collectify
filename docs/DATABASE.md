@@ -182,7 +182,7 @@ Represents a single *cuota* within a loan.
 | `installment_number` | INT | e.g. cuota 14 of 24 (`NO #` / `# DE CUOTAS` in source data) |
 | `amount` | DECIMAL(12,2) | the installment's own amount (`VLR CUOTA`) — installments within a loan are not always equal, per real data |
 | `due_date` | DATE | this installment's specific due date (`FECHA COBRO` / `FECHA CUOTA`) |
-| `status` | ENUM (`pending`, `paid`) | overdue is **calculated on read**, never stored — see below |
+| `status` | ENUM (`pending`, `paid`, `cancelled`) | overdue is **calculated on read**, never stored — see below. `cancelled` is set when the parent loan is refinanced with this installment still pending — see "Refinancing" |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
 **Overdue calculation (confirmed formula):**
@@ -268,7 +268,7 @@ When a loan is refinanced:
 1. The old loan's `status` is set to `refinanced`.
 2. A new loan row is created with `refinanced_from_loan_id` pointing to the old loan's `id`.
 3. The new loan gets its own `promissory_note_number`, `principal_amount` (typically the old balance + accrued interest), and its own set of `installments`.
-4. The old loan's remaining installments, if any, should be marked in a way that excludes them from active overdue calculations — **exact handling (cancel vs. leave as historical record) is pending confirmation with the client** and should be resolved before building this feature.
+4. The old loan's remaining pending installments, if any, have their `status` set to `cancelled` — a distinct status confirmed with the client, kept as historical record but excluded from overdue calculations, reminders, and dashboard totals (the same way `paid` installments are: `enrichInstallment` returns zero overdue days/interest/total due for both).
 
 This mirrors patterns seen directly in the source data (e.g. `REFINANCIADO #981`, `SE REFINANCIO EN EL #1000`).
 
@@ -293,8 +293,11 @@ npm run migration:revert
 ## Open questions — confirm with client before finalizing
 
 - [ ] Exact rule (if any) for how `interest_rate` is determined or changes over time
-- [ ] What happens to remaining installments of a loan once it's refinanced
 - [ ] Whether installment amounts within a loan are always equal or can vary (real data shows some variation)
+
+## Resolved from Phase 6
+
+- ~~What happens to remaining installments of a loan once it's refinanced~~ → Confirmed: they're marked `cancelled` — excluded from active overdue/reminder processing, kept as historical record. See "Refinancing" above.
 
 ## Related documents
 

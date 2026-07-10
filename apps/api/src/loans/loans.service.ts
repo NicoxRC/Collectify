@@ -12,6 +12,7 @@ import { PaginatedResult } from '../common/interfaces/paginatedResult.interface'
 import { CreateLoanDto } from './dto/createLoan.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
 import { QueryLoansDto } from './dto/queryLoans.dto';
+import { RefinanceLoanDto } from './dto/refinanceLoan.dto';
 import { addMonthsToDateString, addWeeksToDateString } from './dueDateSchedule';
 import { Installment, InstallmentStatus } from './entities/installment.entity';
 import { InstallmentFrequency, Loan, LoanStatus } from './entities/loan.entity';
@@ -27,6 +28,20 @@ const AMOUNT_SUM_TOLERANCE = 0.01;
 
 export interface LoanDetail extends Loan {
   installments: InstallmentWithCalculated[];
+  // Computed reverse lookup, not a stored column — the loan this one was
+  // later refinanced into, if any. See docs/phases/PHASE_6_REFINANCING.md.
+  refinancedToLoanId: string | null;
+}
+
+interface PersistLoanParams {
+  clientId: string;
+  promissoryNoteNumber: string;
+  principalAmount: number;
+  interestRate: number;
+  disbursedAt: string;
+  installmentFrequency: InstallmentFrequency;
+  installmentAmounts: number[];
+  refinancedFromLoanId?: string | null;
 }
 
 @Injectable()
@@ -39,46 +54,51 @@ export class LoansService {
   ) {}
 
   async create(dto: CreateLoanDto): Promise<LoanDetail> {
-    await this.assertPromissoryNoteNumberIsUnique(dto.promissoryNoteNumber);
-    this.assertInstallmentAmountsMatchPrincipal(
-      dto.principalAmount,
-      dto.installmentAmounts,
-    );
-
-    const loan = this.loansRepository.create({
+    const savedLoan = await this.persistLoanWithInstallments({
       clientId: dto.clientId,
       promissoryNoteNumber: dto.promissoryNoteNumber,
       principalAmount: dto.principalAmount,
       interestRate: dto.interestRate,
       disbursedAt: dto.disbursedAt,
       installmentFrequency: dto.installmentFrequency,
-      totalInstallments: dto.installmentAmounts.length,
-      status: LoanStatus.Active,
+      installmentAmounts: dto.installmentAmounts,
     });
 
-    let savedLoan: Loan;
-    try {
-      savedLoan = await this.loansRepository.save(loan);
-    } catch (error) {
-      throw this.mapUniqueViolation(error);
+    return this.findOne(savedLoan.id);
+  }
+
+  // Closes out the old loan, cancels whatever installments it still had
+  // pending (excluded from active collection but kept as historical
+  // record — the confirmed behavior, see docs/DATABASE.md "Refinancing"),
+  // and opens a new loan in its place linked via refinancedFromLoanId.
+  async refinance(id: string, dto: RefinanceLoanDto): Promise<LoanDetail> {
+    const oldLoan = await this.findLoanOrThrow(id);
+    if (oldLoan.status !== LoanStatus.Active) {
+      throw new BadRequestException(
+        `Loan ${id} cannot be refinanced because its status is '${oldLoan.status}' — only active loans can be refinanced`,
+      );
     }
 
-    const installments = dto.installmentAmounts.map((amount, index) =>
-      this.installmentsRepository.create({
-        loanId: savedLoan.id,
-        installmentNumber: index + 1,
-        amount,
-        dueDate: this.calculateDueDate(
-          dto.disbursedAt,
-          dto.installmentFrequency,
-          index + 1,
-        ),
-        status: InstallmentStatus.Pending,
-      }),
-    );
-    await this.installmentsRepository.save(installments);
+    oldLoan.status = LoanStatus.Refinanced;
+    await this.loansRepository.save(oldLoan);
 
-    return this.findOne(savedLoan.id);
+    await this.installmentsRepository.update(
+      { loanId: id, status: InstallmentStatus.Pending },
+      { status: InstallmentStatus.Cancelled },
+    );
+
+    const newLoan = await this.persistLoanWithInstallments({
+      clientId: oldLoan.clientId,
+      promissoryNoteNumber: dto.promissoryNoteNumber,
+      principalAmount: dto.principalAmount,
+      interestRate: dto.interestRate,
+      disbursedAt: dto.disbursedAt,
+      installmentFrequency: dto.installmentFrequency,
+      installmentAmounts: dto.installmentAmounts,
+      refinancedFromLoanId: id,
+    });
+
+    return this.findOne(newLoan.id);
   }
 
   async findAll(query: QueryLoansDto): Promise<PaginatedResult<Loan>> {
@@ -114,11 +134,16 @@ export class LoansService {
       order: { installmentNumber: 'ASC' },
     });
 
+    const refinancedTo = await this.loansRepository.findOne({
+      where: { refinancedFromLoanId: id },
+    });
+
     return {
       ...loan,
       installments: installments.map((installment) =>
         enrichInstallment(installment, loan.interestRate),
       ),
+      refinancedToLoanId: refinancedTo?.id ?? null,
     };
   }
 
@@ -126,6 +151,55 @@ export class LoansService {
     const loan = await this.findLoanOrThrow(id);
     Object.assign(loan, dto);
     return this.loansRepository.save(loan);
+  }
+
+  // Shared by create() and refinance() — both need a loan row plus its
+  // generated installments, differing only in whether refinancedFromLoanId
+  // is set.
+  private async persistLoanWithInstallments(
+    params: PersistLoanParams,
+  ): Promise<Loan> {
+    await this.assertPromissoryNoteNumberIsUnique(params.promissoryNoteNumber);
+    this.assertInstallmentAmountsMatchPrincipal(
+      params.principalAmount,
+      params.installmentAmounts,
+    );
+
+    const loan = this.loansRepository.create({
+      clientId: params.clientId,
+      promissoryNoteNumber: params.promissoryNoteNumber,
+      principalAmount: params.principalAmount,
+      interestRate: params.interestRate,
+      disbursedAt: params.disbursedAt,
+      installmentFrequency: params.installmentFrequency,
+      totalInstallments: params.installmentAmounts.length,
+      status: LoanStatus.Active,
+      refinancedFromLoanId: params.refinancedFromLoanId ?? null,
+    });
+
+    let savedLoan: Loan;
+    try {
+      savedLoan = await this.loansRepository.save(loan);
+    } catch (error) {
+      throw this.mapUniqueViolation(error);
+    }
+
+    const installments = params.installmentAmounts.map((amount, index) =>
+      this.installmentsRepository.create({
+        loanId: savedLoan.id,
+        installmentNumber: index + 1,
+        amount,
+        dueDate: this.calculateDueDate(
+          params.disbursedAt,
+          params.installmentFrequency,
+          index + 1,
+        ),
+        status: InstallmentStatus.Pending,
+      }),
+    );
+    await this.installmentsRepository.save(installments);
+
+    return savedLoan;
   }
 
   private async findLoanOrThrow(id: string): Promise<Loan> {

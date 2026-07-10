@@ -23,6 +23,7 @@ describe('LoansService', () => {
     find: jest.Mock;
     create: jest.Mock;
     save: jest.Mock;
+    update: jest.Mock;
   };
   let queryBuilder: {
     orderBy: jest.Mock;
@@ -69,6 +70,7 @@ describe('LoansService', () => {
       find: jest.fn(),
       create: jest.fn((dto: Partial<Installment>) => dto),
       save: jest.fn(),
+      update: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -166,9 +168,106 @@ describe('LoansService', () => {
     });
   });
 
+  describe('refinance', () => {
+    const refinanceDto = {
+      promissoryNoteNumber: '#1000',
+      principalAmount: 600000,
+      interestRate: 5,
+      disbursedAt: '2026-07-10',
+      installmentFrequency: InstallmentFrequency.Monthly,
+      installmentAmounts: [300000, 300000],
+    };
+
+    const newLoanRecord: Loan = {
+      ...mockLoan,
+      id: 'loan-2',
+      promissoryNoteNumber: '#1000',
+      principalAmount: 600000,
+      interestRate: 5,
+      totalInstallments: 2,
+      refinancedFromLoanId: mockLoan.id,
+    };
+
+    beforeEach(() => {
+      loansRepository.findOneBy
+        .mockResolvedValueOnce({ ...mockLoan }) // old loan lookup — cloned, refinance() mutates .status in place
+        .mockResolvedValueOnce(newLoanRecord); // findOne(newLoan.id) at the end
+      loansRepository.findOne.mockResolvedValue(null); // uniqueness check + reverse lookup
+      loansRepository.save
+        .mockImplementationOnce((loan: Loan) => Promise.resolve(loan)) // old loan status update
+        .mockResolvedValueOnce(newLoanRecord); // new loan save
+      installmentsRepository.find.mockResolvedValue([]);
+    });
+
+    it('marks the old loan as refinanced and cancels its remaining pending installments', async () => {
+      await service.refinance(mockLoan.id, refinanceDto);
+
+      expect(loansRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: LoanStatus.Refinanced }),
+      );
+      expect(installmentsRepository.update).toHaveBeenCalledWith(
+        { loanId: mockLoan.id, status: InstallmentStatus.Pending },
+        { status: InstallmentStatus.Cancelled },
+      );
+    });
+
+    it('creates a new loan linked back to the old one with its own generated installments', async () => {
+      await service.refinance(mockLoan.id, refinanceDto);
+
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clientId: mockLoan.clientId,
+          refinancedFromLoanId: mockLoan.id,
+          promissoryNoteNumber: '#1000',
+          totalInstallments: 2,
+        }),
+      );
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({ installmentNumber: 1, amount: 300000 }),
+        expect.objectContaining({ installmentNumber: 2, amount: 300000 }),
+      ]);
+    });
+
+    it('rejects refinancing an already-paid loan', async () => {
+      loansRepository.findOneBy.mockReset();
+      loansRepository.findOneBy.mockResolvedValueOnce({
+        ...mockLoan,
+        status: LoanStatus.Paid,
+      });
+
+      await expect(
+        service.refinance(mockLoan.id, refinanceDto),
+      ).rejects.toThrow(BadRequestException);
+      expect(loansRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects refinancing an already-refinanced loan', async () => {
+      loansRepository.findOneBy.mockReset();
+      loansRepository.findOneBy.mockResolvedValueOnce({
+        ...mockLoan,
+        status: LoanStatus.Refinanced,
+      });
+
+      await expect(
+        service.refinance(mockLoan.id, refinanceDto),
+      ).rejects.toThrow(BadRequestException);
+      expect(loansRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the loan does not exist', async () => {
+      loansRepository.findOneBy.mockReset();
+      loansRepository.findOneBy.mockResolvedValueOnce(null);
+
+      await expect(
+        service.refinance('missing-id', refinanceDto),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('findOne', () => {
     it('returns the loan with calculated fields on each installment', async () => {
       loansRepository.findOneBy.mockResolvedValue(mockLoan);
+      loansRepository.findOne.mockResolvedValue(null);
       const overdueInstallment: Installment = {
         id: 'inst-1',
         loanId: mockLoan.id,
@@ -201,6 +300,26 @@ describe('LoansService', () => {
         interest: 0,
         totalDue: 0,
       });
+    });
+
+    it('returns null refinancedToLoanId when no loan points back to this one', async () => {
+      loansRepository.findOneBy.mockResolvedValue(mockLoan);
+      loansRepository.findOne.mockResolvedValue(null);
+      installmentsRepository.find.mockResolvedValue([]);
+
+      const result = await service.findOne(mockLoan.id);
+
+      expect(result.refinancedToLoanId).toBeNull();
+    });
+
+    it('returns the new loan id as refinancedToLoanId when this loan was refinanced', async () => {
+      loansRepository.findOneBy.mockResolvedValue(mockLoan);
+      loansRepository.findOne.mockResolvedValue({ ...mockLoan, id: 'loan-2' });
+      installmentsRepository.find.mockResolvedValue([]);
+
+      const result = await service.findOne(mockLoan.id);
+
+      expect(result.refinancedToLoanId).toBe('loan-2');
     });
 
     it('throws NotFoundException when the loan does not exist', async () => {
