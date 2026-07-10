@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: collectify_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DATABASE_USER:-postgres}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-postgres}
+      POSTGRES_DB: ${DATABASE_NAME:-collectify}
+    ports:
+      - '${DATABASE_PORT:-5432}:5432'
+    volumes:
+      - collectify_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  collectify_postgres_data:
