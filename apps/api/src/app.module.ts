@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuthModule } from './auth/auth.module';
@@ -10,6 +11,7 @@ import { buildDataSourceOptions } from './database/typeOrmConfig';
 import { HealthModule } from './health/health.module';
 import { LoansModule } from './loans/loans.module';
 import { UsersModule } from './users/users.module';
+import { WhatsappModule } from './whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -23,11 +25,13 @@ import { UsersModule } from './users/users.module';
       useFactory: (configService: ConfigService<Configuration, true>) =>
         buildDataSourceOptions(configService.get('database', { infer: true })),
     }),
+    ScheduleModule.forRoot(),
     HealthModule,
     UsersModule,
     AuthModule,
     ClientsModule,
     LoansModule,
+    WhatsappModule,
   ],
 })
 export class AppModule {}
