@@ -1,13 +1,21 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { Repository } from 'typeorm';
 
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 
+import {
+  ParsedClientRow,
+  parseClientsWorkbook,
+  RowError,
+} from './clientsImportParser';
 import { CreateClientDto } from './dto/createClient.dto';
 import { QueryClientsDto } from './dto/queryClients.dto';
 import { UpdateClientDto } from './dto/updateClient.dto';
@@ -16,6 +24,12 @@ import { Client } from './entities/client.entity';
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const POSTGRES_UNIQUE_VIOLATION = '23505';
+
+export interface ImportClientsResult {
+  totalRows: number;
+  created: number;
+  skipped: RowError[];
+}
 
 @Injectable()
 export class ClientsService {
@@ -91,6 +105,68 @@ export class ClientsService {
   async softDelete(id: string): Promise<void> {
     await this.findOne(id);
     await this.clientsRepository.softDelete({ id });
+  }
+
+  // Bulk onboarding from the client's own Excel process (see
+  // docs/PROJECT_ROADMAP.md Phase 8, confirmed still needed). A bad row
+  // (invalid data or a duplicate document number) is skipped and reported,
+  // not aborted — one bad row shouldn't sink the rest of a real spreadsheet.
+  // Reuses create()'s validation and uniqueness logic per row, same as a
+  // manual create would.
+  async importFromExcel(buffer: Buffer): Promise<ImportClientsResult> {
+    let parsed: { rows: ParsedClientRow[]; errors: RowError[] };
+    try {
+      parsed = await parseClientsWorkbook(buffer);
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error
+          ? error.message
+          : 'Could not parse the uploaded file',
+      );
+    }
+
+    const skipped: RowError[] = [...parsed.errors];
+    let created = 0;
+
+    for (const row of parsed.rows) {
+      const dto = plainToInstance(CreateClientDto, {
+        firstName: row.firstName,
+        lastName: row.lastName,
+        documentNumber: row.documentNumber,
+        phoneNumber: row.phoneNumber,
+      });
+
+      const validationErrors = await validate(dto);
+      if (validationErrors.length > 0) {
+        skipped.push({
+          row: row.row,
+          reason: validationErrors
+            .flatMap((error) => Object.values(error.constraints ?? {}))
+            .join('; '),
+        });
+        continue;
+      }
+
+      try {
+        await this.create(dto);
+        created += 1;
+      } catch (error) {
+        if (error instanceof ConflictException) {
+          skipped.push({
+            row: row.row,
+            reason: `Document number ${dto.documentNumber} already exists`,
+          });
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    return {
+      totalRows: parsed.rows.length + parsed.errors.length,
+      created,
+      skipped,
+    };
   }
 
   private async assertDocumentNumberIsUnique(
