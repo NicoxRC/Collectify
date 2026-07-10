@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module';
 import { ClientsModule } from './clients/clients.module';
 import configuration, { Configuration } from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { buildDataSourceOptions } from './database/typeOrmConfig';
 import { HealthModule } from './health/health.module';
 import { LoansModule } from './loans/loans.module';
@@ -32,6 +33,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     ClientsModule,
     LoansModule,
     WhatsappModule,
+    DashboardModule,
   ],
 })
 export class AppModule {}
