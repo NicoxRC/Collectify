@@ -293,7 +293,10 @@ npm run migration:revert
 ## Open questions — confirm with client before finalizing
 
 - [ ] Exact rule (if any) for how `interest_rate` is determined or changes over time
-- [ ] Whether installment amounts within a loan are always equal or can vary (real data shows some variation)
+
+## Resolved from Phase 4
+
+- ~~Whether installment amounts within a loan are always equal or can vary~~ → Confirmed: they can vary. `POST /loans` and `POST /loans/:id/refinance` both require an explicit `installmentAmounts` array (one amount per installment, must sum to `principalAmount`) rather than auto-splitting evenly.
 
 ## Resolved from Phase 6
 
