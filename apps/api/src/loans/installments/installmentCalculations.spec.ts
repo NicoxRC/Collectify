@@ -24,6 +24,17 @@ describe('installmentCalculations', () => {
       const dueDate = subDays(today, 10);
       expect(calculateOverdueDays(dueDate, today)).toBe(10);
     });
+
+    it('is not off-by-one when the server runs behind UTC (dueDate is a UTC-midnight date string)', () => {
+      // installments.dueDate is a 'date' column, parsed as UTC midnight —
+      // this must give the same day count regardless of the machine's local
+      // timezone. Regression test for a bug where differenceInCalendarDays
+      // (which normalizes to LOCAL midnight) silently added a day in any
+      // timezone behind UTC, e.g. America/Bogota (UTC-5).
+      const dueDate = new Date('2024-01-01');
+      const today = new Date('2024-01-11T08:00:00Z');
+      expect(calculateOverdueDays(dueDate, today)).toBe(10);
+    });
   });
 
   describe('calculateInterest — verified fixtures from real spreadsheet data', () => {
