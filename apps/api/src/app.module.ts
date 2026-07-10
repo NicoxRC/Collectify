@@ -8,6 +8,7 @@ import configuration, { Configuration } from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
 import { buildDataSourceOptions } from './database/typeOrmConfig';
 import { HealthModule } from './health/health.module';
+import { LoansModule } from './loans/loans.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -26,6 +27,7 @@ import { UsersModule } from './users/users.module';
     UsersModule,
     AuthModule,
     ClientsModule,
+    LoansModule,
   ],
 })
 export class AppModule {}

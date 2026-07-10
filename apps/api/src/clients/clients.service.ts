@@ -6,6 +6,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
+
 import { CreateClientDto } from './dto/createClient.dto';
 import { QueryClientsDto } from './dto/queryClients.dto';
 import { UpdateClientDto } from './dto/updateClient.dto';
@@ -14,16 +16,6 @@ import { Client } from './entities/client.entity';
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const POSTGRES_UNIQUE_VIOLATION = '23505';
-
-export interface PaginatedResult<T> {
-  items: T[];
-  meta: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-  };
-}
 
 @Injectable()
 export class ClientsService {

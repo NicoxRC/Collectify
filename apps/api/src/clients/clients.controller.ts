@@ -18,9 +18,10 @@ import {
 } from '@nestjs/swagger';
 
 import { Roles } from '../auth/decorators/roles.decorator';
+import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { UserRole } from '../users/entities/user.entity';
 
-import { ClientsService, PaginatedResult } from './clients.service';
+import { ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/createClient.dto';
 import { QueryClientsDto } from './dto/queryClients.dto';
 import { UpdateClientDto } from './dto/updateClient.dto';
