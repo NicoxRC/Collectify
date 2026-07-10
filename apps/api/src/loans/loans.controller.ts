@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -10,15 +18,11 @@ import { PaginatedResult } from '../common/interfaces/paginatedResult.interface'
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../users/entities/user.entity';
 
+import { CreateLoanDto } from './dto/createLoan.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
 import { QueryLoansDto } from './dto/queryLoans.dto';
 import { Loan } from './entities/loan.entity';
 import { LoansService, LoanDetail } from './loans.service';
-
-// POST /loans (create + installment generation) is intentionally not
-// implemented yet — docs/phases/PHASE_4_LOANS_INSTALLMENTS.md requires
-// resolving whether installment amounts are always an even split or can be
-// customized per installment before building it. Pending human confirmation.
 
 @ApiTags('loans')
 @ApiBearerAuth()
@@ -48,6 +52,29 @@ export class LoansController {
   @ApiResponse({ status: 404, description: 'Loan not found.' })
   findOne(@Param('id') id: string): Promise<LoanDetail> {
     return this.loansService.findOne(id);
+  }
+
+  @Post()
+  @Roles(UserRole.Admin)
+  @ApiOperation({
+    summary: 'Create a loan and generate its installments (admin only)',
+    description:
+      'installmentAmounts is required — one explicit amount per installment, must sum to principalAmount. Due dates are auto-generated from disbursedAt + installmentFrequency.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Returns the created loan and its installments.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'installmentAmounts does not sum to principalAmount.',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Promissory note number already in use.',
+  })
+  create(@Body() dto: CreateLoanDto): Promise<LoanDetail> {
+    return this.loansService.create(dto);
   }
 
   @Patch(':id')

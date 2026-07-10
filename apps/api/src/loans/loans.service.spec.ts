@@ -1,4 +1,8 @@
-import { NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
@@ -11,9 +15,15 @@ describe('LoansService', () => {
   let loansRepository: {
     createQueryBuilder: jest.Mock;
     findOneBy: jest.Mock;
+    findOne: jest.Mock;
+    create: jest.Mock;
     save: jest.Mock;
   };
-  let installmentsRepository: { find: jest.Mock };
+  let installmentsRepository: {
+    find: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+  };
   let queryBuilder: {
     orderBy: jest.Mock;
     skip: jest.Mock;
@@ -51,9 +61,15 @@ describe('LoansService', () => {
     loansRepository = {
       createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
       findOneBy: jest.fn(),
+      findOne: jest.fn(),
+      create: jest.fn((dto: Partial<Loan>) => dto),
       save: jest.fn(),
     };
-    installmentsRepository = { find: jest.fn() };
+    installmentsRepository = {
+      find: jest.fn(),
+      create: jest.fn((dto: Partial<Installment>) => dto),
+      save: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -67,6 +83,87 @@ describe('LoansService', () => {
     }).compile();
 
     service = module.get<LoansService>(LoansService);
+  });
+
+  describe('create', () => {
+    const createDto = {
+      clientId: 'client-1',
+      promissoryNoteNumber: '#900',
+      principalAmount: 900000,
+      interestRate: 6,
+      disbursedAt: '2026-01-01',
+      installmentFrequency: InstallmentFrequency.Monthly,
+      installmentAmounts: [300000, 300000, 300000],
+    };
+
+    beforeEach(() => {
+      loansRepository.findOne.mockResolvedValue(null);
+      loansRepository.save.mockResolvedValue({ ...mockLoan, id: 'loan-2' });
+      loansRepository.findOneBy.mockResolvedValue({
+        ...mockLoan,
+        id: 'loan-2',
+      });
+      installmentsRepository.find.mockResolvedValue([]);
+    });
+
+    it('generates one installment per amount with sequential numbers and monthly due dates', async () => {
+      await service.create(createDto);
+
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({
+          installmentNumber: 1,
+          amount: 300000,
+          dueDate: '2026-02-01',
+        }),
+        expect.objectContaining({
+          installmentNumber: 2,
+          amount: 300000,
+          dueDate: '2026-03-01',
+        }),
+        expect.objectContaining({
+          installmentNumber: 3,
+          amount: 300000,
+          dueDate: '2026-04-01',
+        }),
+      ]);
+    });
+
+    it('spaces due dates two weeks apart for biweekly loans', async () => {
+      await service.create({
+        ...createDto,
+        installmentFrequency: InstallmentFrequency.Biweekly,
+      });
+
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({ dueDate: '2026-01-15' }),
+        expect.objectContaining({ dueDate: '2026-01-29' }),
+        expect.objectContaining({ dueDate: '2026-02-12' }),
+      ]);
+    });
+
+    it('sets totalInstallments from the installmentAmounts array length', async () => {
+      await service.create(createDto);
+
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ totalInstallments: 3 }),
+      );
+    });
+
+    it('rejects a duplicate promissory note number', async () => {
+      loansRepository.findOne.mockResolvedValue(mockLoan);
+
+      await expect(service.create(createDto)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(loansRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects when installment amounts do not sum to the principal amount', async () => {
+      await expect(
+        service.create({ ...createDto, installmentAmounts: [100000, 100000] }),
+      ).rejects.toThrow(BadRequestException);
+      expect(loansRepository.save).not.toHaveBeenCalled();
+    });
   });
 
   describe('findOne', () => {
