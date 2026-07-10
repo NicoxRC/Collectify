@@ -109,7 +109,10 @@ The following were open questions in an earlier version of this glossary, now re
 ## Still open — pending client confirmation
 
 - [ ] The exact rule governing `interest_rate` assignment or changes over time
-- [ ] What happens to a refinanced loan's remaining unpaid installments
+
+## Resolved from Phase 6
+
+- ~~What happens to a refinanced loan's remaining unpaid installments~~ → Confirmed: they're marked with a distinct `cancelled` status — excluded from active mora/reminder processing, but kept in the database as historical record. See `DATABASE.md` "Refinancing".
 
 ## Related documents
 
