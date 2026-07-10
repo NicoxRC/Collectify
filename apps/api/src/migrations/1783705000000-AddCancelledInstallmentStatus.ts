@@ -14,6 +14,12 @@ export class AddCancelledInstallmentStatus1783705000000 implements MigrationInte
   public async down(queryRunner: QueryRunner): Promise<void> {
     // Postgres has no direct "DROP VALUE" for enums — rebuild the type
     // without 'cancelled'. Any row still using it must be reverted first.
+    // The column's DEFAULT 'pending' is cast to the enum type, so it must
+    // be dropped before the type itself can be — otherwise Postgres
+    // refuses with "default value ... depends on type" (2BP01).
+    await queryRunner.query(
+      `ALTER TABLE "installments" ALTER COLUMN "status" DROP DEFAULT`,
+    );
     await queryRunner.query(
       `ALTER TABLE "installments" ALTER COLUMN "status" TYPE varchar`,
     );
