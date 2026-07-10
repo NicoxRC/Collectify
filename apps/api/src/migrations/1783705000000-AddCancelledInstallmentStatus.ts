@@ -4,9 +4,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 // to mark its remaining pending installments as excluded from active
 // collection while keeping them as historical record. See "Refinancing" in
 // docs/DATABASE.md.
-export class AddCancelledInstallmentStatus1783705000000
-  implements MigrationInterface
-{
+export class AddCancelledInstallmentStatus1783705000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
       `ALTER TYPE "installments_status_enum" ADD VALUE 'cancelled'`,
