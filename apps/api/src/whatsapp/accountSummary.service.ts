@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -14,18 +13,23 @@ import {
 } from '../loans/entities/installment.entity';
 import { LoanStatus } from '../loans/entities/loan.entity';
 import { enrichInstallment } from '../loans/installments/enrichInstallment';
+import { calculateDaysUntilDue } from '../loans/installments/installmentCalculations';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
-import { MessageType } from './messageType.enum';
-import { renderOverdueReminderMessage } from './messageRenderer';
+import { renderAccountSummaryMessage } from './messageRenderer';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
+import { MessageType } from './messageType.enum';
 import { WhatsAppService } from './whatsapp.service';
 
+// On-demand only, no cron — a full account statement is something the
+// admin sends when a client asks for their status, not a scheduled push.
+// Lists every pending installment (overdue or not) across all of a
+// client's active loans, ending in a grand total — the combined "list all
+// active pagarés" + "total across all credits" message. See
+// docs/phases/PHASE_9_MESSAGE_TYPES.md for why these were combined.
 @Injectable()
-export class OverdueReminderService {
-  private readonly logger = new Logger(OverdueReminderService.name);
-
+export class AccountSummaryService {
   constructor(
     @InjectRepository(Client)
     private readonly clientsRepository: Repository<Client>,
@@ -39,49 +43,26 @@ export class OverdueReminderService {
     private readonly whatsAppService: WhatsAppService,
   ) {}
 
-  // Weekly job entry point — one client at a time, so one client's failure
-  // doesn't stop the rest from being reminded.
-  async runWeeklyReminder(): Promise<void> {
-    const clientIds = await this.findClientIdsWithOverdueInstallments();
-    this.logger.log(
-      `Weekly overdue reminder: ${clientIds.length} client(s) to notify`,
-    );
-
-    for (const clientId of clientIds) {
-      try {
-        await this.sendReminderForClient(clientId);
-      } catch (error) {
-        this.logger.error(
-          `Failed to send overdue reminder to client ${clientId}`,
-          error,
-        );
-      }
-    }
-  }
-
-  // Gathers every overdue installment across ALL of a client's active
-  // loans, renders one consolidated message, sends it, and logs it —
-  // per the grouping rule in docs/phases/PHASE_5_WHATSAPP.md.
-  async sendReminderForClient(clientId: string): Promise<MessageLog> {
+  async sendAccountSummary(clientId: string): Promise<MessageLog> {
     const client = await this.clientsRepository.findOneBy({ id: clientId });
     if (!client) {
       throw new NotFoundException(`Client with id ${clientId} not found`);
     }
 
-    const overdueInstallments = await this.gatherOverdueInstallments(clientId);
-    if (overdueInstallments.length === 0) {
+    const pendingInstallments = await this.gatherPendingInstallments(clientId);
+    if (pendingInstallments.length === 0) {
       throw new BadRequestException(
-        `Client ${clientId} has no overdue installments across their active loans`,
+        `Client ${clientId} has no pending installments across their active loans`,
       );
     }
 
     const template = await this.messageTemplatesService.findActiveOrThrow(
-      MessageType.Overdue,
+      MessageType.AccountSummary,
     );
-    const messageContent = renderOverdueReminderMessage(
+    const messageContent = renderAccountSummaryMessage(
       template.content,
       `${client.firstName} ${client.lastName}`,
-      overdueInstallments,
+      pendingInstallments,
     );
 
     const sent = await this.whatsAppService.sendTextMessage(
@@ -91,7 +72,7 @@ export class OverdueReminderService {
 
     const messageLog = this.messageLogsRepository.create({
       clientId,
-      type: MessageType.Overdue,
+      type: MessageType.AccountSummary,
       phoneNumber: client.phoneNumber,
       messageContent,
       status: sent ? MessageLogStatus.Sent : MessageLogStatus.Failed,
@@ -99,7 +80,7 @@ export class OverdueReminderService {
     });
     const savedLog = await this.messageLogsRepository.save(messageLog);
 
-    const items = overdueInstallments.map((installment) =>
+    const items = pendingInstallments.map((installment) =>
       this.messageLogItemsRepository.create({
         messageLogId: savedLog.id,
         installmentId: installment.id,
@@ -112,9 +93,7 @@ export class OverdueReminderService {
     return savedLog;
   }
 
-  private async gatherOverdueInstallments(clientId: string) {
-    const today = new Date().toISOString().slice(0, 10);
-
+  private async gatherPendingInstallments(clientId: string) {
     const installments = await this.installmentsRepository
       .createQueryBuilder('installment')
       .innerJoinAndSelect('installment.loan', 'loan')
@@ -123,30 +102,19 @@ export class OverdueReminderService {
       .andWhere('installment.status = :installmentStatus', {
         installmentStatus: InstallmentStatus.Pending,
       })
-      .andWhere('installment.dueDate < :today', { today })
       .orderBy('installment.dueDate', 'ASC')
       .getMany();
 
-    return installments.map((installment) => ({
-      ...enrichInstallment(installment, installment.loan.interestRate),
-      promissoryNoteNumber: installment.loan.promissoryNoteNumber,
-    }));
-  }
-
-  private async findClientIdsWithOverdueInstallments(): Promise<string[]> {
-    const today = new Date().toISOString().slice(0, 10);
-
-    const rows = await this.installmentsRepository
-      .createQueryBuilder('installment')
-      .innerJoin('installment.loan', 'loan')
-      .select('DISTINCT loan.client_id', 'clientId')
-      .where('loan.status = :loanStatus', { loanStatus: LoanStatus.Active })
-      .andWhere('installment.status = :installmentStatus', {
-        installmentStatus: InstallmentStatus.Pending,
-      })
-      .andWhere('installment.dueDate < :today', { today })
-      .getRawMany<{ clientId: string }>();
-
-    return rows.map((row) => row.clientId);
+    return installments.map((installment) => {
+      const enriched = enrichInstallment(
+        installment,
+        installment.loan.interestRate,
+      );
+      return {
+        ...enriched,
+        promissoryNoteNumber: installment.loan.promissoryNoteNumber,
+        daysUntilDue: calculateDaysUntilDue(new Date(installment.dueDate)),
+      };
+    });
   }
 }

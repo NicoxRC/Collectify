@@ -7,6 +7,8 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+import { MessageType } from '../messageType.enum';
+
 @Entity('message_templates')
 export class MessageTemplate {
   @PrimaryGeneratedColumn('uuid')
@@ -14,6 +16,9 @@ export class MessageTemplate {
 
   @Column()
   name!: string;
+
+  @Column({ type: 'enum', enum: MessageType })
+  type!: MessageType;
 
   @Column({ type: 'text' })
   content!: string;

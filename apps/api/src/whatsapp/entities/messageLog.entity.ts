@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 
 import { Client } from '../../clients/entities/client.entity';
+import { MessageType } from '../messageType.enum';
 
 export enum MessageLogStatus {
   Sent = 'sent',
@@ -29,6 +30,9 @@ export class MessageLog {
   @ManyToOne(() => Client, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'client_id' })
   client!: Client;
+
+  @Column({ type: 'enum', enum: MessageType })
+  type!: MessageType;
 
   @Column()
   phoneNumber!: string;

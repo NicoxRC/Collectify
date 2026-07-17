@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import { AccountSummaryService } from './accountSummary.service';
 import { Client } from '../clients/entities/client.entity';
 import {
   Installment,
@@ -15,12 +16,12 @@ import {
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
-import { OverdueReminderService } from './overdueReminder.service';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
+import { MessageType } from './messageType.enum';
 import { WhatsAppService } from './whatsapp.service';
 
-describe('OverdueReminderService', () => {
-  let service: OverdueReminderService;
+describe('AccountSummaryService', () => {
+  let service: AccountSummaryService;
   let clientsRepository: { findOneBy: jest.Mock };
   let installmentsRepository: { createQueryBuilder: jest.Mock };
   let messageLogsRepository: { create: jest.Mock; save: jest.Mock };
@@ -29,13 +30,10 @@ describe('OverdueReminderService', () => {
   let whatsAppService: { sendTextMessage: jest.Mock };
   let queryBuilder: {
     innerJoinAndSelect: jest.Mock;
-    innerJoin: jest.Mock;
-    select: jest.Mock;
     where: jest.Mock;
     andWhere: jest.Mock;
     orderBy: jest.Mock;
     getMany: jest.Mock;
-    getRawMany: jest.Mock;
   };
 
   const mockClient: Client = {
@@ -53,7 +51,7 @@ describe('OverdueReminderService', () => {
     id: 'loan-1',
     clientId: mockClient.id,
     client: undefined as never,
-    promissoryNoteNumber: '#743',
+    promissoryNoteNumber: '743',
     principalAmount: 900000,
     interestRate: 6,
     disbursedAt: '2024-01-01',
@@ -68,7 +66,7 @@ describe('OverdueReminderService', () => {
     deletedAt: null,
   };
 
-  function overdueInstallment(
+  function pendingInstallment(
     overrides: Partial<Installment> = {},
   ): Installment {
     return {
@@ -76,8 +74,8 @@ describe('OverdueReminderService', () => {
       loanId: mockLoan.id,
       loan: mockLoan,
       installmentNumber: 1,
-      amount: 210000,
-      dueDate: '2024-01-01',
+      amount: 300000,
+      dueDate: '2099-01-01', // far future by default — not overdue
       status: InstallmentStatus.Pending,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -89,13 +87,10 @@ describe('OverdueReminderService', () => {
   beforeEach(async () => {
     queryBuilder = {
       innerJoinAndSelect: jest.fn().mockReturnThis(),
-      innerJoin: jest.fn().mockReturnThis(),
-      select: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
       getMany: jest.fn(),
-      getRawMany: jest.fn(),
     };
     clientsRepository = { findOneBy: jest.fn() };
     installmentsRepository = {
@@ -116,7 +111,7 @@ describe('OverdueReminderService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        OverdueReminderService,
+        AccountSummaryService,
         { provide: getRepositoryToken(Client), useValue: clientsRepository },
         {
           provide: getRepositoryToken(Installment),
@@ -135,10 +130,10 @@ describe('OverdueReminderService', () => {
       ],
     }).compile();
 
-    service = module.get<OverdueReminderService>(OverdueReminderService);
+    service = module.get<AccountSummaryService>(AccountSummaryService);
   });
 
-  describe('sendReminderForClient', () => {
+  describe('sendAccountSummary', () => {
     beforeEach(() => {
       clientsRepository.findOneBy.mockResolvedValue(mockClient);
       messageTemplatesService.findActiveOrThrow.mockResolvedValue({
@@ -147,110 +142,61 @@ describe('OverdueReminderService', () => {
       });
     });
 
-    it('gathers overdue installments across multiple loans into one message', async () => {
-      const otherLoan: Loan = {
-        ...mockLoan,
-        id: 'loan-2',
-        promissoryNoteNumber: '#959',
-      };
+    it('includes both overdue and not-yet-due installments in one message', async () => {
       queryBuilder.getMany.mockResolvedValue([
-        overdueInstallment({
-          id: 'inst-1',
-          loan: mockLoan,
-          dueDate: '2024-01-01',
+        pendingInstallment({
+          id: 'inst-overdue',
+          dueDate: '2020-01-01', // far past — overdue
         }),
-        overdueInstallment({
-          id: 'inst-2',
-          loan: otherLoan,
-          dueDate: '2024-02-01',
+        pendingInstallment({
+          id: 'inst-future',
+          installmentNumber: 2,
+          dueDate: '2099-01-01', // far future — not overdue
         }),
       ]);
       whatsAppService.sendTextMessage.mockResolvedValue(true);
 
-      const result = await service.sendReminderForClient(mockClient.id);
+      const result = await service.sendAccountSummary(mockClient.id);
 
-      expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
-        mockClient.phoneNumber,
-        expect.stringContaining('#743'),
+      expect(messageTemplatesService.findActiveOrThrow).toHaveBeenCalledWith(
+        MessageType.AccountSummary,
       );
       expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
         mockClient.phoneNumber,
-        expect.stringContaining('#959'),
+        expect.stringContaining('venció hace'),
+      );
+      expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
+        mockClient.phoneNumber,
+        expect.stringContaining('vence en'),
       );
       expect(messageLogsRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({
+          type: MessageType.AccountSummary,
           status: MessageLogStatus.Sent,
-          clientId: mockClient.id,
         }),
       );
       expect(messageLogItemsRepository.save).toHaveBeenCalledWith([
-        expect.objectContaining({
-          messageLogId: 'log-1',
-          installmentId: 'inst-1',
-        }),
-        expect.objectContaining({
-          messageLogId: 'log-1',
-          installmentId: 'inst-2',
-        }),
+        expect.objectContaining({ installmentId: 'inst-overdue' }),
+        expect.objectContaining({ installmentId: 'inst-future' }),
       ]);
       expect(result.status).toBe(MessageLogStatus.Sent);
-    });
-
-    it('logs the message as failed when WhatsAppService could not send it', async () => {
-      queryBuilder.getMany.mockResolvedValue([overdueInstallment()]);
-      whatsAppService.sendTextMessage.mockResolvedValue(false);
-
-      const result = await service.sendReminderForClient(mockClient.id);
-
-      expect(result.status).toBe(MessageLogStatus.Failed);
     });
 
     it('throws NotFoundException when the client does not exist', async () => {
       clientsRepository.findOneBy.mockResolvedValue(null);
 
-      await expect(service.sendReminderForClient('missing-id')).rejects.toThrow(
+      await expect(service.sendAccountSummary('missing-id')).rejects.toThrow(
         NotFoundException,
       );
     });
 
-    it('throws BadRequestException when the client has no overdue installments', async () => {
+    it('throws BadRequestException when the client has no pending installments', async () => {
       queryBuilder.getMany.mockResolvedValue([]);
 
-      await expect(
-        service.sendReminderForClient(mockClient.id),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.sendAccountSummary(mockClient.id)).rejects.toThrow(
+        BadRequestException,
+      );
       expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('runWeeklyReminder', () => {
-    it('sends a reminder for every client with overdue installments', async () => {
-      queryBuilder.getRawMany.mockResolvedValue([
-        { clientId: 'client-1' },
-        { clientId: 'client-2' },
-      ]);
-      const sendSpy = jest
-        .spyOn(service, 'sendReminderForClient')
-        .mockResolvedValue({} as MessageLog);
-
-      await service.runWeeklyReminder();
-
-      expect(sendSpy).toHaveBeenCalledWith('client-1');
-      expect(sendSpy).toHaveBeenCalledWith('client-2');
-    });
-
-    it('continues with the next client when one fails', async () => {
-      queryBuilder.getRawMany.mockResolvedValue([
-        { clientId: 'client-1' },
-        { clientId: 'client-2' },
-      ]);
-      const sendSpy = jest
-        .spyOn(service, 'sendReminderForClient')
-        .mockRejectedValueOnce(new Error('boom'))
-        .mockResolvedValueOnce({} as MessageLog);
-
-      await expect(service.runWeeklyReminder()).resolves.toBeUndefined();
-      expect(sendSpy).toHaveBeenCalledTimes(2);
     });
   });
 });

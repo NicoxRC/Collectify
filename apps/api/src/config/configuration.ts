@@ -26,6 +26,8 @@ export interface WhatsappConfig {
 
 export interface CronConfig {
   overdueReminderExpression: string;
+  upcomingDueReminderExpression: string;
+  upcomingDueReminderDays: number[];
 }
 
 export interface Configuration {
@@ -61,5 +63,10 @@ export default (): Configuration => ({
   },
   cron: {
     overdueReminderExpression: process.env.OVERDUE_REMINDER_CRON ?? '0 9 * * 1',
+    upcomingDueReminderExpression:
+      process.env.UPCOMING_DUE_REMINDER_CRON ?? '0 8 * * *',
+    upcomingDueReminderDays: (process.env.UPCOMING_DUE_REMINDER_DAYS ?? '5,3,1')
+      .split(',')
+      .map((value) => parseInt(value.trim(), 10)),
   },
 });

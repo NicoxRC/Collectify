@@ -70,8 +70,17 @@ Example structure (from a real message, translated structurally):
 The amount due today is $[grand total]
 ```
 
+### New loan message / Mensaje de primera vez
+Sent once, automatically, when a pagaré is created (or when a refinance creates a new one) — confirms the pagaré number, concept, effective date, and installment terms to the client. Unlike the overdue reminder, this is per-loan, not consolidated across a client's other loans, since it's announcing one specific new obligation. Added in Phase 9 — see `docs/phases/PHASE_9_MESSAGE_TYPES.md`.
+
+### Upcoming due reminder / Aviso
+The automated WhatsApp message sent as an installment approaches its due date, at a configurable set of day thresholds (default 5, 3, and 1 days before). Like the overdue reminder, it's consolidated **by client** across all their active loans. Unlike the overdue reminder, it has no grand total line (confirmed from the real "Aviso" message example) and doesn't include mora interest, since the installment isn't overdue yet. Added in Phase 9.
+
+### Account summary / Estado de cuenta
+An on-demand (not scheduled) WhatsApp message listing **every pending installment** for a client — both overdue and not-yet-due — across all their active loans, with a grand total. This is the "full statement" version of the overdue reminder: the overdue reminder only ever includes installments already in mora, while the account summary includes everything still owed. Added in Phase 9.
+
 ### Message template / Plantilla de mensaje
-The editable pattern used to generate an overdue reminder. Because the real message includes a **list** of installments (not just one value), the template needs to support a repeating block plus a grand total — see `DATABASE.md` for the exact placeholder structure.
+The editable pattern used to generate a message. As of Phase 9, there is one admin-editable template **per message type** (`new_loan`, `upcoming_due`, `overdue`, `account_summary`), not a single global template — "only one active template" now means "only one active template per type." Because most of these messages include a **list** of installments (not just one value), the template needs to support a repeating block plus, for `overdue` and `account_summary`, a grand total — see `DATABASE.md` for the exact placeholder structure per type.
 
 ### Message log
 A historical record of a reminder actually sent to a client — one row per client per week it was sent, **not** one row per installment. In code: `MessageLog` entity, `message_logs` table.

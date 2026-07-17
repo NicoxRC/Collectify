@@ -77,6 +77,17 @@ The core of the business domain — see `DATABASE.md` and `GLOSSARY.md` for the 
 - User management UI (creating/deactivating collector accounts)
 - Any UI/UX refinement based on real usage feedback from the client
 
+## Phase 9 — Additional WhatsApp message types
+
+Phase 5 only covered the weekly overdue reminder. Real usage requires three more message types, confirmed against real WhatsApp examples the client shared: a one-time "new loan" confirmation, a pre-due-date reminder ("Aviso", at 5/3/1 days before), and an on-demand full account summary across all of a client's active pagarés. See `docs/phases/PHASE_9_MESSAGE_TYPES.md` for full scope and the judgment calls made.
+
+- `MessageTemplate`/`MessageLog` gain a `type` field — one admin-editable template per message type instead of a single global one
+- New-loan message sent synchronously at loan creation/refinance
+- Daily cron for the upcoming-due reminder, consolidated by client
+- On-demand endpoint for the account summary message
+
+**Exit criteria:** all four message types (including the existing overdue reminder) are admin-configurable via templates and produce output matching the real formats the client shared.
+
 ---
 
 ## Explicitly out of scope for now

@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { MessageTemplate } from '../entities/messageTemplate.entity';
+import { MessageType } from '../messageType.enum';
 
 import { MessageTemplatesService } from './messageTemplates.service';
 
@@ -25,6 +26,7 @@ describe('MessageTemplatesService', () => {
   const mockTemplate: MessageTemplate = {
     id: 'template-1',
     name: 'Weekly reminder',
+    type: MessageType.Overdue,
     content: 'Hola {{clientFullName}}',
     isActive: false,
     createdAt: new Date(),
@@ -72,6 +74,7 @@ describe('MessageTemplatesService', () => {
 
       await service.create({
         name: mockTemplate.name,
+        type: mockTemplate.type,
         content: mockTemplate.content,
       });
 
@@ -92,29 +95,32 @@ describe('MessageTemplatesService', () => {
   });
 
   describe('findActiveOrThrow', () => {
-    it('returns the active template', async () => {
+    it('returns the active template for the given type', async () => {
       repository.findOneBy.mockResolvedValue({
         ...mockTemplate,
         isActive: true,
       });
 
-      const result = await service.findActiveOrThrow();
+      const result = await service.findActiveOrThrow(MessageType.Overdue);
 
       expect(result.isActive).toBe(true);
-      expect(repository.findOneBy).toHaveBeenCalledWith({ isActive: true });
+      expect(repository.findOneBy).toHaveBeenCalledWith({
+        type: MessageType.Overdue,
+        isActive: true,
+      });
     });
 
-    it('throws NotFoundException when no template is active', async () => {
+    it('throws NotFoundException when no template of that type is active', async () => {
       repository.findOneBy.mockResolvedValue(null);
 
-      await expect(service.findActiveOrThrow()).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.findActiveOrThrow(MessageType.NewLoan),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('activate', () => {
-    it('deactivates every other template before activating the given one', async () => {
+    it('deactivates other templates of the same type before activating the given one', async () => {
       repository.findOneBy
         .mockResolvedValueOnce(mockTemplate) // existence check
         .mockResolvedValueOnce({ ...mockTemplate, isActive: true }); // final findOne
@@ -122,8 +128,11 @@ describe('MessageTemplatesService', () => {
       await service.activate(mockTemplate.id);
 
       expect(queryBuilder.set).toHaveBeenNthCalledWith(1, { isActive: false });
+      expect(queryBuilder.where).toHaveBeenNthCalledWith(1, 'type = :type', {
+        type: mockTemplate.type,
+      });
       expect(queryBuilder.set).toHaveBeenNthCalledWith(2, { isActive: true });
-      expect(queryBuilder.where).toHaveBeenCalledWith('id = :id', {
+      expect(queryBuilder.where).toHaveBeenNthCalledWith(2, 'id = :id', {
         id: mockTemplate.id,
       });
     });

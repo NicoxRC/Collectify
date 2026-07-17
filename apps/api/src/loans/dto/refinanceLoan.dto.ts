@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ArrayMinSize,
   IsArray,
@@ -6,6 +6,7 @@ import {
   IsEnum,
   IsNotEmpty,
   IsNumber,
+  IsOptional,
   IsPositive,
   IsString,
   Max,
@@ -61,4 +62,13 @@ export class RefinanceLoanDto {
   @ArrayMinSize(1)
   @IsPositive({ each: true })
   installmentAmounts!: number[];
+
+  @ApiPropertyOptional({
+    example: 'Refinanciación del pagaré anterior',
+    description:
+      'Free-text concept/reason for the new loan — used in the "new loan" WhatsApp message, if set.',
+  })
+  @IsOptional()
+  @IsString()
+  description?: string;
 }

@@ -165,6 +165,7 @@ Represents a *pagaré* — see `GLOSSARY.md`.
 | `total_installments` | INT | total number of installments the loan is divided into (`CUOTAS`) |
 | `status` | ENUM (`active`, `paid`, `refinanced`) | see `GLOSSARY.md` — **no `overdue` status at the loan level**, since overdue is an installment-level concept (see below) |
 | `refinanced_from_loan_id` | UUID, nullable | self-referencing FK → `loans.id`. Set when this loan was created to replace an older one. See "Refinancing" below. |
+| `description` | TEXT, nullable | free-text concept/reason for the loan (e.g. "Compra de Apple MacBook Air M5..."), used by the "new loan" WhatsApp message — see `docs/phases/PHASE_9_MESSAGE_TYPES.md`. Optional, same precedent as `payments.observation`. |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
 **On `interest_rate`:** confirmed from real data that the rate is **not** automatically tiered by amount, despite an informal rule mentioned by the client ("6% under 1 million, 5% over"). Actual historical data shows loans of the same amount range with rates of 4%, 5%, and 6%. The safest interpretation — **pending final confirmation with the client** — is that the rate is set manually per loan at creation time, defaulting to whatever the current standard rate is, but editable. Do not hardcode an automatic tiering rule based on this early analysis.
@@ -216,11 +217,14 @@ This matches the manual calculations found across both source spreadsheets — v
 |---|---|---|
 | `id` | UUID | PK |
 | `name` | VARCHAR | |
+| `type` | ENUM (`new_loan`, `upcoming_due`, `overdue`, `account_summary`) | which message flow this template renders — see `docs/phases/PHASE_9_MESSAGE_TYPES.md` |
 | `content` | TEXT | supports placeholders — see below |
-| `is_active` | BOOLEAN | only one active at a time |
+| `is_active` | BOOLEAN | only one active **per `type`** at a time (not global — changed in Phase 9) |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
-**Template placeholders**, based on the real message format shared by the client:
+**Template placeholders** — the per-installment line format is fixed per message type (matches the confirmed real message formats); only the outer template (greeting, where the list/total go) is admin-editable via `content`.
+
+`overdue` (real message format shared by the client):
 
 ```
 {{clientFullName}}
@@ -230,16 +234,39 @@ This matches the manual calculations found across both source spreadsheets — v
 {{grandTotal}}          -- sum of totalDueForInstallment across all included installments
 ```
 
-The real message format numbers each overdue installment with an emoji (1️⃣, 2️⃣...) and ends with "El valor a pagar hoy es $X". The template system should support this structure rather than a single flat message — see `ARCHITECTURE.md` for how the `whatsapp` module renders this.
+The real message format numbers each overdue installment with an emoji (1️⃣, 2️⃣...) and ends with "El valor a pagar hoy es $X". See `ARCHITECTURE.md` for how the `whatsapp` module renders this.
+
+`new_loan` (sent once, at loan creation — see Phase 9):
+
+```
+{{clientFullName}} {{promissoryNoteNumber}} {{loanDescription}}
+{{disbursedAt}} {{totalInstallments}} {{installmentsSummary}}
+```
+
+`upcoming_due` (sent as an installment approaches its due date — see Phase 9; same list structure as `overdue` but "vence en N días" instead of "venció hace N días", and **no grand total** — not present in the real "Aviso" example):
+
+```
+{{clientFullName}}
+{{installmentsList}}   -- one line per upcoming installment
+```
+
+`account_summary` (on-demand full statement — see Phase 9; every pending installment, overdue or not, ending in a grand total):
+
+```
+{{clientFullName}}
+{{installmentsList}}
+{{grandTotal}}
+```
 
 ### `message_logs`
 
-One row per weekly reminder **actually sent to a client** — not per installment.
+One row per reminder **actually sent to a client** — not per installment.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID | PK |
 | `client_id` | UUID | FK → `clients.id` |
+| `type` | ENUM (`new_loan`, `upcoming_due`, `overdue`, `account_summary`) | which message flow produced this log — added in Phase 9; historical rows backfilled to `overdue` |
 | `phone_number` | VARCHAR | snapshot at send time |
 | `message_content` | TEXT | the full rendered message, exactly as sent (all installments included, formatted) |
 | `status` | ENUM (`sent`, `failed`) | |
@@ -260,6 +287,8 @@ Bridges a `message_log` to the specific installments it covered — since one me
 | `created_at` | TIMESTAMPTZ | append-only |
 
 This table is what lets us reconstruct "what exactly did we tell this client on this date" without recalculating from current data — important since overdue days and interest change every day, but the message sent is historical fact.
+
+Reused as-is across all message types added in Phase 9, not extended: for an installment that isn't overdue (a `new_loan` or not-yet-due `upcoming_due`/`account_summary` line), `overdue_days_snapshot` and `interest_snapshot` are legitimately `0` — `enrichInstallment()` already returns `0` for both in that case, this isn't a special case. "Days until due" for `upcoming_due` is not stored as a separate column; it's preserved as text in `message_logs.message_content`.
 
 ## Refinancing
 
@@ -301,6 +330,11 @@ npm run migration:revert
 ## Resolved from Phase 6
 
 - ~~What happens to remaining installments of a loan once it's refinanced~~ → Confirmed: they're marked `cancelled` — excluded from active overdue/reminder processing, kept as historical record. See "Refinancing" above.
+
+## Added in Phase 9
+
+- `message_templates.type` and `message_logs.type` — the system now supports four message types (`new_loan`, `upcoming_due`, `overdue`, `account_summary`), each with its own admin-editable template, instead of a single global template. See `docs/phases/PHASE_9_MESSAGE_TYPES.md` for the full scope and the judgment calls made (e.g. why "list all active pagarés" and "total across all credits" were combined into one `account_summary` message instead of two).
+- `loans.description` — free-text field supporting the `new_loan` message's "por concepto de X" line.
 
 ## Related documents
 

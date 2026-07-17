@@ -34,6 +34,9 @@ export class MessageLogsService {
         clientId: query.clientId,
       });
     }
+    if (query.type) {
+      qb.andWhere('messageLog.type = :type', { type: query.type });
+    }
     if (query.status) {
       qb.andWhere('messageLog.status = :status', { status: query.status });
     }

@@ -71,6 +71,9 @@ export class Loan {
   @Column({ nullable: true })
   refinancedFromLoanId!: string | null;
 
+  @Column({ type: 'text', nullable: true })
+  description!: string | null;
+
   @ManyToOne(() => Loan, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'refinanced_from_loan_id' })
   refinancedFromLoan!: Loan | null;

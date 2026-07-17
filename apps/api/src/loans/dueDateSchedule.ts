@@ -46,3 +46,14 @@ export function addWeeksToDateString(
   const { year, month, day } = parseDateString(dateString);
   return toDateString(year, month, day + weeks * 7);
 }
+
+export function addDaysToDateString(dateString: string, days: number): string {
+  const { year, month, day } = parseDateString(dateString);
+  return toDateString(year, month, day + days);
+}
+
+// UTC-midnight 'YYYY-MM-DD' for "today" — matches how 'date' columns are
+// parsed, so comparisons against dueDate stay timezone-proof.
+export function todayDateString(): string {
+  return new Date().toISOString().slice(0, 10);
+}

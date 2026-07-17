@@ -9,6 +9,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Installment, InstallmentStatus } from './entities/installment.entity';
 import { InstallmentFrequency, Loan, LoanStatus } from './entities/loan.entity';
 import { LoansService } from './loans.service';
+import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 
 describe('LoansService', () => {
   let service: LoansService;
@@ -25,6 +26,7 @@ describe('LoansService', () => {
     save: jest.Mock;
     update: jest.Mock;
   };
+  let newLoanReminderService: { sendNewLoanMessage: jest.Mock };
   let queryBuilder: {
     orderBy: jest.Mock;
     skip: jest.Mock;
@@ -46,6 +48,7 @@ describe('LoansService', () => {
     status: LoanStatus.Active,
     refinancedFromLoanId: null,
     refinancedFromLoan: null,
+    description: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -72,6 +75,9 @@ describe('LoansService', () => {
       save: jest.fn(),
       update: jest.fn(),
     };
+    newLoanReminderService = {
+      sendNewLoanMessage: jest.fn().mockResolvedValue(undefined),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -80,6 +86,10 @@ describe('LoansService', () => {
         {
           provide: getRepositoryToken(Installment),
           useValue: installmentsRepository,
+        },
+        {
+          provide: NewLoanReminderService,
+          useValue: newLoanReminderService,
         },
       ],
     }).compile();
@@ -166,6 +176,24 @@ describe('LoansService', () => {
       ).rejects.toThrow(BadRequestException);
       expect(loansRepository.save).not.toHaveBeenCalled();
     });
+
+    it('sends the new-loan WhatsApp message for the created loan', async () => {
+      await service.create(createDto);
+
+      expect(newLoanReminderService.sendNewLoanMessage).toHaveBeenCalledWith(
+        'loan-2',
+      );
+    });
+
+    it('still returns the created loan when the new-loan message fails to send', async () => {
+      newLoanReminderService.sendNewLoanMessage.mockRejectedValue(
+        new Error('WhatsApp is down'),
+      );
+
+      const result = await service.create(createDto);
+
+      expect(result.id).toBe('loan-2');
+    });
   });
 
   describe('refinance', () => {
@@ -226,6 +254,14 @@ describe('LoansService', () => {
         expect.objectContaining({ installmentNumber: 1, amount: 300000 }),
         expect.objectContaining({ installmentNumber: 2, amount: 300000 }),
       ]);
+    });
+
+    it('sends the new-loan WhatsApp message for the new loan', async () => {
+      await service.refinance(mockLoan.id, refinanceDto);
+
+      expect(newLoanReminderService.sendNewLoanMessage).toHaveBeenCalledWith(
+        'loan-2',
+      );
     });
 
     it('rejects refinancing an already-paid loan', async () => {

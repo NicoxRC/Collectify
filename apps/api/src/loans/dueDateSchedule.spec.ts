@@ -1,4 +1,8 @@
-import { addMonthsToDateString, addWeeksToDateString } from './dueDateSchedule';
+import {
+  addDaysToDateString,
+  addMonthsToDateString,
+  addWeeksToDateString,
+} from './dueDateSchedule';
 
 describe('dueDateSchedule', () => {
   describe('addMonthsToDateString', () => {
@@ -32,6 +36,16 @@ describe('dueDateSchedule', () => {
 
     it('rolls over across a month boundary', () => {
       expect(addWeeksToDateString('2026-01-01', 6)).toBe('2026-02-12');
+    });
+  });
+
+  describe('addDaysToDateString', () => {
+    it('advances by the given number of days', () => {
+      expect(addDaysToDateString('2026-01-01', 5)).toBe('2026-01-06');
+    });
+
+    it('rolls over across a month boundary', () => {
+      expect(addDaysToDateString('2026-01-30', 3)).toBe('2026-02-02');
     });
   });
 });

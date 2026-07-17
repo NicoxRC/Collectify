@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { MessageTemplate } from '../entities/messageTemplate.entity';
+import { MessageType } from '../messageType.enum';
 
 import { CreateMessageTemplateDto } from './dto/createMessageTemplate.dto';
 import { UpdateMessageTemplateDto } from './dto/updateMessageTemplate.dto';
@@ -28,12 +29,17 @@ export class MessageTemplatesService {
     return template;
   }
 
-  async findActiveOrThrow(): Promise<MessageTemplate> {
+  // Each message flow (new_loan, upcoming_due, overdue, account_summary)
+  // has its own active template — see docs/phases/PHASE_9_MESSAGE_TYPES.md.
+  async findActiveOrThrow(type: MessageType): Promise<MessageTemplate> {
     const active = await this.messageTemplatesRepository.findOneBy({
+      type,
       isActive: true,
     });
     if (!active) {
-      throw new NotFoundException('No active message template is configured');
+      throw new NotFoundException(
+        `No active message template is configured for type '${type}'`,
+      );
     }
     return active;
   }
@@ -55,8 +61,10 @@ export class MessageTemplatesService {
     return this.messageTemplatesRepository.save(template);
   }
 
+  // "Only one active template" is scoped per type — activating a new_loan
+  // template must not deactivate the currently active overdue template.
   async activate(id: string): Promise<MessageTemplate> {
-    await this.findOne(id);
+    const target = await this.findOne(id);
 
     await this.messageTemplatesRepository.manager.transaction(
       async (manager) => {
@@ -64,6 +72,7 @@ export class MessageTemplatesService {
           .createQueryBuilder()
           .update(MessageTemplate)
           .set({ isActive: false })
+          .where('type = :type', { type: target.type })
           .execute();
         await manager
           .createQueryBuilder()
