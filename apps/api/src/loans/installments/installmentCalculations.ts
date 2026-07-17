@@ -16,6 +16,17 @@ export function calculateOverdueDays(
   return today > dueDate ? differenceInDays(today, dueDate) : 0;
 }
 
+// Symmetric to calculateOverdueDays — 0 once the due date has passed or is
+// today, since "days until due" only means something for a future date.
+// Used by the upcoming-due and account-summary messages, see
+// docs/phases/PHASE_9_MESSAGE_TYPES.md.
+export function calculateDaysUntilDue(
+  dueDate: Date,
+  today: Date = new Date(),
+): number {
+  return dueDate > today ? differenceInDays(dueDate, today) : 0;
+}
+
 export function calculateInterest(
   installmentAmount: number,
   interestRate: number,

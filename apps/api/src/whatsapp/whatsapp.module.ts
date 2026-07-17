@@ -5,6 +5,7 @@ import { Client } from '../clients/entities/client.entity';
 import { Installment } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
 
+import { AccountSummaryService } from './accountSummary.service';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageTemplate } from './entities/messageTemplate.entity';
@@ -15,6 +16,8 @@ import { MessageTemplatesService } from './messageTemplates/messageTemplates.ser
 import { NewLoanReminderService } from './newLoanReminder.service';
 import { OverdueReminderCron } from './overdueReminder.cron';
 import { OverdueReminderService } from './overdueReminder.service';
+import { UpcomingDueReminderCron } from './upcomingDueReminder.cron';
+import { UpcomingDueReminderService } from './upcomingDueReminder.service';
 import { WhatsappController } from './whatsapp.controller';
 import { WhatsAppService } from './whatsapp.service';
 
@@ -41,6 +44,9 @@ import { WhatsAppService } from './whatsapp.service';
     OverdueReminderService,
     OverdueReminderCron,
     NewLoanReminderService,
+    UpcomingDueReminderService,
+    UpcomingDueReminderCron,
+    AccountSummaryService,
   ],
   // LoansService calls NewLoanReminderService synchronously after creating
   // a loan — see docs/phases/PHASE_9_MESSAGE_TYPES.md. WhatsappModule does

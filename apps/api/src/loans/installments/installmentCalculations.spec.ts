@@ -1,6 +1,7 @@
 import { addDays, subDays } from 'date-fns';
 
 import {
+  calculateDaysUntilDue,
   calculateInterest,
   calculateOverdueDays,
   calculateTotalDue,
@@ -34,6 +35,25 @@ describe('installmentCalculations', () => {
       const dueDate = new Date('2024-01-01');
       const today = new Date('2024-01-11T08:00:00Z');
       expect(calculateOverdueDays(dueDate, today)).toBe(10);
+    });
+  });
+
+  describe('calculateDaysUntilDue', () => {
+    it('returns 0 when the due date is today', () => {
+      const dueDate = new Date('2026-01-01');
+      expect(calculateDaysUntilDue(dueDate, dueDate)).toBe(0);
+    });
+
+    it('returns 0 when the due date has already passed', () => {
+      const today = new Date('2026-01-11');
+      const dueDate = subDays(today, 10);
+      expect(calculateDaysUntilDue(dueDate, today)).toBe(0);
+    });
+
+    it('returns the number of days remaining when the due date is in the future', () => {
+      const today = new Date('2026-01-01');
+      const dueDate = addDays(today, 5);
+      expect(calculateDaysUntilDue(dueDate, today)).toBe(5);
     });
   });
 
