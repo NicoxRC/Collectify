@@ -55,7 +55,7 @@ export class MessageTemplatesController {
   @ApiOperation({
     summary: 'Activate a template (admin only)',
     description:
-      'Deactivates every other template — only one can be active at a time.',
+      'Deactivates every other template of the same type — only one template per message type can be active at a time.',
   })
   @ApiResponse({ status: 200, description: 'The template is now active.' })
   @ApiResponse({ status: 404, description: 'Template not found.' })

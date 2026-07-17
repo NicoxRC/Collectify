@@ -17,6 +17,7 @@ import { enrichInstallment } from '../loans/installments/enrichInstallment';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
+import { MessageTemplateType } from './entities/messageTemplate.entity';
 import { renderOverdueReminderMessage } from './messageRenderer';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { WhatsAppService } from './whatsapp.service';
@@ -74,7 +75,9 @@ export class OverdueReminderService {
       );
     }
 
-    const template = await this.messageTemplatesService.findActiveOrThrow();
+    const template = await this.messageTemplatesService.findActiveOrThrow(
+      MessageTemplateType.Overdue,
+    );
     const messageContent = renderOverdueReminderMessage(
       template.content,
       `${client.firstName} ${client.lastName}`,
