@@ -69,6 +69,7 @@ describe('DashboardService', () => {
       status: LoanStatus.Active,
       refinancedFromLoanId: null,
       refinancedFromLoan: null,
+      description: null,
       createdAt: new Date(),
       updatedAt: new Date(),
       deletedAt: null,

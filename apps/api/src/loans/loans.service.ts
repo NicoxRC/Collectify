@@ -41,6 +41,7 @@ interface PersistLoanParams {
   disbursedAt: string;
   installmentFrequency: InstallmentFrequency;
   installmentAmounts: number[];
+  description?: string | null;
   refinancedFromLoanId?: string | null;
 }
 
@@ -62,6 +63,7 @@ export class LoansService {
       disbursedAt: dto.disbursedAt,
       installmentFrequency: dto.installmentFrequency,
       installmentAmounts: dto.installmentAmounts,
+      description: dto.description,
     });
 
     return this.findOne(savedLoan.id);
@@ -95,6 +97,7 @@ export class LoansService {
       disbursedAt: dto.disbursedAt,
       installmentFrequency: dto.installmentFrequency,
       installmentAmounts: dto.installmentAmounts,
+      description: dto.description,
       refinancedFromLoanId: id,
     });
 
@@ -174,6 +177,7 @@ export class LoansService {
       installmentFrequency: params.installmentFrequency,
       totalInstallments: params.installmentAmounts.length,
       status: LoanStatus.Active,
+      description: params.description ?? null,
       refinancedFromLoanId: params.refinancedFromLoanId ?? null,
     });
 
