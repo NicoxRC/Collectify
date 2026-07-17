@@ -2,12 +2,14 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
+import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 
 import { CreateLoanDto } from './dto/createLoan.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
@@ -47,11 +49,14 @@ interface PersistLoanParams {
 
 @Injectable()
 export class LoansService {
+  private readonly logger = new Logger(LoansService.name);
+
   constructor(
     @InjectRepository(Loan)
     private readonly loansRepository: Repository<Loan>,
     @InjectRepository(Installment)
     private readonly installmentsRepository: Repository<Installment>,
+    private readonly newLoanReminderService: NewLoanReminderService,
   ) {}
 
   async create(dto: CreateLoanDto): Promise<LoanDetail> {
@@ -65,6 +70,8 @@ export class LoansService {
       installmentAmounts: dto.installmentAmounts,
       description: dto.description,
     });
+
+    await this.sendNewLoanMessageSafely(savedLoan.id);
 
     return this.findOne(savedLoan.id);
   }
@@ -100,6 +107,8 @@ export class LoansService {
       description: dto.description,
       refinancedFromLoanId: id,
     });
+
+    await this.sendNewLoanMessageSafely(newLoan.id);
 
     return this.findOne(newLoan.id);
   }
@@ -204,6 +213,21 @@ export class LoansService {
     await this.installmentsRepository.save(installments);
 
     return savedLoan;
+  }
+
+  // A failed/skipped "new loan" WhatsApp message must never fail the loan
+  // creation itself — same principle as the rest of the whatsapp module
+  // (messaging failures are a business outcome, logged, not an application
+  // error). See docs/phases/PHASE_9_MESSAGE_TYPES.md.
+  private async sendNewLoanMessageSafely(loanId: string): Promise<void> {
+    try {
+      await this.newLoanReminderService.sendNewLoanMessage(loanId);
+    } catch (error) {
+      this.logger.error(
+        `Failed to send new-loan WhatsApp message for loan ${loanId}`,
+        error,
+      );
+    }
   }
 
   private async findLoanOrThrow(id: string): Promise<Loan> {

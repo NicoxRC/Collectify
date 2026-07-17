@@ -6,9 +6,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 // predate this and were all used for the overdue reminder (the only flow
 // that existed in Phase 5), so they're backfilled to 'overdue'.
 // See docs/phases/PHASE_9_MESSAGE_TYPES.md.
-export class AddTypeToMessageTemplates1784200000000
-  implements MigrationInterface
-{
+export class AddTypeToMessageTemplates1784200000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
       `CREATE TYPE "message_templates_type_enum" AS ENUM ('new_loan', 'upcoming_due', 'overdue', 'account_summary')`,
