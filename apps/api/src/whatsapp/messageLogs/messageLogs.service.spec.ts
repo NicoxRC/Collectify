@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
+import { MessageType } from '../messageType.enum';
 
 import { MessageLogsService } from './messageLogs.service';
 
@@ -20,6 +21,7 @@ describe('MessageLogsService', () => {
     id: 'log-1',
     clientId: 'client-1',
     client: undefined as never,
+    type: MessageType.Overdue,
     phoneNumber: '+573001234567',
     messageContent: 'Hola...',
     status: MessageLogStatus.Sent,
@@ -49,11 +51,12 @@ describe('MessageLogsService', () => {
     service = module.get<MessageLogsService>(MessageLogsService);
   });
 
-  it('returns a paginated page and applies the clientId/status/date filters', async () => {
+  it('returns a paginated page and applies the clientId/type/status/date filters', async () => {
     queryBuilder.getManyAndCount.mockResolvedValue([[mockLog], 1]);
 
     const result = await service.findAll({
       clientId: 'client-1',
+      type: MessageType.Overdue,
       status: MessageLogStatus.Sent,
       dateFrom: '2026-01-01',
       dateTo: '2026-01-31',
@@ -67,6 +70,12 @@ describe('MessageLogsService', () => {
       'messageLog.clientId = :clientId',
       {
         clientId: 'client-1',
+      },
+    );
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+      'messageLog.type = :type',
+      {
+        type: MessageType.Overdue,
       },
     );
     expect(queryBuilder.andWhere).toHaveBeenCalledWith(

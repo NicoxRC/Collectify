@@ -7,12 +7,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-export enum MessageTemplateType {
-  NewLoan = 'new_loan',
-  UpcomingDue = 'upcoming_due',
-  Overdue = 'overdue',
-  AccountSummary = 'account_summary',
-}
+import { MessageType } from '../messageType.enum';
 
 @Entity('message_templates')
 export class MessageTemplate {
@@ -22,8 +17,8 @@ export class MessageTemplate {
   @Column()
   name!: string;
 
-  @Column({ type: 'enum', enum: MessageTemplateType })
-  type!: MessageTemplateType;
+  @Column({ type: 'enum', enum: MessageType })
+  type!: MessageType;
 
   @Column({ type: 'text' })
   content!: string;

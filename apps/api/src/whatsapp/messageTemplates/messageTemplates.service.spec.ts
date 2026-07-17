@@ -2,10 +2,8 @@ import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
-import {
-  MessageTemplate,
-  MessageTemplateType,
-} from '../entities/messageTemplate.entity';
+import { MessageTemplate } from '../entities/messageTemplate.entity';
+import { MessageType } from '../messageType.enum';
 
 import { MessageTemplatesService } from './messageTemplates.service';
 
@@ -28,7 +26,7 @@ describe('MessageTemplatesService', () => {
   const mockTemplate: MessageTemplate = {
     id: 'template-1',
     name: 'Weekly reminder',
-    type: MessageTemplateType.Overdue,
+    type: MessageType.Overdue,
     content: 'Hola {{clientFullName}}',
     isActive: false,
     createdAt: new Date(),
@@ -103,13 +101,11 @@ describe('MessageTemplatesService', () => {
         isActive: true,
       });
 
-      const result = await service.findActiveOrThrow(
-        MessageTemplateType.Overdue,
-      );
+      const result = await service.findActiveOrThrow(MessageType.Overdue);
 
       expect(result.isActive).toBe(true);
       expect(repository.findOneBy).toHaveBeenCalledWith({
-        type: MessageTemplateType.Overdue,
+        type: MessageType.Overdue,
         isActive: true,
       });
     });
@@ -118,7 +114,7 @@ describe('MessageTemplatesService', () => {
       repository.findOneBy.mockResolvedValue(null);
 
       await expect(
-        service.findActiveOrThrow(MessageTemplateType.NewLoan),
+        service.findActiveOrThrow(MessageType.NewLoan),
       ).rejects.toThrow(NotFoundException);
     });
   });

@@ -2,10 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import {
-  MessageTemplate,
-  MessageTemplateType,
-} from '../entities/messageTemplate.entity';
+import { MessageTemplate } from '../entities/messageTemplate.entity';
+import { MessageType } from '../messageType.enum';
 
 import { CreateMessageTemplateDto } from './dto/createMessageTemplate.dto';
 import { UpdateMessageTemplateDto } from './dto/updateMessageTemplate.dto';
@@ -33,9 +31,7 @@ export class MessageTemplatesService {
 
   // Each message flow (new_loan, upcoming_due, overdue, account_summary)
   // has its own active template — see docs/phases/PHASE_9_MESSAGE_TYPES.md.
-  async findActiveOrThrow(
-    type: MessageTemplateType,
-  ): Promise<MessageTemplate> {
+  async findActiveOrThrow(type: MessageType): Promise<MessageTemplate> {
     const active = await this.messageTemplatesRepository.findOneBy({
       type,
       isActive: true,

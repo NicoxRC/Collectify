@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsEnum, IsNotEmpty, IsString } from 'class-validator';
 
-import { MessageTemplateType } from '../../entities/messageTemplate.entity';
+import { MessageType } from '../../messageType.enum';
 
 export class CreateMessageTemplateDto {
   @ApiProperty({ example: 'Weekly overdue reminder' })
@@ -10,13 +10,13 @@ export class CreateMessageTemplateDto {
   name!: string;
 
   @ApiProperty({
-    enum: MessageTemplateType,
-    example: MessageTemplateType.Overdue,
+    enum: MessageType,
+    example: MessageType.Overdue,
     description:
       'Which message flow this template renders — only one template per type can be active at a time.',
   })
-  @IsEnum(MessageTemplateType)
-  type!: MessageTemplateType;
+  @IsEnum(MessageType)
+  type!: MessageType;
 
   @ApiProperty({
     example:

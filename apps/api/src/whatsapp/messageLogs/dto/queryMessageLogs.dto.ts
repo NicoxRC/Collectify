@@ -10,12 +10,18 @@ import {
 } from 'class-validator';
 
 import { MessageLogStatus } from '../../entities/messageLog.entity';
+import { MessageType } from '../../messageType.enum';
 
 export class QueryMessageLogsDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()
   clientId?: string;
+
+  @ApiPropertyOptional({ enum: MessageType })
+  @IsOptional()
+  @IsEnum(MessageType)
+  type?: MessageType;
 
   @ApiPropertyOptional({ enum: MessageLogStatus })
   @IsOptional()
