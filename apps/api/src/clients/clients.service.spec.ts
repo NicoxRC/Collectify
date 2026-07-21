@@ -335,6 +335,19 @@ describe('ClientsService', () => {
       );
     });
 
+    it('applies no deletedAt filter at all when isActive is "all"', async () => {
+      queryBuilder.getManyAndCount.mockResolvedValue([[mockClient], 1]);
+
+      await service.findAll({ isActive: 'all' });
+
+      expect(queryBuilder.andWhere).not.toHaveBeenCalledWith(
+        'client.deletedAt IS NULL',
+      );
+      expect(queryBuilder.andWhere).not.toHaveBeenCalledWith(
+        'client.deletedAt IS NOT NULL',
+      );
+    });
+
     it('applies the search term across name, document, and phone', async () => {
       queryBuilder.getManyAndCount.mockResolvedValue([[mockClient], 1]);
 
