@@ -6,6 +6,8 @@ import { ProtectedRoute } from '@/features/auth/ProtectedRoute';
 import { ClientDetailPage } from '@/features/clients/ClientDetailPage';
 import { ClientsListPage } from '@/features/clients/ClientsListPage';
 import { HealthCheckPage } from '@/features/health/HealthCheckPage';
+import { LoanDetailPage } from '@/features/loans/LoanDetailPage';
+import { LoansListPage } from '@/features/loans/LoansListPage';
 
 // Grows with each phase: Phase 4+ add one route block per feature, nesting
 // RequireRole where a route is admin-only. See docs/phasesClient.
@@ -32,6 +34,14 @@ export const router = createBrowserRouter([
           {
             path: 'clientes/:id',
             element: <ClientDetailPage />,
+          },
+          {
+            path: 'prestamos',
+            element: <LoansListPage />,
+          },
+          {
+            path: 'prestamos/:id',
+            element: <LoanDetailPage />,
           },
         ],
       },

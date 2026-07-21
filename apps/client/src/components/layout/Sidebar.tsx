@@ -20,6 +20,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', to: '/' },
   { label: 'Clientes', to: '/clientes' },
+  { label: 'Préstamos', to: '/prestamos' },
 ];
 
 export function Sidebar() {
