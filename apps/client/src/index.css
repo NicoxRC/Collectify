@@ -1,1 +1,35 @@
 @import 'tailwindcss';
+
+/*
+ * Design tokens extracted from the Figma "Design System" file, library page
+ * (node 30:2) — see apps/client/docs/DESIGN_TOKENS.md for the full reference
+ * with component notes. Update both together if the library changes.
+ *
+ * Note: the mora-severity colors (verde/amarillo/naranja/rojo) and the
+ * entire spacing scale in that library are Tailwind's own defaults
+ * (green-500, yellow-500, orange-500, red-500; 4px-based spacing) — nothing
+ * custom needed for those, just use the standard utilities.
+ */
+@theme {
+  --color-background: #0a0a0a; /* Figma: Background — page canvas */
+  --color-surface: #141414; /* Figma: Surface — cards/panels */
+  --color-input: #1f1f1f; /* Figma: Input — form field background */
+  --color-border: #2a2a2a; /* Figma: Border — borders/dividers */
+  --color-mid: #3d3d3d; /* Figma: Mid — placeholders/icons */
+  --color-subtle: #4d4d4d; /* Figma: Subtle — very secondary text */
+  --color-muted: #888888; /* Figma: Text Secondary — subtitles/labels */
+
+  --text-h1: 28px;
+  --text-kpi: 24px;
+  --text-page-title: 22px;
+  --text-card-title: 15px;
+  --text-body: 13px;
+  --text-small: 12px;
+  --text-label: 11px;
+  --text-meta: 10px;
+  --text-section-label: 9px;
+  /* Not in the library's named type scale, but used inline on every form
+     control (inputs, buttons) in the Login component — kept as its own
+     token since it'll recur constantly from Phase 3 onward. */
+  --text-control: 14px;
+}
