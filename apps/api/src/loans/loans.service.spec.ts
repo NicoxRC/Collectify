@@ -8,6 +8,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { Installment, InstallmentStatus } from './entities/installment.entity';
 import { InstallmentFrequency, Loan, LoanStatus } from './entities/loan.entity';
+import { Payment } from './entities/payment.entity';
 import { LoansService } from './loans.service';
 import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 
@@ -19,6 +20,7 @@ describe('LoansService', () => {
     findOne: jest.Mock;
     create: jest.Mock;
     save: jest.Mock;
+    update: jest.Mock;
   };
   let installmentsRepository: {
     find: jest.Mock;
@@ -26,9 +28,13 @@ describe('LoansService', () => {
     save: jest.Mock;
     update: jest.Mock;
   };
+  let paymentsRepository: { find: jest.Mock };
   let newLoanReminderService: { sendNewLoanMessage: jest.Mock };
   let queryBuilder: {
+    leftJoinAndSelect: jest.Mock;
+    addSelect: jest.Mock;
     orderBy: jest.Mock;
+    addOrderBy: jest.Mock;
     skip: jest.Mock;
     take: jest.Mock;
     andWhere: jest.Mock;
@@ -38,7 +44,7 @@ describe('LoansService', () => {
   const mockLoan: Loan = {
     id: 'loan-1',
     clientId: 'client-1',
-    client: undefined as never,
+    client: { firstName: 'Juana', lastName: 'Pérez' } as never,
     promissoryNoteNumber: '#743',
     principalAmount: 900000,
     interestRate: 6,
@@ -56,7 +62,10 @@ describe('LoansService', () => {
 
   beforeEach(async () => {
     queryBuilder = {
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
@@ -68,12 +77,16 @@ describe('LoansService', () => {
       findOne: jest.fn(),
       create: jest.fn((dto: Partial<Loan>) => dto),
       save: jest.fn(),
+      update: jest.fn(),
     };
     installmentsRepository = {
       find: jest.fn(),
       create: jest.fn((dto: Partial<Installment>) => dto),
       save: jest.fn(),
       update: jest.fn(),
+    };
+    paymentsRepository = {
+      find: jest.fn(),
     };
     newLoanReminderService = {
       sendNewLoanMessage: jest.fn().mockResolvedValue(undefined),
@@ -86,6 +99,10 @@ describe('LoansService', () => {
         {
           provide: getRepositoryToken(Installment),
           useValue: installmentsRepository,
+        },
+        {
+          provide: getRepositoryToken(Payment),
+          useValue: paymentsRepository,
         },
         {
           provide: NewLoanReminderService,
@@ -368,6 +385,10 @@ describe('LoansService', () => {
   });
 
   describe('findAll', () => {
+    beforeEach(() => {
+      installmentsRepository.find.mockResolvedValue([]);
+    });
+
     it('returns a paginated page and applies clientId/status filters', async () => {
       queryBuilder.getManyAndCount.mockResolvedValue([[mockLoan], 1]);
 
@@ -377,9 +398,21 @@ describe('LoansService', () => {
       });
 
       expect(result).toEqual({
-        items: [mockLoan],
+        items: [
+          expect.objectContaining({
+            id: 'loan-1',
+            clientFullName: 'Juana Pérez',
+            outstandingBalance: 0,
+            installmentsPaid: 0,
+            overdueDays: 0,
+          }),
+        ],
         meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
       });
+      expect(queryBuilder.leftJoinAndSelect).toHaveBeenCalledWith(
+        'loan.client',
+        'client',
+      );
       expect(queryBuilder.andWhere).toHaveBeenCalledWith(
         'loan.clientId = :clientId',
         {
@@ -394,6 +427,17 @@ describe('LoansService', () => {
       );
     });
 
+    it('applies the search term across client name and promissory note number', async () => {
+      queryBuilder.getManyAndCount.mockResolvedValue([[mockLoan], 1]);
+
+      await service.findAll({ search: 'Juana' });
+
+      expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+        expect.stringContaining('ILIKE'),
+        { search: '%Juana%' },
+      );
+    });
+
     it('returns an empty page when there are no matches', async () => {
       queryBuilder.getManyAndCount.mockResolvedValue([[], 0]);
 
@@ -401,6 +445,40 @@ describe('LoansService', () => {
 
       expect(result.items).toEqual([]);
       expect(result.meta.totalPages).toBe(0);
+      expect(installmentsRepository.find).not.toHaveBeenCalled();
+    });
+
+    it('aggregates outstandingBalance, installmentsPaid, and overdueDays from installments', async () => {
+      queryBuilder.getManyAndCount.mockResolvedValue([[mockLoan], 1]);
+      const overdueDueDate = new Date();
+      overdueDueDate.setDate(overdueDueDate.getDate() - 10);
+      const overdueDateString = overdueDueDate.toISOString().slice(0, 10);
+
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'installment-1',
+          loanId: 'loan-1',
+          installmentNumber: 1,
+          amount: 300000,
+          dueDate: overdueDateString,
+          status: InstallmentStatus.Pending,
+        },
+        {
+          id: 'installment-2',
+          loanId: 'loan-1',
+          installmentNumber: 2,
+          amount: 300000,
+          dueDate: '2025-01-01',
+          status: InstallmentStatus.Paid,
+        },
+      ]);
+
+      const [summary] = (await service.findAll({})).items;
+
+      expect(summary.installmentsPaid).toBe(1);
+      expect(summary.overdueDays).toBe(10);
+      // Pending installment: amount + interest (6% / 30 * 10 days * 300000)
+      expect(summary.outstandingBalance).toBeCloseTo(306000, 0);
     });
   });
 
@@ -422,6 +500,120 @@ describe('LoansService', () => {
       await expect(
         service.update('missing-id', { interestRate: 5 }),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('getPayments', () => {
+    it('joins across every installment of the loan, oldest payment first', async () => {
+      loansRepository.findOneBy.mockResolvedValue(mockLoan);
+      installmentsRepository.find.mockResolvedValue([
+        { id: 'installment-1' },
+        { id: 'installment-2' },
+      ]);
+      const payments = [
+        { id: 'payment-1', installmentId: 'installment-1', amountPaid: 200 },
+      ];
+      paymentsRepository.find.mockResolvedValue(payments);
+
+      const result = await service.getPayments(mockLoan.id);
+
+      expect(result).toBe(payments);
+      expect(installmentsRepository.find).toHaveBeenCalledWith({
+        where: { loanId: mockLoan.id },
+        select: ['id'],
+      });
+      // Compared via the FindOperator's own _value rather than
+      // toHaveBeenCalledWith(In([...])) — two separately-constructed
+      // FindOperator instances aren't guaranteed comparable by deep
+      // equality, so this checks what it actually filters by instead.
+      const [[callArg]] = paymentsRepository.find.mock.calls as [
+        [{ where: { installmentId: { _value: string[] } } }],
+      ];
+      expect(callArg.where.installmentId._value).toEqual([
+        'installment-1',
+        'installment-2',
+      ]);
+      expect(paymentsRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({ order: { paidAt: 'ASC' } }),
+      );
+    });
+
+    it('returns an empty array without querying payments when the loan has no installments', async () => {
+      loansRepository.findOneBy.mockResolvedValue(mockLoan);
+      installmentsRepository.find.mockResolvedValue([]);
+
+      const result = await service.getPayments(mockLoan.id);
+
+      expect(result).toEqual([]);
+      expect(paymentsRepository.find).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the loan does not exist', async () => {
+      loansRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.getPayments('missing-id')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(installmentsRepository.find).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('markAsPaid', () => {
+    beforeEach(() => {
+      loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
+      loansRepository.findOne.mockResolvedValue(null); // no refinancedTo
+      installmentsRepository.find.mockResolvedValue([]);
+    });
+
+    it('sets the loan to paid and every pending installment to paid', async () => {
+      await service.markAsPaid(mockLoan.id);
+
+      expect(loansRepository.update).toHaveBeenCalledWith(
+        { id: mockLoan.id },
+        { status: LoanStatus.Paid },
+      );
+      expect(installmentsRepository.update).toHaveBeenCalledWith(
+        { loanId: mockLoan.id, status: InstallmentStatus.Pending },
+        { status: InstallmentStatus.Paid },
+      );
+    });
+
+    it('does not create any payment record', async () => {
+      await service.markAsPaid(mockLoan.id);
+
+      expect(paymentsRepository.find).not.toHaveBeenCalled();
+    });
+
+    it('rejects a loan that is already paid', async () => {
+      loansRepository.findOneBy.mockResolvedValue({
+        ...mockLoan,
+        status: LoanStatus.Paid,
+      });
+
+      await expect(service.markAsPaid(mockLoan.id)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(loansRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects a loan that has already been refinanced', async () => {
+      loansRepository.findOneBy.mockResolvedValue({
+        ...mockLoan,
+        status: LoanStatus.Refinanced,
+      });
+
+      await expect(service.markAsPaid(mockLoan.id)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(loansRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the loan does not exist', async () => {
+      loansRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.markAsPaid('missing-id')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });
