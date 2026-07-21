@@ -1,10 +1,24 @@
+import { useAuth } from '@/features/auth/useAuth';
+
 export function Header() {
+  const { user, logout } = useAuth();
+
   return (
-    <header className="flex h-14 items-center justify-between border-b border-gray-200 bg-white px-6">
-      <span className="text-sm font-medium text-gray-500">
+    <header className="flex h-14 items-center justify-between border-b border-border bg-background px-6">
+      <span className="text-small font-medium text-muted">
         Panel administrativo
       </span>
-      {/* User menu / logout lands here in Phase 2 once auth exists. */}
+
+      <div className="flex items-center gap-3 text-small">
+        {user && <span className="text-muted">{user.email}</span>}
+        <button
+          type="button"
+          onClick={logout}
+          className="font-medium text-subtle hover:text-white"
+        >
+          Cerrar sesión
+        </button>
+      </div>
     </header>
   );
 }
