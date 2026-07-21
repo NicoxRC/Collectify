@@ -4,6 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Collectify</title>
+    <!-- Inter, per the Figma library (see DESIGN_TOKENS.md) — without this
+         the app was silently falling back to the OS default font, which
+         reads noticeably thinner/less "filled" than Inter at the light and
+         medium weights used throughout (28px H1, nav items, etc.). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin="anonymous"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
     <div id="root"></div>
