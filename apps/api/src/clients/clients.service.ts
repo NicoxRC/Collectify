@@ -56,7 +56,50 @@ export class ClientsService {
     const qb = this.clientsRepository
       .createQueryBuilder('client')
       .withDeleted()
-      .orderBy('client.createdAt', 'DESC')
+      // Alphabetical by name instead of most-recently-created, per the
+      // client's request. firstName/lastName are free text (nothing stops
+      // someone from entering "Juan Carlos" as a first name and "Pérez
+      // Gómez" as a last name) — that's not actually a problem for text
+      // ordering the way it was for promissoryNoteNumber's numbers: strings
+      // of different lengths compare correctly character by character
+      // regardless of how many "names" are packed into the field (e.g.
+      // "Juan" sorts before "Juan Carlos", same as "casa" before "casas").
+      //
+      // LOWER() handles case: Postgres compares text case-sensitively by
+      // default (uppercase sorts before all lowercase), so an
+      // inconsistently-capitalized "andrés" would otherwise land after
+      // "Zapata" instead of near the A's.
+      //
+      // TRANSLATE() handles accents/ñ: confirmed empirically (client
+      // tested "José" vs "Jose" and "Ñoño" vs "Nn"/"Oo") that this
+      // database compares text by raw UTF-8 byte value (no
+      // locale-aware/ICU collation configured), and accented characters —
+      // being multi-byte in UTF-8 — always have a higher byte value than
+      // any plain ASCII letter. Without this, every accented name gets
+      // shoved to the very end, regardless of the actual letter. Folding
+      // each accented character to its plain equivalent before comparing
+      // (only for sort purposes — the stored/displayed name is untouched)
+      // sidesteps that entirely without needing any server-level locale
+      // configuration, which isn't guaranteed available on this Postgres
+      // image. Doesn't reproduce the traditional Spanish-dictionary rule
+      // of treating "ñ" as its own letter between "n" and "o" — it folds
+      // to "n" — but that's a minor imprecision next to the alternative of
+      // ñ-named clients always sorting dead last.
+      //
+      // Named addSelect(), not inlined into orderBy(): TypeORM's
+      // entity-hydrating orderBy naively splits any string containing a '.'
+      // on the first dot to resolve it as a join alias — see the same fix
+      // in LoansService.findAll for the full explanation.
+      .addSelect(
+        "TRANSLATE(LOWER(client.first_name), 'áéíóúñü', 'aeiounu')",
+        'first_name_sort',
+      )
+      .addSelect(
+        "TRANSLATE(LOWER(client.last_name), 'áéíóúñü', 'aeiounu')",
+        'last_name_sort',
+      )
+      .orderBy('first_name_sort', 'ASC')
+      .addOrderBy('last_name_sort', 'ASC')
       .skip((page - 1) * limit)
       .take(limit);
 

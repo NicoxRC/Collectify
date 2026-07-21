@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
@@ -18,6 +18,7 @@ import { RefinanceLoanDto } from './dto/refinanceLoan.dto';
 import { addMonthsToDateString, addWeeksToDateString } from './dueDateSchedule';
 import { Installment, InstallmentStatus } from './entities/installment.entity';
 import { InstallmentFrequency, Loan, LoanStatus } from './entities/loan.entity';
+import { Payment } from './entities/payment.entity';
 import {
   enrichInstallment,
   InstallmentWithCalculated,
@@ -33,6 +34,33 @@ export interface LoanDetail extends Loan {
   // Computed reverse lookup, not a stored column — the loan this one was
   // later refinanced into, if any. See docs/phases/PHASE_6_REFINANCING.md.
   refinancedToLoanId: string | null;
+}
+
+// Added for the client's standalone "Préstamos" list screen (F-16/17),
+// which is a different view from Clientes and needs to show who the loan
+// belongs to plus at-a-glance collection status without opening the loan.
+// None of these three fields were previously computed by findAll — see the
+// aggregation added there.
+// Omit<Loan, 'client'>, not Loan itself: the Loan entity's `client` field is
+// a required ManyToOne relation, but summarize() below intentionally strips
+// the raw relation out of the response and exposes clientFullName instead —
+// keeping `extends Loan` here would make TS demand a `client: Client` on
+// every returned row, which is exactly what we don't want to send back.
+export interface LoanSummary extends Omit<Loan, 'client'> {
+  clientFullName: string;
+  // Sum of totalDue (amount + accrued interest) across this loan's
+  // still-pending installments — same per-installment math as
+  // enrichInstallment, just aggregated across the whole loan.
+  outstandingBalance: number;
+  // How many of this loan's installments are already paid, for a "3/12"
+  // style display alongside totalInstallments.
+  installmentsPaid: number;
+  // The worst (maximum) overdueDays across this loan's pending
+  // installments — 0 if none are overdue. A loan-level "días de mora" has
+  // no single correct definition since overdue is tracked per installment
+  // (docs/DATABASE.md); "how late is the most overdue cuota" is the one
+  // that matches how collections actually prioritize follow-up.
+  overdueDays: number;
 }
 
 interface PersistLoanParams {
@@ -56,6 +84,8 @@ export class LoansService {
     private readonly loansRepository: Repository<Loan>,
     @InjectRepository(Installment)
     private readonly installmentsRepository: Repository<Installment>,
+    @InjectRepository(Payment)
+    private readonly paymentsRepository: Repository<Payment>,
     private readonly newLoanReminderService: NewLoanReminderService,
   ) {}
 
@@ -113,13 +143,43 @@ export class LoansService {
     return this.findOne(newLoan.id);
   }
 
-  async findAll(query: QueryLoansDto): Promise<PaginatedResult<Loan>> {
+  // Joins `client` (for clientFullName) and, in a second query, this page's
+  // installments (for outstandingBalance/installmentsPaid/overdueDays) —
+  // two extra queries total, not one per loan, to back the standalone
+  // "Préstamos" list (F-16/17), a different screen from Clientes that
+  // needs to show whose loan it is and its collection status at a glance.
+  async findAll(query: QueryLoansDto): Promise<PaginatedResult<LoanSummary>> {
     const page = query.page ?? DEFAULT_PAGE;
     const limit = query.limit ?? DEFAULT_PAGE_SIZE;
 
     const qb = this.loansRepository
       .createQueryBuilder('loan')
-      .orderBy('loan.createdAt', 'DESC')
+      .leftJoinAndSelect('loan.client', 'client')
+      // Matches how the client already files physical pagarés — by
+      // promissoryNoteNumber, ascending — instead of most-recently-created
+      // first. Changed at the client's request; see
+      // apps/client/docs/DESIGN_TOKENS.md "Known design/backend gaps".
+      //
+      // promissoryNoteNumber is a free-text column (it allows things like
+      // "#743"), so a plain text ORDER BY compares it character by
+      // character, not as a number — "101" sorts before "2" because '1' <
+      // '2' as characters. Strip everything but digits and order by that as
+      // a number instead (NULLIF + '' guards numberless values, ordered
+      // last; the text ORDER BY after it is just a stable tiebreaker for
+      // duplicates/non-numeric values).
+      //
+      // Has to be a named addSelect(), not inlined directly into orderBy():
+      // TypeORM's entity-hydrating orderBy naively splits any string
+      // containing a '.' on the first dot to look up an alias (to validate
+      // it's a real joined table) — with the expression inlined, it choked
+      // trying to resolve "NULLIF(regexp_replace(loan" as an alias. Giving
+      // it its own dot-free alias here sidesteps that entirely.
+      .addSelect(
+        "NULLIF(regexp_replace(loan.promissory_note_number, '\\D', '', 'g'), '')::bigint",
+        'promissory_note_number_numeric',
+      )
+      .orderBy('promissory_note_number_numeric', 'ASC', 'NULLS LAST')
+      .addOrderBy('loan.promissoryNoteNumber', 'ASC')
       .skip((page - 1) * limit)
       .take(limit);
 
@@ -129,13 +189,55 @@ export class LoansService {
     if (query.status) {
       qb.andWhere('loan.status = :status', { status: query.status });
     }
+    if (query.search) {
+      qb.andWhere(
+        '(client.firstName ILIKE :search OR client.lastName ILIKE :search OR loan.promissoryNoteNumber ILIKE :search)',
+        { search: `%${query.search}%` },
+      );
+    }
 
-    const [items, total] = await qb.getManyAndCount();
+    const [loans, total] = await qb.getManyAndCount();
+    const items = await this.summarize(loans);
 
     return {
       items,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  private async summarize(loans: Loan[]): Promise<LoanSummary[]> {
+    const loanIds = loans.map((loan) => loan.id);
+    const installments = loanIds.length
+      ? await this.installmentsRepository.find({
+          where: { loanId: In(loanIds) },
+        })
+      : [];
+
+    return loans.map((loan) => {
+      const { client, ...loanFields } = loan;
+      const enriched = installments
+        .filter((installment) => installment.loanId === loan.id)
+        .map((installment) =>
+          enrichInstallment(installment, loan.interestRate),
+        );
+
+      return {
+        ...loanFields,
+        clientFullName: `${client.firstName} ${client.lastName}`,
+        outstandingBalance: enriched
+          .filter(
+            (installment) => installment.status === InstallmentStatus.Pending,
+          )
+          .reduce((sum, installment) => sum + installment.totalDue, 0),
+        installmentsPaid: enriched.filter(
+          (installment) => installment.status === InstallmentStatus.Paid,
+        ).length,
+        overdueDays: enriched.reduce(
+          (max, installment) => Math.max(max, installment.overdueDays),
+          0,
+        ),
+      };
+    });
   }
 
   async findOne(id: string): Promise<LoanDetail> {
@@ -163,6 +265,59 @@ export class LoansService {
     const loan = await this.findLoanOrThrow(id);
     Object.assign(loan, dto);
     return this.loansRepository.save(loan);
+  }
+
+  // Added for F-22 "Cambiar estado" — but only the "Pagado" transition maps
+  // to anything real on the backend. "Al día" and "En mora" are NOT stored
+  // states (docs/DATABASE.md: overdue is derived per-installment from due
+  // dates, never a loan-level flag someone sets), so there's nothing for
+  // those two to actually change — they're already always correct,
+  // automatically. This is for the manual case Figma doesn't distinguish
+  // from the others: the client paid in cash/outside the system, and an
+  // admin needs to close the loan out without a payment trail through
+  // every remaining cuota. Marks every still-pending installment Paid too,
+  // so the loan doesn't show "Pagado" while its installments still read as
+  // pending/overdue — but no Payment rows are created, since there's no
+  // real amount/date to record per installment for this kind of override.
+  async markAsPaid(id: string): Promise<LoanDetail> {
+    const loan = await this.findLoanOrThrow(id);
+    if (loan.status !== LoanStatus.Active) {
+      throw new BadRequestException(
+        `Loan ${id} cannot be marked as paid because its status is '${loan.status}' — only active loans can be marked paid this way`,
+      );
+    }
+
+    await this.loansRepository.update({ id }, { status: LoanStatus.Paid });
+    await this.installmentsRepository.update(
+      { loanId: id, status: InstallmentStatus.Pending },
+      { status: InstallmentStatus.Paid },
+    );
+
+    return this.findOne(id);
+  }
+
+  // Added for the loan detail screen's "Historial de pagos" (F-19) — there
+  // was previously no way to list a loan's payments at all, only register
+  // one (POST /installments/:id/payments). Payments are stored per
+  // installment (docs/DATABASE.md), so this joins across every installment
+  // that belongs to this loan. Ordered oldest-first, matching the Figma
+  // numbered list (#1, #2, #3...).
+  async getPayments(loanId: string): Promise<Payment[]> {
+    await this.findLoanOrThrow(loanId);
+
+    const installments = await this.installmentsRepository.find({
+      where: { loanId },
+      select: ['id'],
+    });
+    const installmentIds = installments.map((installment) => installment.id);
+    if (installmentIds.length === 0) {
+      return [];
+    }
+
+    return this.paymentsRepository.find({
+      where: { installmentId: In(installmentIds) },
+      order: { paidAt: 'ASC' },
+    });
   }
 
   // Shared by create() and refinance() — both need a loan row plus its

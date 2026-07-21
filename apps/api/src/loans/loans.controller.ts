@@ -23,7 +23,8 @@ import { UpdateLoanDto } from './dto/updateLoan.dto';
 import { QueryLoansDto } from './dto/queryLoans.dto';
 import { RefinanceLoanDto } from './dto/refinanceLoan.dto';
 import { Loan } from './entities/loan.entity';
-import { LoansService, LoanDetail } from './loans.service';
+import { Payment } from './entities/payment.entity';
+import { LoansService, LoanDetail, LoanSummary } from './loans.service';
 
 @ApiTags('loans')
 @ApiBearerAuth()
@@ -34,9 +35,16 @@ export class LoansController {
   @Get()
   @ApiOperation({
     summary: 'List loans (paginated, filterable by client/status)',
+    description:
+      'Each row includes clientFullName, outstandingBalance, installmentsPaid, ' +
+      "and overdueDays — aggregated from the loan's installments, for the " +
+      'standalone Préstamos list screen (does not require opening the loan). ' +
+      'search matches the client name or promissory note number.',
   })
   @ApiResponse({ status: 200, description: 'Returns a page of loans.' })
-  findAll(@Query() query: QueryLoansDto): Promise<PaginatedResult<Loan>> {
+  findAll(
+    @Query() query: QueryLoansDto,
+  ): Promise<PaginatedResult<LoanSummary>> {
     return this.loansService.findAll(query);
   }
 
@@ -86,6 +94,42 @@ export class LoansController {
   @ApiResponse({ status: 404, description: 'Loan not found.' })
   update(@Param('id') id: string, @Body() dto: UpdateLoanDto): Promise<Loan> {
     return this.loansService.update(id, dto);
+  }
+
+  @Post(':id/mark-as-paid')
+  @Roles(UserRole.Admin)
+  @ApiOperation({
+    summary:
+      'Manually close a loan out as paid (admin only) — for payments received outside the system',
+    description:
+      "Sets the loan's status to 'paid' and every still-pending installment to " +
+      "'paid' as well, so the loan and its installments stay consistent. Does " +
+      'NOT create Payment rows — there is no per-installment amount/date to ' +
+      'record for this kind of manual override. Only active loans can be ' +
+      "marked paid this way; 'al día'/'en mora' are not stored states (see " +
+      'docs/DATABASE.md) so there is nothing to set for those.',
+  })
+  @ApiResponse({ status: 200, description: 'The loan was marked as paid.' })
+  @ApiResponse({
+    status: 400,
+    description: 'The loan is not active (already paid or refinanced).',
+  })
+  @ApiResponse({ status: 404, description: 'Loan not found.' })
+  markAsPaid(@Param('id') id: string): Promise<LoanDetail> {
+    return this.loansService.markAsPaid(id);
+  }
+
+  @Get(':id/payments')
+  @ApiOperation({
+    summary: "List a loan's payment history, oldest first",
+    description:
+      'Joins across every installment belonging to this loan — payments are ' +
+      'stored per installment, not per loan (docs/DATABASE.md).',
+  })
+  @ApiResponse({ status: 200, description: "Returns the loan's payments." })
+  @ApiResponse({ status: 404, description: 'Loan not found.' })
+  getPayments(@Param('id') id: string): Promise<Payment[]> {
+    return this.loansService.getPayments(id);
   }
 
   @Post(':id/refinance')
