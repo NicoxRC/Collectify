@@ -1,0 +1,250 @@
+import { useState } from 'react';
+
+import { Header } from '@/components/layout/Header';
+import { useAuth } from '@/features/auth/useAuth';
+import { LoanForm } from '@/features/loans/LoanForm';
+import { LoanRow } from '@/features/loans/LoanRow';
+import { LoanStatus } from '@/features/loans/loansApi';
+import { useCreateLoan, useLoans } from '@/features/loans/useLoans';
+
+import type { ReactNode } from 'react';
+
+// Matches Figma frame 52:95 ("F-16/17 / Préstamos — Desktop 1440"), with
+// deliberate departures from the mockup — see
+// apps/client/docs/DESIGN_TOKENS.md "Known design/backend gaps":
+//   - "Rango de fechas" filter dropped: QueryLoansDto has no date filter.
+//   - "Mensaje" row action dropped: manual WhatsApp send is Phase 5/9.
+//   - The top-right "ADMIN" pill dropped: duplicates the Sidebar's own
+//     user footer — this app has no separate header bar (see AppLayout.tsx).
+// "Todos los estados" was keepable (unlike Clientes' "Todos" tab) since
+// QueryLoansDto.status is a plain optional enum filter, not the
+// true/false-only isActive Clientes originally had.
+type StatusFilter = 'all' | LoanStatus;
+
+export function LoansListPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [page, setPage] = useState(1);
+  const [isCreating, setIsCreating] = useState(false);
+
+  const { data, isLoading, isError } = useLoans({
+    search: search || undefined,
+    status: statusFilter === 'all' ? undefined : statusFilter,
+    page,
+  });
+  const createLoan = useCreateLoan();
+
+  const loans = data?.items ?? [];
+  const meta = data?.meta;
+  const rowNumberOffset = ((meta?.page ?? 1) - 1) * (meta?.limit ?? 0);
+
+  return (
+    <div className="flex flex-col gap-5">
+      <Header title="Préstamos" subtitle="Gestión de todos los préstamos" />
+
+      <div className="border-t border-border" />
+
+      <div className="flex h-10 items-center gap-3">
+        <div className="flex h-[38px] w-[220px] items-center gap-2 rounded bg-input px-3">
+          <input
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
+            placeholder="Buscar cliente…"
+            className="w-full bg-transparent text-small text-white placeholder-mid focus:outline-none"
+          />
+        </div>
+
+        <select
+          value={statusFilter}
+          onChange={(event) => {
+            setStatusFilter(event.target.value as StatusFilter);
+            setPage(1);
+          }}
+          className="h-[38px] rounded bg-input px-3 text-small text-muted focus:outline-none"
+        >
+          <option value="all">Todos los estados</option>
+          <option value={LoanStatus.Active}>Activos</option>
+          <option value={LoanStatus.Paid}>Pagados</option>
+          <option value={LoanStatus.Refinanced}>Refinanciados</option>
+        </select>
+
+        <div className="flex-1" />
+
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => setIsCreating(true)}
+            className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-gray-200"
+          >
+            + Nuevo préstamo
+          </button>
+        )}
+      </div>
+
+      <div className="overflow-hidden rounded bg-surface">
+        <table className="w-full">
+          <thead className="bg-input">
+            <tr>
+              <Th className="w-12">#</Th>
+              <Th>ID</Th>
+              <Th>Cliente</Th>
+              <Th>Monto</Th>
+              <Th>Saldo</Th>
+              <Th>Cuotas</Th>
+              <Th>Días mora</Th>
+              <Th>Estado</Th>
+              <Th>Acciones</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading && <EmptyRow>Cargando…</EmptyRow>}
+            {isError && (
+              <EmptyRow tone="error">
+                No se pudo cargar la lista de préstamos.
+              </EmptyRow>
+            )}
+            {!isLoading && !isError && loans.length === 0 && (
+              <EmptyRow>No se encontraron préstamos.</EmptyRow>
+            )}
+            {loans.map((loan, index) => (
+              <LoanRow
+                key={loan.id}
+                loan={loan}
+                rowNumber={rowNumberOffset + index + 1}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="flex items-center gap-4 text-label text-muted">
+        <span>Días mora:</span>
+        <Legend color="#22c55e" label="0 días" />
+        <Legend color="#eab308" label="1–30" />
+        <Legend color="#f97316" label="31–60" />
+        <Legend color="#ef4444" label="+60" />
+      </div>
+
+      {meta && meta.total > 0 && (
+        <div className="flex h-8 items-center justify-between">
+          <p className="text-label text-muted">
+            Mostrando {loans.length} de {meta.total} préstamos
+          </p>
+          <div className="flex items-center gap-1">
+            <PageButton
+              disabled={page <= 1}
+              onClick={() => setPage((current) => current - 1)}
+            >
+              ←
+            </PageButton>
+            {Array.from(
+              { length: meta.totalPages },
+              (_, index) => index + 1,
+            ).map((pageNumber) => (
+              <PageButton
+                key={pageNumber}
+                isActive={pageNumber === page}
+                onClick={() => setPage(pageNumber)}
+              >
+                {pageNumber}
+              </PageButton>
+            ))}
+            <PageButton
+              disabled={page >= meta.totalPages}
+              onClick={() => setPage((current) => current + 1)}
+            >
+              →
+            </PageButton>
+          </div>
+        </div>
+      )}
+
+      {isCreating && (
+        <LoanForm
+          onClose={() => setIsCreating(false)}
+          onSubmit={(input) => createLoan.mutateAsync(input)}
+        />
+      )}
+    </div>
+  );
+}
+
+function Th({
+  children,
+  className = '',
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <th
+      className={`h-[38px] px-3.5 text-left text-section-label font-medium tracking-[0.36px] text-muted ${className}`}
+    >
+      {children}
+    </th>
+  );
+}
+
+function EmptyRow({
+  children,
+  tone = 'muted',
+}: {
+  children: ReactNode;
+  tone?: 'muted' | 'error';
+}) {
+  return (
+    <tr>
+      <td
+        colSpan={9}
+        className={`p-6 text-center text-small ${tone === 'error' ? 'text-red-400' : 'text-muted'}`}
+      >
+        {children}
+      </td>
+    </tr>
+  );
+}
+
+function Legend({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span
+        className="size-1.5 rounded-full"
+        style={{ backgroundColor: color }}
+      />
+      <span style={{ color }}>{label}</span>
+    </span>
+  );
+}
+
+function PageButton({
+  children,
+  onClick,
+  isActive = false,
+  disabled = false,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  isActive?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`rounded px-2.5 py-1.5 text-label ${
+        isActive
+          ? 'bg-border font-medium text-white'
+          : 'bg-input text-muted disabled:opacity-40'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
