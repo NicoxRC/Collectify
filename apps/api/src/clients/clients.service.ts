@@ -52,17 +52,23 @@ export class ClientsService {
   async findAll(query: QueryClientsDto): Promise<PaginatedResult<Client>> {
     const page = query.page ?? DEFAULT_PAGE;
     const limit = query.limit ?? DEFAULT_PAGE_SIZE;
-    const isActive = query.isActive ?? true;
 
     const qb = this.clientsRepository
       .createQueryBuilder('client')
       .withDeleted()
-      .andWhere(
-        isActive ? 'client.deletedAt IS NULL' : 'client.deletedAt IS NOT NULL',
-      )
       .orderBy('client.createdAt', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
+
+    // 'all' means no filter at all (both active and soft-deleted). Any
+    // other value — including omitted, defaulting to true — filters as
+    // before; see queryClients.dto.ts's Transform for how 'all' gets here.
+    if (query.isActive !== 'all') {
+      const isActive = query.isActive ?? true;
+      qb.andWhere(
+        isActive ? 'client.deletedAt IS NULL' : 'client.deletedAt IS NOT NULL',
+      );
+    }
 
     if (query.search) {
       qb.andWhere(

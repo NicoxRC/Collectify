@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class QueryClientsDto {
   @ApiPropertyOptional({
@@ -12,13 +12,15 @@ export class QueryClientsDto {
 
   @ApiPropertyOptional({
     description:
-      'true for active clients (default), false for soft-deleted ones',
+      "true for active clients (default), false for soft-deleted ones, 'all' for both",
     default: true,
   })
   @IsOptional()
-  @Transform(({ value }: { value: unknown }) => value !== 'false')
-  @IsBoolean()
-  isActive?: boolean;
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'all' ? 'all' : value !== 'false',
+  )
+  @IsIn([true, false, 'all'])
+  isActive?: boolean | 'all';
 
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
