@@ -26,8 +26,10 @@ describe('ClientsService', () => {
   };
   let queryBuilder: {
     withDeleted: jest.Mock;
+    addSelect: jest.Mock;
     andWhere: jest.Mock;
     orderBy: jest.Mock;
+    addOrderBy: jest.Mock;
     skip: jest.Mock;
     take: jest.Mock;
     getManyAndCount: jest.Mock;
@@ -47,8 +49,10 @@ describe('ClientsService', () => {
   beforeEach(async () => {
     queryBuilder = {
       withDeleted: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
       getManyAndCount: jest.fn(),
