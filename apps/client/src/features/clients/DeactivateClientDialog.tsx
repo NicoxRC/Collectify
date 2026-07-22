@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+import { useEscapeKey } from '@/lib/useEscapeKey';
+
 interface DeactivateClientDialogProps {
   clientName: string;
   onConfirm: () => Promise<unknown>;
@@ -14,6 +16,8 @@ export function DeactivateClientDialog({
 }: DeactivateClientDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  useEscapeKey(onClose);
+
   const handleConfirm = async () => {
     setIsSubmitting(true);
     try {
@@ -25,7 +29,7 @@ export function DeactivateClientDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="w-full max-w-[400px] rounded-lg border border-border bg-surface px-8 py-7">
         <h2 className="text-card-title font-medium text-white">
           Desactivar cliente

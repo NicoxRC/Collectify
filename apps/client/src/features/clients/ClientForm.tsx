@@ -1,6 +1,8 @@
 import { useState } from 'react';
 
+import { CloseButton } from '@/components/ui/CloseButton';
 import { ApiError } from '@/lib/apiClient';
+import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type { Client, CreateClientInput } from '@/features/clients/clientsApi';
 import type { FormEvent } from 'react';
@@ -41,6 +43,8 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEscapeKey(onClose);
 
   // Mirrors CreateClientDto's validators client-side, so obvious mistakes
   // are caught before hitting the API — required by Phase 3 scope.
@@ -102,20 +106,13 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="w-full max-w-[480px] rounded-lg border border-border bg-surface px-8 py-7">
         <div className="flex items-center justify-between">
           <h2 className="text-[16px] font-medium text-white">
             {isEditing ? 'Editar cliente' : 'Nuevo cliente'}
           </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Cerrar"
-            className="flex size-6 items-center justify-center rounded bg-input text-[14px] text-muted hover:text-white"
-          >
-            ×
-          </button>
+          <CloseButton onClick={onClose} />
         </div>
 
         <p className="mt-1 text-label text-muted">
@@ -212,7 +209,7 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSubmitting
                 ? 'Guardando…'
