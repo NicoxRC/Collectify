@@ -26,7 +26,7 @@ describe('NewLoanReminderService', () => {
   let installmentsRepository: { find: jest.Mock };
   let messageLogsRepository: { create: jest.Mock; save: jest.Mock };
   let messageLogItemsRepository: { create: jest.Mock; save: jest.Mock };
-  let messageTemplatesService: { findActiveOrThrow: jest.Mock };
+  let messageTemplatesService: { findByTypeOrThrow: jest.Mock };
   let whatsAppService: { sendTextMessage: jest.Mock };
 
   const mockClient: Client = {
@@ -88,7 +88,7 @@ describe('NewLoanReminderService', () => {
       create: jest.fn((dto: Partial<MessageLogItem>) => dto),
       save: jest.fn((items: unknown[]) => Promise.resolve(items)),
     };
-    messageTemplatesService = { findActiveOrThrow: jest.fn() };
+    messageTemplatesService = { findByTypeOrThrow: jest.fn() };
     whatsAppService = { sendTextMessage: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -122,7 +122,7 @@ describe('NewLoanReminderService', () => {
         installment({ id: 'inst-1', installmentNumber: 1 }),
         installment({ id: 'inst-2', installmentNumber: 2 }),
       ]);
-      messageTemplatesService.findActiveOrThrow.mockResolvedValue({
+      messageTemplatesService.findByTypeOrThrow.mockResolvedValue({
         content:
           'Hola {{clientFullName}}, pagaré #{{promissoryNoteNumber}} por {{loanDescription}}, {{totalInstallments}} cuotas {{installmentsSummary}} desde {{disbursedAt}}',
       });
@@ -133,7 +133,7 @@ describe('NewLoanReminderService', () => {
 
       const result = await service.sendNewLoanMessage(mockLoan.id);
 
-      expect(messageTemplatesService.findActiveOrThrow).toHaveBeenCalledWith(
+      expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
         MessageType.NewLoan,
       );
       expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(

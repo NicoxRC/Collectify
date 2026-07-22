@@ -27,7 +27,7 @@ describe('UpcomingDueReminderService', () => {
   let installmentsRepository: { createQueryBuilder: jest.Mock };
   let messageLogsRepository: { create: jest.Mock; save: jest.Mock };
   let messageLogItemsRepository: { create: jest.Mock; save: jest.Mock };
-  let messageTemplatesService: { findActiveOrThrow: jest.Mock };
+  let messageTemplatesService: { findByTypeOrThrow: jest.Mock };
   let whatsAppService: { sendTextMessage: jest.Mock };
   let queryBuilder: {
     innerJoinAndSelect: jest.Mock;
@@ -113,7 +113,7 @@ describe('UpcomingDueReminderService', () => {
       create: jest.fn((dto: Partial<MessageLogItem>) => dto),
       save: jest.fn((items: unknown[]) => Promise.resolve(items)),
     };
-    messageTemplatesService = { findActiveOrThrow: jest.fn() };
+    messageTemplatesService = { findByTypeOrThrow: jest.fn() };
     whatsAppService = { sendTextMessage: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -153,7 +153,7 @@ describe('UpcomingDueReminderService', () => {
   describe('sendReminderForClient', () => {
     beforeEach(() => {
       clientsRepository.findOneBy.mockResolvedValue(mockClient);
-      messageTemplatesService.findActiveOrThrow.mockResolvedValue({
+      messageTemplatesService.findByTypeOrThrow.mockResolvedValue({
         content: 'Hola {{clientFullName}}\n{{installmentsList}}',
       });
     });
@@ -176,7 +176,7 @@ describe('UpcomingDueReminderService', () => {
 
       const result = await service.sendReminderForClient(mockClient.id);
 
-      expect(messageTemplatesService.findActiveOrThrow).toHaveBeenCalledWith(
+      expect(messageTemplatesService.findByTypeOrThrow).toHaveBeenCalledWith(
         MessageType.UpcomingDue,
       );
       expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(

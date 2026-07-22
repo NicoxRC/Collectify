@@ -1,74 +1,11 @@
-import { useState } from 'react';
-
-import { useEscapeKey } from '@/lib/useEscapeKey';
-
-interface ActivateTemplateDialogProps {
-  templateName: string;
-  currentlyActiveName: string | null;
-  onConfirm: () => Promise<unknown>;
-  onClose: () => void;
-}
-
-// Matches Figma F-28 "Activar plantilla — Dialog Desktop". Same
-// confirmation-dialog pattern as DeactivateClientDialog.tsx /
-// MarkAsPaidDialog.tsx.
-export function ActivateTemplateDialog({
-  templateName,
-  currentlyActiveName,
-  onConfirm,
-  onClose,
-}: ActivateTemplateDialogProps) {
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEscapeKey(onClose);
-
-  const handleConfirm = async () => {
-    setIsSubmitting(true);
-    try {
-      await onConfirm();
-      onClose();
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-[420px] rounded-lg border border-border bg-surface px-8 py-7">
-        <h2 className="text-card-title font-medium text-white">
-          Activar plantilla
-        </h2>
-        <p className="mt-2.5 text-small text-muted">
-          ¿Estás seguro de que deseas activar &apos;{templateName}&apos;?
-        </p>
-
-        {currentlyActiveName && (
-          <div className="mt-4 rounded border border-[#5a4008] bg-[#231b01] px-3.5 py-2.5 text-small text-[#eab308]">
-            Esto desactivará automáticamente la plantilla &apos;
-            {currentlyActiveName}&apos; (actualmente activa).
-          </div>
-        )}
-
-        <div className="mt-6 border-t border-border" />
-
-        <div className="mt-5 flex items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleConfirm()}
-            disabled={isSubmitting}
-            className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isSubmitting ? 'Activando…' : 'Sí, activar plantilla'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+// Obsolete after the backend refactor (main, PR #16 on the backend side):
+// `isActive` and `POST /message-templates/:id/activate` were both
+// removed — there's exactly one template per message type now (`type` is
+// UNIQUE), so "activating" one no longer means anything. See
+// messageTemplatesApi.ts and apps/client/docs/DESIGN_TOKENS.md "Known
+// design/backend gaps".
+//
+// Kept as an empty file rather than deleted — this project's workspace
+// folder doesn't allow renaming/deleting files (same constraint noted in
+// components/layout/Header.tsx and features/auth/ChangePasswordDialog.tsx).
+export {};

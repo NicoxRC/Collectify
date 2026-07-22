@@ -56,7 +56,7 @@ export class AccountSummaryService {
       );
     }
 
-    const template = await this.messageTemplatesService.findActiveOrThrow(
+    const template = await this.messageTemplatesService.findByTypeOrThrow(
       MessageType.AccountSummary,
     );
     const messageContent = renderAccountSummaryMessage(
