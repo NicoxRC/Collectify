@@ -29,7 +29,7 @@ export function estadoBadge(loan: {
   if (loan.status === LoanStatus.Paid) {
     return {
       label: 'Pagado',
-      classes: 'border-[#878787] bg-surface text-[#878787]',
+      classes: 'border-muted bg-surface text-muted',
     };
   }
   if (loan.status === LoanStatus.Refinanced) {

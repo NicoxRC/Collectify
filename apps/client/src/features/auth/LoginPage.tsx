@@ -130,7 +130,7 @@ export function LoginPage() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="mt-6 h-12 w-full rounded bg-white text-control font-semibold text-background hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-6 h-12 w-full rounded bg-white text-control font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmitting ? 'Ingresando…' : 'Entrar'}
           </button>
