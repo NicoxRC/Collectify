@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { endOfWeek, startOfWeek } from 'date-fns';
-import { Between, Repository } from 'typeorm';
+import { Between, LessThan, Repository } from 'typeorm';
 
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import {
@@ -167,16 +167,14 @@ export class DashboardService {
   > {
     const today = new Date().toISOString().slice(0, 10);
 
-    const installments = await this.installmentsRepository
-      .createQueryBuilder('installment')
-      .innerJoinAndSelect('installment.loan', 'loan')
-      .innerJoinAndSelect('loan.client', 'client')
-      .where('loan.status = :loanStatus', { loanStatus: LoanStatus.Active })
-      .andWhere('installment.status = :installmentStatus', {
-        installmentStatus: InstallmentStatus.Pending,
-      })
-      .andWhere('installment.dueDate < :today', { today })
-      .getMany();
+    const installments = await this.installmentsRepository.find({
+      where: {
+        status: InstallmentStatus.Pending,
+        dueDate: LessThan(today),
+        loan: { status: LoanStatus.Active },
+      },
+      relations: { loan: { client: true } },
+    });
 
     return installments.map((installment) => {
       const enriched = enrichInstallment(
@@ -194,13 +192,12 @@ export class DashboardService {
   }
 
   private async countActiveClients(): Promise<number> {
-    const result = await this.loansRepository
-      .createQueryBuilder('loan')
-      .select('COUNT(DISTINCT loan.clientId)', 'count')
-      .where('loan.status = :status', { status: LoanStatus.Active })
-      .getRawOne<{ count: string }>();
+    const activeLoans = await this.loansRepository.find({
+      where: { status: LoanStatus.Active },
+      select: { clientId: true },
+    });
 
-    return parseInt(result?.count ?? '0', 10);
+    return new Set(activeLoans.map((loan) => loan.clientId)).size;
   }
 
   private async countMessagesSentThisWeek(): Promise<number> {
@@ -219,12 +216,11 @@ export class DashboardService {
     start: string,
     end: string,
   ): Promise<number> {
-    const result = await this.paymentsRepository
-      .createQueryBuilder('payment')
-      .select('COALESCE(SUM(payment.amountPaid), 0)', 'total')
-      .where('payment.paidAt BETWEEN :start AND :end', { start, end })
-      .getRawOne<{ total: string }>();
+    const payments = await this.paymentsRepository.find({
+      where: { paidAt: Between(start, end) },
+      select: { amountPaid: true },
+    });
 
-    return parseFloat(result?.total ?? '0');
+    return payments.reduce((sum, payment) => sum + payment.amountPaid, 0);
   }
 }

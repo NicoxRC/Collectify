@@ -7,7 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, ILike, IsNull, Not, Repository } from 'typeorm';
 
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 
@@ -49,83 +49,70 @@ export class ClientsService {
     }
   }
 
+  // Alphabetical by name instead of most-recently-created, per the
+  // client's request. firstName/lastName are free text (nothing stops
+  // someone from entering "Juan Carlos" as a first name and "Pérez
+  // Gómez" as a last name) — that's not actually a problem for text
+  // ordering the way it was for promissoryNoteNumber's numbers: strings
+  // of different lengths compare correctly character by character
+  // regardless of how many "names" are packed into the field (e.g.
+  // "Juan" sorts before "Juan Carlos", same as "casa" before "casas").
+  //
+  // Sorted in application code (fetching every matching row, unpaginated,
+  // then slicing the page) rather than at the database level: the sort
+  // key here is computed (case- and accent-folded), and Postgres — with no
+  // locale-aware/ICU collation configured on this database (confirmed
+  // empirically: the client tested "José" vs "Jose" and "Ñoño" vs
+  // "Nn"/"Oo") — compares text by raw UTF-8 byte value, so every accented
+  // name would otherwise sort after all plain ASCII ones. Folding each
+  // accented character to its plain equivalent (only for sort purposes —
+  // the stored/displayed name is untouched) reproduces the same ordering
+  // without a database-side function. At this business's scale (a single
+  // lending company's client list, not a multi-tenant SaaS), fetching the
+  // filtered set before paginating is not a performance concern.
   async findAll(query: QueryClientsDto): Promise<PaginatedResult<Client>> {
     const page = query.page ?? DEFAULT_PAGE;
     const limit = query.limit ?? DEFAULT_PAGE_SIZE;
 
-    const qb = this.clientsRepository
-      .createQueryBuilder('client')
-      .withDeleted()
-      // Alphabetical by name instead of most-recently-created, per the
-      // client's request. firstName/lastName are free text (nothing stops
-      // someone from entering "Juan Carlos" as a first name and "Pérez
-      // Gómez" as a last name) — that's not actually a problem for text
-      // ordering the way it was for promissoryNoteNumber's numbers: strings
-      // of different lengths compare correctly character by character
-      // regardless of how many "names" are packed into the field (e.g.
-      // "Juan" sorts before "Juan Carlos", same as "casa" before "casas").
-      //
-      // LOWER() handles case: Postgres compares text case-sensitively by
-      // default (uppercase sorts before all lowercase), so an
-      // inconsistently-capitalized "andrés" would otherwise land after
-      // "Zapata" instead of near the A's.
-      //
-      // TRANSLATE() handles accents/ñ: confirmed empirically (client
-      // tested "José" vs "Jose" and "Ñoño" vs "Nn"/"Oo") that this
-      // database compares text by raw UTF-8 byte value (no
-      // locale-aware/ICU collation configured), and accented characters —
-      // being multi-byte in UTF-8 — always have a higher byte value than
-      // any plain ASCII letter. Without this, every accented name gets
-      // shoved to the very end, regardless of the actual letter. Folding
-      // each accented character to its plain equivalent before comparing
-      // (only for sort purposes — the stored/displayed name is untouched)
-      // sidesteps that entirely without needing any server-level locale
-      // configuration, which isn't guaranteed available on this Postgres
-      // image. Doesn't reproduce the traditional Spanish-dictionary rule
-      // of treating "ñ" as its own letter between "n" and "o" — it folds
-      // to "n" — but that's a minor imprecision next to the alternative of
-      // ñ-named clients always sorting dead last.
-      //
-      // Named addSelect(), not inlined into orderBy(): TypeORM's
-      // entity-hydrating orderBy naively splits any string containing a '.'
-      // on the first dot to resolve it as a join alias — see the same fix
-      // in LoansService.findAll for the full explanation.
-      .addSelect(
-        "TRANSLATE(LOWER(client.first_name), 'áéíóúñü', 'aeiounu')",
-        'first_name_sort',
-      )
-      .addSelect(
-        "TRANSLATE(LOWER(client.last_name), 'áéíóúñü', 'aeiounu')",
-        'last_name_sort',
-      )
-      .orderBy('first_name_sort', 'ASC')
-      .addOrderBy('last_name_sort', 'ASC')
-      .skip((page - 1) * limit)
-      .take(limit);
+    const matches = await this.clientsRepository.find({
+      where: this.buildFindAllWhere(query),
+      // 'all' and false both need soft-deleted rows visible — 'all' shows
+      // everything, false is filtered down to only soft-deleted rows below.
+      withDeleted: query.isActive === 'all' || query.isActive === false,
+    });
+    const items = matches.sort(compareClientsByName);
 
-    // 'all' means no filter at all (both active and soft-deleted). Any
-    // other value — including omitted, defaulting to true — filters as
-    // before; see queryClients.dto.ts's Transform for how 'all' gets here.
-    if (query.isActive !== 'all') {
-      const isActive = query.isActive ?? true;
-      qb.andWhere(
-        isActive ? 'client.deletedAt IS NULL' : 'client.deletedAt IS NOT NULL',
-      );
-    }
-
-    if (query.search) {
-      qb.andWhere(
-        '(client.firstName ILIKE :search OR client.lastName ILIKE :search OR client.documentNumber ILIKE :search OR client.phoneNumber ILIKE :search)',
-        { search: `%${query.search}%` },
-      );
-    }
-
-    const [items, total] = await qb.getManyAndCount();
+    const total = items.length;
+    const start = (page - 1) * limit;
 
     return {
-      items,
+      items: items.slice(start, start + limit),
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  // 'all' means no filter at all (both active and soft-deleted). Any
+  // other value — including omitted, defaulting to true — filters as
+  // before; see queryClients.dto.ts's Transform for how 'all' gets here.
+  private buildFindAllWhere(
+    query: QueryClientsDto,
+  ): FindOptionsWhere<Client> | FindOptionsWhere<Client>[] {
+    const base: FindOptionsWhere<Client> = {};
+    if (query.isActive === false) {
+      base.deletedAt = Not(IsNull());
+    }
+
+    if (!query.search) {
+      return base;
+    }
+
+    const search = ILike(`%${query.search}%`);
+    return [
+      { ...base, firstName: search },
+      { ...base, lastName: search },
+      { ...base, documentNumber: search },
+      { ...base, phoneNumber: search },
+    ];
   }
 
   async findOne(id: string): Promise<Client> {
@@ -245,4 +232,47 @@ export class ClientsService {
     }
     return error;
   }
+}
+
+// Mirrors TRANSLATE(LOWER(x), 'áéíóúñü', 'aeiounu') from the previous
+// SQL-level sort. Doesn't reproduce the traditional Spanish-dictionary rule
+// of treating "ñ" as its own letter between "n" and "o" — it folds to "n" —
+// but that's a minor imprecision next to the alternative of ñ-named clients
+// always sorting dead last (see findAll's comment for why that matters here).
+const ACCENT_FOLD: Record<string, string> = {
+  á: 'a',
+  é: 'e',
+  í: 'i',
+  ó: 'o',
+  ú: 'u',
+  ñ: 'n',
+  ü: 'u',
+};
+
+function foldForSort(value: string): string {
+  return value.toLowerCase().replace(/[áéíóúñü]/g, (char) => ACCENT_FOLD[char]);
+}
+
+// Plain `<`/`>` on the folded strings, not localeCompare(): the previous
+// SQL sort compared raw byte value, which for the ASCII range left after
+// folding is equivalent to comparing UTF-16 code units directly —
+// localeCompare's locale-aware rules could reorder differently.
+function compareClientsByName(a: Client, b: Client): number {
+  const firstNameCompare = compareFolded(a.firstName, b.firstName);
+  if (firstNameCompare !== 0) {
+    return firstNameCompare;
+  }
+  return compareFolded(a.lastName, b.lastName);
+}
+
+function compareFolded(a: string, b: string): number {
+  const foldedA = foldForSort(a);
+  const foldedB = foldForSort(b);
+  if (foldedA < foldedB) {
+    return -1;
+  }
+  if (foldedA > foldedB) {
+    return 1;
+  }
+  return 0;
 }

@@ -23,18 +23,11 @@ import { WhatsAppService } from './whatsapp.service';
 describe('AccountSummaryService', () => {
   let service: AccountSummaryService;
   let clientsRepository: { findOneBy: jest.Mock };
-  let installmentsRepository: { createQueryBuilder: jest.Mock };
+  let installmentsRepository: { find: jest.Mock };
   let messageLogsRepository: { create: jest.Mock; save: jest.Mock };
   let messageLogItemsRepository: { create: jest.Mock; save: jest.Mock };
   let messageTemplatesService: { findByTypeOrThrow: jest.Mock };
   let whatsAppService: { sendTextMessage: jest.Mock };
-  let queryBuilder: {
-    innerJoinAndSelect: jest.Mock;
-    where: jest.Mock;
-    andWhere: jest.Mock;
-    orderBy: jest.Mock;
-    getMany: jest.Mock;
-  };
 
   const mockClient: Client = {
     id: 'client-1',
@@ -85,17 +78,8 @@ describe('AccountSummaryService', () => {
   }
 
   beforeEach(async () => {
-    queryBuilder = {
-      innerJoinAndSelect: jest.fn().mockReturnThis(),
-      where: jest.fn().mockReturnThis(),
-      andWhere: jest.fn().mockReturnThis(),
-      orderBy: jest.fn().mockReturnThis(),
-      getMany: jest.fn(),
-    };
     clientsRepository = { findOneBy: jest.fn() };
-    installmentsRepository = {
-      createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
-    };
+    installmentsRepository = { find: jest.fn() };
     messageLogsRepository = {
       create: jest.fn((dto: Partial<MessageLog>) => dto),
       save: jest.fn((log: Partial<MessageLog>) =>
@@ -143,7 +127,7 @@ describe('AccountSummaryService', () => {
     });
 
     it('includes both overdue and not-yet-due installments in one message', async () => {
-      queryBuilder.getMany.mockResolvedValue([
+      installmentsRepository.find.mockResolvedValue([
         pendingInstallment({
           id: 'inst-overdue',
           dueDate: '2020-01-01', // far past — overdue
@@ -191,7 +175,7 @@ describe('AccountSummaryService', () => {
     });
 
     it('throws BadRequestException when the client has no pending installments', async () => {
-      queryBuilder.getMany.mockResolvedValue([]);
+      installmentsRepository.find.mockResolvedValue([]);
 
       await expect(service.sendAccountSummary(mockClient.id)).rejects.toThrow(
         BadRequestException,

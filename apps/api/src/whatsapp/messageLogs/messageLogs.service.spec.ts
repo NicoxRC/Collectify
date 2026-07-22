@@ -10,16 +10,8 @@ import { MessageLogsService } from './messageLogs.service';
 
 describe('MessageLogsService', () => {
   let service: MessageLogsService;
-  let repository: { createQueryBuilder: jest.Mock; findOneBy: jest.Mock };
+  let repository: { findAndCount: jest.Mock; findOneBy: jest.Mock };
   let messageLogItemsRepository: { find: jest.Mock };
-  let queryBuilder: {
-    leftJoinAndSelect: jest.Mock;
-    orderBy: jest.Mock;
-    skip: jest.Mock;
-    take: jest.Mock;
-    andWhere: jest.Mock;
-    getManyAndCount: jest.Mock;
-  };
 
   const mockLog: MessageLog = {
     id: 'log-1',
@@ -34,16 +26,8 @@ describe('MessageLogsService', () => {
   };
 
   beforeEach(async () => {
-    queryBuilder = {
-      leftJoinAndSelect: jest.fn().mockReturnThis(),
-      orderBy: jest.fn().mockReturnThis(),
-      skip: jest.fn().mockReturnThis(),
-      take: jest.fn().mockReturnThis(),
-      andWhere: jest.fn().mockReturnThis(),
-      getManyAndCount: jest.fn(),
-    };
     repository = {
-      createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
+      findAndCount: jest.fn(),
       findOneBy: jest.fn(),
     };
     messageLogItemsRepository = {
@@ -65,7 +49,7 @@ describe('MessageLogsService', () => {
   });
 
   it('returns a paginated page and applies the clientId/type/status/date filters', async () => {
-    queryBuilder.getManyAndCount.mockResolvedValue([[mockLog], 1]);
+    repository.findAndCount.mockResolvedValue([[mockLog], 1]);
 
     const result = await service.findAll({
       clientId: 'client-1',
@@ -79,40 +63,42 @@ describe('MessageLogsService', () => {
       items: [mockLog],
       meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
     });
-    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
-      'messageLog.clientId = :clientId',
-      {
-        clientId: 'client-1',
-      },
+    expect(repository.findAndCount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          clientId: 'client-1',
+          type: MessageType.Overdue,
+          status: MessageLogStatus.Sent,
+          sentAt: expect.objectContaining({
+            _type: 'between',
+            _value: [new Date('2026-01-01'), new Date('2026-01-31')],
+          }) as unknown,
+        },
+        order: { sentAt: 'DESC' },
+        relations: { client: true },
+      }),
     );
-    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
-      'messageLog.type = :type',
-      {
-        type: MessageType.Overdue,
-      },
-    );
-    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
-      'messageLog.status = :status',
-      {
-        status: MessageLogStatus.Sent,
-      },
-    );
-    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
-      'messageLog.sentAt >= :dateFrom',
-      {
-        dateFrom: '2026-01-01',
-      },
-    );
-    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
-      'messageLog.sentAt <= :dateTo',
-      {
-        dateTo: '2026-01-31',
-      },
+  });
+
+  it('applies an open-ended sentAt filter when only dateFrom is given', async () => {
+    repository.findAndCount.mockResolvedValue([[mockLog], 1]);
+
+    await service.findAll({ dateFrom: '2026-01-01' });
+
+    expect(repository.findAndCount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          sentAt: expect.objectContaining({
+            _type: 'moreThanOrEqual',
+            _value: new Date('2026-01-01'),
+          }) as unknown,
+        }) as unknown,
+      }),
     );
   });
 
   it('returns an empty page when there are no matches', async () => {
-    queryBuilder.getManyAndCount.mockResolvedValue([[], 0]);
+    repository.findAndCount.mockResolvedValue([[], 0]);
 
     const result = await service.findAll({});
 
@@ -120,18 +106,43 @@ describe('MessageLogsService', () => {
     expect(result.meta.totalPages).toBe(0);
   });
 
-  it('joins client and applies the search filter against first/last name', async () => {
-    queryBuilder.getManyAndCount.mockResolvedValue([[mockLog], 1]);
+  it('applies the search filter as an OR across first/last name', async () => {
+    repository.findAndCount.mockResolvedValue([[mockLog], 1]);
 
     await service.findAll({ search: 'Juana' });
 
-    expect(queryBuilder.leftJoinAndSelect).toHaveBeenCalledWith(
-      'messageLog.client',
-      'client',
+    expect(repository.findAndCount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: [
+          {
+            client: {
+              firstName: expect.objectContaining({
+                _type: 'ilike',
+                _value: '%Juana%',
+              }) as unknown,
+            },
+          },
+          {
+            client: {
+              lastName: expect.objectContaining({
+                _type: 'ilike',
+                _value: '%Juana%',
+              }) as unknown,
+            },
+          },
+        ],
+        relations: { client: true },
+      }),
     );
-    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
-      '(client.firstName ILIKE :search OR client.lastName ILIKE :search)',
-      { search: '%Juana%' },
+  });
+
+  it('respects custom page and limit', async () => {
+    repository.findAndCount.mockResolvedValue([[], 0]);
+
+    await service.findAll({ page: 2, limit: 5 });
+
+    expect(repository.findAndCount).toHaveBeenCalledWith(
+      expect.objectContaining({ skip: 5, take: 5 }),
     );
   });
 

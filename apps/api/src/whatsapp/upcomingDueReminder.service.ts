@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 import { Client } from '../clients/entities/client.entity';
 import { Configuration } from '../config/configuration';
@@ -129,17 +129,15 @@ export class UpcomingDueReminderService {
       addDaysToDateString(today, days),
     );
 
-    const installments = await this.installmentsRepository
-      .createQueryBuilder('installment')
-      .innerJoinAndSelect('installment.loan', 'loan')
-      .where('loan.clientId = :clientId', { clientId })
-      .andWhere('loan.status = :loanStatus', { loanStatus: LoanStatus.Active })
-      .andWhere('installment.status = :installmentStatus', {
-        installmentStatus: InstallmentStatus.Pending,
-      })
-      .andWhere('installment.dueDate IN (:...targetDates)', { targetDates })
-      .orderBy('installment.dueDate', 'ASC')
-      .getMany();
+    const installments = await this.installmentsRepository.find({
+      where: {
+        status: InstallmentStatus.Pending,
+        dueDate: In(targetDates),
+        loan: { clientId, status: LoanStatus.Active },
+      },
+      relations: { loan: true },
+      order: { dueDate: 'ASC' },
+    });
 
     return installments.map((installment) => ({
       id: installment.id,
@@ -159,17 +157,17 @@ export class UpcomingDueReminderService {
       addDaysToDateString(today, days),
     );
 
-    const rows = await this.installmentsRepository
-      .createQueryBuilder('installment')
-      .innerJoin('installment.loan', 'loan')
-      .select('DISTINCT loan.client_id', 'clientId')
-      .where('loan.status = :loanStatus', { loanStatus: LoanStatus.Active })
-      .andWhere('installment.status = :installmentStatus', {
-        installmentStatus: InstallmentStatus.Pending,
-      })
-      .andWhere('installment.dueDate IN (:...targetDates)', { targetDates })
-      .getRawMany<{ clientId: string }>();
+    const installments = await this.installmentsRepository.find({
+      where: {
+        status: InstallmentStatus.Pending,
+        dueDate: In(targetDates),
+        loan: { status: LoanStatus.Active },
+      },
+      relations: { loan: true },
+    });
 
-    return rows.map((row) => row.clientId);
+    return [
+      ...new Set(installments.map((installment) => installment.loan.clientId)),
+    ];
   }
 }

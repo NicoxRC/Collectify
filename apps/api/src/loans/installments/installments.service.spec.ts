@@ -14,19 +14,14 @@ describe('InstallmentsService', () => {
     findOneBy: jest.Mock;
     update: jest.Mock;
     find: jest.Mock;
-    createQueryBuilder: jest.Mock;
+    findAndCount: jest.Mock;
   };
   let paymentsRepository: {
     create: jest.Mock;
     save: jest.Mock;
-    createQueryBuilder: jest.Mock;
+    find: jest.Mock;
   };
   let loansRepository: { update: jest.Mock };
-  let sumQueryBuilder: {
-    select: jest.Mock;
-    where: jest.Mock;
-    getRawOne: jest.Mock;
-  };
 
   const mockInstallment: Installment = {
     id: 'inst-1',
@@ -44,21 +39,16 @@ describe('InstallmentsService', () => {
   const paymentDto = { amountPaid: 100000, paidAt: '2026-01-05' };
 
   beforeEach(async () => {
-    sumQueryBuilder = {
-      select: jest.fn().mockReturnThis(),
-      where: jest.fn().mockReturnThis(),
-      getRawOne: jest.fn(),
-    };
     installmentsRepository = {
       findOneBy: jest.fn(),
       update: jest.fn(),
       find: jest.fn(),
-      createQueryBuilder: jest.fn(),
+      findAndCount: jest.fn(),
     };
     paymentsRepository = {
       create: jest.fn((dto: Partial<Payment>) => dto),
       save: jest.fn((payment: Partial<Payment>) => Promise.resolve(payment)),
-      createQueryBuilder: jest.fn().mockReturnValue(sumQueryBuilder),
+      find: jest.fn(),
     };
     loansRepository = { update: jest.fn() };
 
@@ -80,7 +70,7 @@ describe('InstallmentsService', () => {
   describe('registerPayment', () => {
     it('records a partial payment without marking the installment paid', async () => {
       installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
-      sumQueryBuilder.getRawOne.mockResolvedValue({ total: '100000' });
+      paymentsRepository.find.mockResolvedValue([{ amountPaid: 100000 }]);
 
       const result = await service.registerPayment(
         mockInstallment.id,
@@ -94,7 +84,7 @@ describe('InstallmentsService', () => {
 
     it('marks the installment paid when accumulated payments cover the amount exactly', async () => {
       installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
-      sumQueryBuilder.getRawOne.mockResolvedValue({ total: '200000' });
+      paymentsRepository.find.mockResolvedValue([{ amountPaid: 200000 }]);
       installmentsRepository.find.mockResolvedValue([
         { ...mockInstallment, status: InstallmentStatus.Paid },
       ]);
@@ -112,7 +102,7 @@ describe('InstallmentsService', () => {
 
     it('marks the installment paid on overpayment (accumulated exceeds the amount)', async () => {
       installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
-      sumQueryBuilder.getRawOne.mockResolvedValue({ total: '250000' });
+      paymentsRepository.find.mockResolvedValue([{ amountPaid: 250000 }]);
       installmentsRepository.find.mockResolvedValue([
         { ...mockInstallment, status: InstallmentStatus.Paid },
       ]);
@@ -130,7 +120,7 @@ describe('InstallmentsService', () => {
 
     it('cascades the loan to paid when every installment of it is paid', async () => {
       installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
-      sumQueryBuilder.getRawOne.mockResolvedValue({ total: '200000' });
+      paymentsRepository.find.mockResolvedValue([{ amountPaid: 200000 }]);
       installmentsRepository.find.mockResolvedValue([
         { ...mockInstallment, status: InstallmentStatus.Paid },
       ]);
@@ -148,7 +138,7 @@ describe('InstallmentsService', () => {
 
     it('does not cascade the loan to paid when other installments are still pending', async () => {
       installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
-      sumQueryBuilder.getRawOne.mockResolvedValue({ total: '200000' });
+      paymentsRepository.find.mockResolvedValue([{ amountPaid: 200000 }]);
       installmentsRepository.find.mockResolvedValue([
         { ...mockInstallment, status: InstallmentStatus.Paid },
         { ...mockInstallment, id: 'inst-2', status: InstallmentStatus.Pending },
@@ -170,7 +160,7 @@ describe('InstallmentsService', () => {
 
       await service.registerPayment(mockInstallment.id, paymentDto);
 
-      expect(sumQueryBuilder.getRawOne).not.toHaveBeenCalled();
+      expect(paymentsRepository.find).not.toHaveBeenCalled();
       expect(installmentsRepository.update).not.toHaveBeenCalled();
     });
 

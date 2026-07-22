@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { LessThan, Repository } from 'typeorm';
 
 import { Client } from '../clients/entities/client.entity';
 import {
@@ -115,17 +115,15 @@ export class OverdueReminderService {
   private async gatherOverdueInstallments(clientId: string) {
     const today = new Date().toISOString().slice(0, 10);
 
-    const installments = await this.installmentsRepository
-      .createQueryBuilder('installment')
-      .innerJoinAndSelect('installment.loan', 'loan')
-      .where('loan.clientId = :clientId', { clientId })
-      .andWhere('loan.status = :loanStatus', { loanStatus: LoanStatus.Active })
-      .andWhere('installment.status = :installmentStatus', {
-        installmentStatus: InstallmentStatus.Pending,
-      })
-      .andWhere('installment.dueDate < :today', { today })
-      .orderBy('installment.dueDate', 'ASC')
-      .getMany();
+    const installments = await this.installmentsRepository.find({
+      where: {
+        status: InstallmentStatus.Pending,
+        dueDate: LessThan(today),
+        loan: { clientId, status: LoanStatus.Active },
+      },
+      relations: { loan: true },
+      order: { dueDate: 'ASC' },
+    });
 
     return installments.map((installment) => ({
       ...enrichInstallment(installment, installment.loan.interestRate),
@@ -136,17 +134,17 @@ export class OverdueReminderService {
   private async findClientIdsWithOverdueInstallments(): Promise<string[]> {
     const today = new Date().toISOString().slice(0, 10);
 
-    const rows = await this.installmentsRepository
-      .createQueryBuilder('installment')
-      .innerJoin('installment.loan', 'loan')
-      .select('DISTINCT loan.client_id', 'clientId')
-      .where('loan.status = :loanStatus', { loanStatus: LoanStatus.Active })
-      .andWhere('installment.status = :installmentStatus', {
-        installmentStatus: InstallmentStatus.Pending,
-      })
-      .andWhere('installment.dueDate < :today', { today })
-      .getRawMany<{ clientId: string }>();
+    const installments = await this.installmentsRepository.find({
+      where: {
+        status: InstallmentStatus.Pending,
+        dueDate: LessThan(today),
+        loan: { status: LoanStatus.Active },
+      },
+      relations: { loan: true },
+    });
 
-    return rows.map((row) => row.clientId);
+    return [
+      ...new Set(installments.map((installment) => installment.loan.clientId)),
+    ];
   }
 }
