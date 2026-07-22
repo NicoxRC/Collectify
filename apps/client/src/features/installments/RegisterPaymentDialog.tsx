@@ -1,7 +1,10 @@
 import { useState } from 'react';
 
+import { CurrencyInput } from '@/components/ui/CurrencyInput';
+import { DatePicker } from '@/components/ui/DatePicker';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency } from '@/lib/format';
+import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type { Installment } from '@/features/installments/installmentsApi';
 import type { FormEvent } from 'react';
@@ -25,6 +28,23 @@ interface RegisterPaymentDialogProps {
   }) => Promise<unknown>;
 }
 
+// `new Date().toISOString().slice(0, 10)` (the obvious way to get
+// "today") is wrong here: .toISOString() converts the current instant to
+// UTC before formatting, which rolls the calendar date forward for any
+// timezone behind UTC — e.g. America/Bogota (UTC-5) turns 21 jul 8:00pm
+// local into 22 jul 1:00am UTC, showing tomorrow's date as the default.
+// This reads the LOCAL calendar day directly instead (same bug class as
+// formatDateOnly/dueDateMath.ts, opposite direction: those force UTC to
+// stop the date from rolling BACK; this forces local to stop it rolling
+// FORWARD).
+function todayDateString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // Matches Figma F-20 "Registrar pago — Modal Desktop" exactly — the only
 // one of this phase's screens with no design/backend gap at all.
 export function RegisterPaymentDialog({
@@ -41,18 +61,20 @@ export function RegisterPaymentDialog({
   // float into the field. Still fully editable — this only affects the
   // pre-filled default.
   const [amountPaid, setAmountPaid] = useState(
-    String(Math.round(installment.totalDue)),
+    Math.round(installment.totalDue),
   );
-  const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
+  const [paidAt, setPaidAt] = useState(todayDateString());
   const [observation, setObservation] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEscapeKey(onClose);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
 
-    const amount = parseFloat(amountPaid);
+    const amount = amountPaid;
     if (!(amount > 0)) {
       setError('El monto del pago debe ser mayor a 0.');
       return;
@@ -82,7 +104,7 @@ export function RegisterPaymentDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="w-full max-w-[440px] rounded-lg border border-border bg-surface px-8 py-7">
         <h2 className="text-[16px] font-medium text-white">Registrar pago</h2>
         <p className="mt-1 text-label text-muted">
@@ -95,19 +117,16 @@ export function RegisterPaymentDialog({
         <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-3.5">
           <div className="flex gap-4">
             <Field label="Monto del pago">
-              <input
-                type="number"
-                min={0}
+              <CurrencyInput
                 value={amountPaid}
-                onChange={(event) => setAmountPaid(event.target.value)}
+                onChange={setAmountPaid}
                 className={inputClassName}
               />
             </Field>
             <Field label="Fecha de pago">
-              <input
-                type="date"
+              <DatePicker
                 value={paidAt}
-                onChange={(event) => setPaidAt(event.target.value)}
+                onChange={setPaidAt}
                 className={inputClassName}
               />
             </Field>
@@ -119,7 +138,11 @@ export function RegisterPaymentDialog({
               onChange={(event) => setObservation(event.target.value)}
               placeholder="Ej: pago recibido en efectivo"
               rows={3}
-              className={`${inputClassName} resize-none`}
+              // Not inputClassName — that has a fixed h-[42px] meant for
+              // single-line inputs, which fights with rows={3} and squeezes
+              // the text with no vertical padding. py-2.5 instead lets the
+              // textarea size itself naturally.
+              className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
             />
           </Field>
 
@@ -142,7 +165,7 @@ export function RegisterPaymentDialog({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSubmitting ? 'Registrando…' : 'Registrar pago'}
             </button>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
+import { Select } from '@/components/ui/Select';
 import { useAuth } from '@/features/auth/useAuth';
 import { LoanForm } from '@/features/loans/LoanForm';
 import { LoanRow } from '@/features/loans/LoanRow';
@@ -20,6 +21,13 @@ import type { ReactNode } from 'react';
 // QueryLoansDto.status is a plain optional enum filter, not the
 // true/false-only isActive Clientes originally had.
 type StatusFilter = 'all' | LoanStatus;
+
+const STATUS_FILTER_OPTIONS = [
+  { value: 'all', label: 'Todos los estados' },
+  { value: LoanStatus.Active, label: 'Activos' },
+  { value: LoanStatus.Paid, label: 'Pagados' },
+  { value: LoanStatus.Refinanced, label: 'Refinanciados' },
+];
 
 export function LoansListPage() {
   const { user } = useAuth();
@@ -60,19 +68,15 @@ export function LoansListPage() {
           />
         </div>
 
-        <select
+        <Select
           value={statusFilter}
-          onChange={(event) => {
-            setStatusFilter(event.target.value as StatusFilter);
+          onChange={(next) => {
+            setStatusFilter(next as StatusFilter);
             setPage(1);
           }}
-          className="h-[38px] rounded bg-input px-3 text-small text-muted focus:outline-none"
-        >
-          <option value="all">Todos los estados</option>
-          <option value={LoanStatus.Active}>Activos</option>
-          <option value={LoanStatus.Paid}>Pagados</option>
-          <option value={LoanStatus.Refinanced}>Refinanciados</option>
-        </select>
+          options={STATUS_FILTER_OPTIONS}
+          className="w-[190px]"
+        />
 
         <div className="flex-1" />
 
@@ -80,7 +84,7 @@ export function LoansListPage() {
           <button
             type="button"
             onClick={() => setIsCreating(true)}
-            className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-gray-200"
+            className="rounded bg-white px-4 py-2.5 text-body font-semibold text-background hover:bg-white/90"
           >
             + Nuevo préstamo
           </button>
@@ -184,7 +188,7 @@ function Th({
 }) {
   return (
     <th
-      className={`h-[38px] px-3.5 text-left text-section-label font-medium tracking-[0.36px] text-muted ${className}`}
+      className={`h-[38px] px-3.5 text-left text-label font-medium tracking-[0.36px] text-muted ${className}`}
     >
       {children}
     </th>
