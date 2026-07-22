@@ -79,7 +79,7 @@ export class UpcomingDueReminderService {
       );
     }
 
-    const template = await this.messageTemplatesService.findActiveOrThrow(
+    const template = await this.messageTemplatesService.findByTypeOrThrow(
       MessageType.UpcomingDue,
     );
     const messageContent = renderUpcomingDueMessage(

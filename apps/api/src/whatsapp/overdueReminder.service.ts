@@ -75,7 +75,7 @@ export class OverdueReminderService {
       );
     }
 
-    const template = await this.messageTemplatesService.findActiveOrThrow(
+    const template = await this.messageTemplatesService.findByTypeOrThrow(
       MessageType.Overdue,
     );
     const messageContent = renderOverdueReminderMessage(

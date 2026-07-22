@@ -49,7 +49,7 @@ export class NewLoanReminderService {
       order: { installmentNumber: 'ASC' },
     });
 
-    const template = await this.messageTemplatesService.findActiveOrThrow(
+    const template = await this.messageTemplatesService.findByTypeOrThrow(
       MessageType.NewLoan,
     );
     const messageContent = renderNewLoanMessage(template.content, {
