@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { And, Equal, FindOptionsWhere, LessThan, Repository } from 'typeorm';
 
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
 import { Installment, InstallmentStatus } from '../entities/installment.entity';
@@ -34,28 +34,31 @@ export class InstallmentsService {
     const page = query.page ?? DEFAULT_PAGE;
     const limit = query.limit ?? DEFAULT_PAGE_SIZE;
 
-    const qb = this.installmentsRepository
-      .createQueryBuilder('installment')
-      .leftJoinAndSelect('installment.loan', 'loan')
-      .orderBy('installment.dueDate', 'ASC')
-      .skip((page - 1) * limit)
-      .take(limit);
-
+    const where: FindOptionsWhere<Installment> = {};
     if (query.loanId) {
-      qb.andWhere('installment.loanId = :loanId', { loanId: query.loanId });
-    }
-    if (query.status) {
-      qb.andWhere('installment.status = :status', { status: query.status });
+      where.loanId = query.loanId;
     }
     if (query.overdueOnly) {
-      qb.andWhere('installment.status = :pendingStatus', {
-        pendingStatus: InstallmentStatus.Pending,
-      }).andWhere('installment.dueDate < :today', {
-        today: new Date().toISOString().slice(0, 10),
-      });
+      // Mirrors the previous two `andWhere` calls: status must be Pending
+      // AND dueDate must be in the past. If an explicit status filter is
+      // also given, both conditions apply — And() preserves that (a status
+      // other than 'pending' combined with overdueOnly matches nothing,
+      // same as the old chained andWhere clauses would).
+      where.status = query.status
+        ? And(Equal(query.status), Equal(InstallmentStatus.Pending))
+        : InstallmentStatus.Pending;
+      where.dueDate = LessThan(new Date().toISOString().slice(0, 10));
+    } else if (query.status) {
+      where.status = query.status;
     }
 
-    const [items, total] = await qb.getManyAndCount();
+    const [items, total] = await this.installmentsRepository.findAndCount({
+      where,
+      relations: { loan: true },
+      order: { dueDate: 'ASC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
 
     return {
       items: items.map((installment) =>
@@ -101,13 +104,12 @@ export class InstallmentsService {
   }
 
   private async sumPayments(installmentId: string): Promise<number> {
-    const result = await this.paymentsRepository
-      .createQueryBuilder('payment')
-      .select('COALESCE(SUM(payment.amountPaid), 0)', 'total')
-      .where('payment.installmentId = :installmentId', { installmentId })
-      .getRawOne<{ total: string }>();
+    const payments = await this.paymentsRepository.find({
+      where: { installmentId },
+      select: { amountPaid: true },
+    });
 
-    return parseFloat(result?.total ?? '0');
+    return payments.reduce((sum, payment) => sum + payment.amountPaid, 0);
   }
 
   private async cascadeLoanStatusIfFullyPaid(loanId: string): Promise<void> {
