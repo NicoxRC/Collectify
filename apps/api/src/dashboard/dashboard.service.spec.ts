@@ -19,27 +19,10 @@ import { OverdueClientsSortBy } from './dto/queryOverdueClients.dto';
 
 describe('DashboardService', () => {
   let service: DashboardService;
-  let loansRepository: { createQueryBuilder: jest.Mock; count: jest.Mock };
-  let installmentsRepository: { createQueryBuilder: jest.Mock };
-  let paymentsRepository: { createQueryBuilder: jest.Mock };
+  let loansRepository: { find: jest.Mock; count: jest.Mock };
+  let installmentsRepository: { find: jest.Mock };
+  let paymentsRepository: { find: jest.Mock };
   let messageLogsRepository: { count: jest.Mock };
-
-  let installmentsQueryBuilder: {
-    innerJoinAndSelect: jest.Mock;
-    where: jest.Mock;
-    andWhere: jest.Mock;
-    getMany: jest.Mock;
-  };
-  let loansQueryBuilder: {
-    select: jest.Mock;
-    where: jest.Mock;
-    getRawOne: jest.Mock;
-  };
-  let paymentsQueryBuilder: {
-    select: jest.Mock;
-    where: jest.Mock;
-    getRawOne: jest.Mock;
-  };
 
   function makeClient(overrides: Partial<Client> = {}): Client {
     return {
@@ -97,32 +80,15 @@ describe('DashboardService', () => {
   }
 
   beforeEach(async () => {
-    installmentsQueryBuilder = {
-      innerJoinAndSelect: jest.fn().mockReturnThis(),
-      where: jest.fn().mockReturnThis(),
-      andWhere: jest.fn().mockReturnThis(),
-      getMany: jest.fn().mockResolvedValue([]),
-    };
-    loansQueryBuilder = {
-      select: jest.fn().mockReturnThis(),
-      where: jest.fn().mockReturnThis(),
-      getRawOne: jest.fn().mockResolvedValue({ count: '0' }),
-    };
-    paymentsQueryBuilder = {
-      select: jest.fn().mockReturnThis(),
-      where: jest.fn().mockReturnThis(),
-      getRawOne: jest.fn().mockResolvedValue({ total: '0' }),
-    };
-
     loansRepository = {
-      createQueryBuilder: jest.fn().mockReturnValue(loansQueryBuilder),
+      find: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
     };
     installmentsRepository = {
-      createQueryBuilder: jest.fn().mockReturnValue(installmentsQueryBuilder),
+      find: jest.fn().mockResolvedValue([]),
     };
     paymentsRepository = {
-      createQueryBuilder: jest.fn().mockReturnValue(paymentsQueryBuilder),
+      find: jest.fn().mockResolvedValue([]),
     };
     messageLogsRepository = { count: jest.fn().mockResolvedValue(0) };
 
@@ -164,11 +130,16 @@ describe('DashboardService', () => {
           .toISOString()
           .slice(0, 10),
       });
-      installmentsQueryBuilder.getMany.mockResolvedValue([
+      installmentsRepository.find.mockResolvedValue([
         installmentA,
         installmentB,
       ]);
-      loansQueryBuilder.getRawOne.mockResolvedValue({ count: '4' });
+      loansRepository.find.mockResolvedValue([
+        { clientId: 'client-1' },
+        { clientId: 'client-2' },
+        { clientId: 'client-3' },
+        { clientId: 'client-4' },
+      ]);
       messageLogsRepository.count.mockResolvedValue(7);
 
       const result = await service.getSummary();
@@ -207,7 +178,7 @@ describe('DashboardService', () => {
           .toISOString()
           .slice(0, 10),
       });
-      installmentsQueryBuilder.getMany.mockResolvedValue([
+      installmentsRepository.find.mockResolvedValue([
         installmentA,
         installmentB,
       ]);
@@ -227,7 +198,7 @@ describe('DashboardService', () => {
       const bigClient = makeClient({ id: 'client-big' });
       const smallLoan = makeLoan(smallClient, { id: 'loan-small' });
       const bigLoan = makeLoan(bigClient, { id: 'loan-big' });
-      installmentsQueryBuilder.getMany.mockResolvedValue([
+      installmentsRepository.find.mockResolvedValue([
         makeInstallment(smallLoan, { id: 'inst-small', amount: 10000 }),
         makeInstallment(bigLoan, { id: 'inst-big', amount: 500000 }),
       ]);
@@ -247,7 +218,7 @@ describe('DashboardService', () => {
       const staleClient = makeClient({ id: 'client-stale' });
       const recentLoan = makeLoan(recentClient, { id: 'loan-recent' });
       const staleLoan = makeLoan(staleClient, { id: 'loan-stale' });
-      installmentsQueryBuilder.getMany.mockResolvedValue([
+      installmentsRepository.find.mockResolvedValue([
         makeInstallment(recentLoan, {
           id: 'inst-recent',
           amount: 500000,
@@ -278,7 +249,7 @@ describe('DashboardService', () => {
       const clients = Array.from({ length: 3 }, (_, i) =>
         makeClient({ id: `client-${i}` }),
       );
-      installmentsQueryBuilder.getMany.mockResolvedValue(
+      installmentsRepository.find.mockResolvedValue(
         clients.map((client, i) =>
           makeInstallment(makeLoan(client, { id: `loan-${i}` }), {
             id: `inst-${i}`,
@@ -301,7 +272,10 @@ describe('DashboardService', () => {
   describe('getMonthlyReport', () => {
     it('scopes new loans and payments to the given month/year boundaries', async () => {
       loansRepository.count.mockResolvedValue(3);
-      paymentsQueryBuilder.getRawOne.mockResolvedValue({ total: '450000' });
+      paymentsRepository.find.mockResolvedValue([
+        { amountPaid: 300000 },
+        { amountPaid: 150000 },
+      ]);
       messageLogsRepository.count.mockResolvedValue(12);
 
       const result = await service.getMonthlyReport({ month: 7, year: 2026 });
@@ -314,10 +288,15 @@ describe('DashboardService', () => {
           }) as unknown,
         },
       });
-      expect(paymentsQueryBuilder.where).toHaveBeenCalledWith(
-        'payment.paidAt BETWEEN :start AND :end',
-        { start: '2026-07-01', end: '2026-07-31' },
-      );
+      expect(paymentsRepository.find).toHaveBeenCalledWith({
+        where: {
+          paidAt: expect.objectContaining({
+            _type: 'between',
+            _value: ['2026-07-01', '2026-07-31'],
+          }) as unknown,
+        },
+        select: { amountPaid: true },
+      });
       expect(result).toEqual({
         month: 7,
         year: 2026,
@@ -330,10 +309,15 @@ describe('DashboardService', () => {
     it('scopes a 28-day February correctly', async () => {
       await service.getMonthlyReport({ month: 2, year: 2026 });
 
-      expect(paymentsQueryBuilder.where).toHaveBeenCalledWith(
-        'payment.paidAt BETWEEN :start AND :end',
-        { start: '2026-02-01', end: '2026-02-28' },
-      );
+      expect(paymentsRepository.find).toHaveBeenCalledWith({
+        where: {
+          paidAt: expect.objectContaining({
+            _type: 'between',
+            _value: ['2026-02-01', '2026-02-28'],
+          }) as unknown,
+        },
+        select: { amountPaid: true },
+      });
     });
   });
 });
