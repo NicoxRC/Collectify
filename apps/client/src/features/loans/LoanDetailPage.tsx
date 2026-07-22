@@ -6,6 +6,7 @@ import { useClient } from '@/features/clients/useClients';
 import { InstallmentStatus } from '@/features/installments/installmentsApi';
 import { RegisterPaymentDialog } from '@/features/installments/RegisterPaymentDialog';
 import { useRegisterPayment } from '@/features/installments/useInstallments';
+import { EditLoanDialog } from '@/features/loans/EditLoanDialog';
 import {
   estadoBadge,
   moraBadgeClasses,
@@ -16,6 +17,7 @@ import {
   useLoan,
   useLoanPayments,
   useMarkLoanAsPaid,
+  useUpdateLoan,
 } from '@/features/loans/useLoans';
 import { formatCurrency, formatDateOnly } from '@/lib/format';
 
@@ -41,10 +43,12 @@ export function LoanDetailPage() {
   const { data: payments } = useLoanPayments(id ?? '');
   const registerPayment = useRegisterPayment(id ?? '');
   const markAsPaid = useMarkLoanAsPaid();
+  const updateLoan = useUpdateLoan();
 
   const [payingInstallment, setPayingInstallment] =
     useState<Installment | null>(null);
   const [isChangingStatus, setIsChangingStatus] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   const pendingInstallments =
     loan?.installments.filter(
@@ -120,7 +124,7 @@ export function LoanDetailPage() {
         </span>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between rounded border border-border bg-surface px-6 py-5">
         <div className="flex flex-col gap-1.5">
           <h1 className="text-page-title font-semibold text-white">
             Préstamo {loan.promissoryNoteNumber}
@@ -150,10 +154,19 @@ export function LoanDetailPage() {
             type="button"
             disabled={!oldestPending}
             onClick={() => oldestPending && setPayingInstallment(oldestPending)}
-            className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Registrar pago
           </button>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setIsEditing(true)}
+              className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
+            >
+              Editar
+            </button>
+          )}
           {isAdmin && (
             <button
               type="button"
@@ -167,7 +180,7 @@ export function LoanDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <KpiCard
           label="Monto original"
           value={formatCurrency(loan.principalAmount)}
@@ -184,7 +197,15 @@ export function LoanDetailPage() {
           label="Próx. pago"
           value={oldestPending ? formatDateOnly(oldestPending.dueDate) : '—'}
         />
+        <KpiCard label="Tasa de interés" value={`${loan.interestRate}%`} />
       </div>
+
+      {loan.description && (
+        <p className="text-small">
+          <span className="text-muted">Descripción: </span>
+          <span className="text-white">{loan.description}</span>
+        </p>
+      )}
 
       <div className="flex flex-col gap-2.5">
         <span className="text-section-label font-medium tracking-[0.36px] text-muted">
@@ -295,9 +316,21 @@ export function LoanDetailPage() {
         </div>
       </div>
 
+      {/* Updated in Fase 5, now that the real shape is known: WhatsApp
+          messages are consolidated per CLIENT (one reminder can cover
+          several loans at once), not per loan — there's no "this loan's
+          messages" to show here. The client's message history lives on
+          ClientDetailPage.tsx instead. */}
       <div className="rounded border border-border bg-surface p-6 text-small text-muted">
-        El log de mensajes de WhatsApp de este préstamo se mostrará aquí a
-        partir de la Fase 5.
+        Los mensajes de WhatsApp se agrupan por cliente, no por préstamo —
+        puedes verlos en la ficha de{' '}
+        <Link
+          to={`/clientes/${loan.clientId}`}
+          className="text-white hover:underline"
+        >
+          {clientFullName}
+        </Link>
+        .
       </div>
 
       {payingInstallment && (
@@ -319,6 +352,16 @@ export function LoanDetailPage() {
           loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
           onClose={() => setIsChangingStatus(false)}
           onConfirm={() => markAsPaid.mutateAsync(loan.id)}
+        />
+      )}
+
+      {isEditing && (
+        <EditLoanDialog
+          loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
+          interestRate={loan.interestRate}
+          description={loan.description}
+          onClose={() => setIsEditing(false)}
+          onConfirm={(input) => updateLoan.mutateAsync({ id: loan.id, input })}
         />
       )}
     </div>
@@ -354,7 +397,7 @@ function Th({
 }) {
   return (
     <th
-      className={`h-[38px] px-3.5 text-left text-section-label font-medium tracking-[0.36px] text-muted ${className}`}
+      className={`h-[38px] px-3.5 text-left text-label font-medium tracking-[0.36px] text-muted ${className}`}
     >
       {children}
     </th>
