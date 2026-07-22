@@ -3,8 +3,8 @@
 /node_modules
 
 # Vite's local dependency pre-bundle cache — regenerated automatically,
-# shouldn't be tracked (accidentally committed once via `git add -A` while
-# the cache happened to exist on disk; see apps/client/docs/DESIGN_TOKENS.md)
+# shouldn't be tracked (accidentally committed via `git add -A` while
+# the cache happened to exist on disk)
 .vite
 
 # Logs
