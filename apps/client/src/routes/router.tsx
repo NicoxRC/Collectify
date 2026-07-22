@@ -7,7 +7,7 @@ import { ProtectedRoute } from '@/features/auth/ProtectedRoute';
 import { RequireRole } from '@/features/auth/RequireRole';
 import { ClientDetailPage } from '@/features/clients/ClientDetailPage';
 import { ClientsListPage } from '@/features/clients/ClientsListPage';
-import { HealthCheckPage } from '@/features/health/HealthCheckPage';
+import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { LoanDetailPage } from '@/features/loans/LoanDetailPage';
 import { LoansListPage } from '@/features/loans/LoansListPage';
 import { MessageLogsPage } from '@/features/messageLogs/MessageLogsPage';
@@ -28,8 +28,12 @@ export const router = createBrowserRouter([
         element: <AppLayout />,
         children: [
           {
+            // Landing page after login for both roles — the backend has no
+            // per-collector data scoping, so there's only one Dashboard, not
+            // an admin/cobrador variant. Was HealthCheckPage (Phase 1
+            // placeholder) until Phase 7. See DESIGN_TOKENS.md.
             index: true,
-            element: <HealthCheckPage />,
+            element: <DashboardPage />,
           },
           {
             path: 'clientes',
