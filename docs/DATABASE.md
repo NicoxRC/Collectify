@@ -217,12 +217,11 @@ This matches the manual calculations found across both source spreadsheets — v
 |---|---|---|
 | `id` | UUID | PK |
 | `name` | VARCHAR | |
-| `type` | ENUM (`new_loan`, `upcoming_due`, `overdue`, `account_summary`) | which message flow this template renders — see `docs/phases/PHASE_9_MESSAGE_TYPES.md` |
-| `content` | TEXT | supports placeholders — see below |
-| `is_active` | BOOLEAN | only one active **per `type`** at a time (not global — changed in Phase 9) |
+| `type` | ENUM (`new_loan`, `upcoming_due`, `overdue`, `account_summary`), **UNIQUE** | which message flow this template renders — exactly one row per type, see `docs/phases/PHASE_9_MESSAGE_TYPES.md` |
+| `content` | TEXT | supports placeholders — see below. **Not admin-editable — see "Changed after Phase 9" below.** |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
-**Template placeholders** — the per-installment line format is fixed per message type (matches the confirmed real message formats); only the outer template (greeting, where the list/total go) is admin-editable via `content`.
+**Template placeholders** — the per-installment line format is fixed per message type (matches the confirmed real message formats); the outer template (greeting, where the list/total go) is fixed too — see "Changed after Phase 9" below for why.
 
 `overdue` (real message format shared by the client):
 
@@ -335,8 +334,13 @@ npm run migration:revert
 
 ## Added in Phase 9
 
-- `message_templates.type` and `message_logs.type` — the system now supports four message types (`new_loan`, `upcoming_due`, `overdue`, `account_summary`), each with its own admin-editable template, instead of a single global template. See `docs/phases/PHASE_9_MESSAGE_TYPES.md` for the full scope and the judgment calls made (e.g. why "list all active pagarés" and "total across all credits" were combined into one `account_summary` message instead of two).
+- `message_templates.type` and `message_logs.type` — the system now supports four message types (`new_loan`, `upcoming_due`, `overdue`, `account_summary`), each with its own template, instead of a single global template. See `docs/phases/PHASE_9_MESSAGE_TYPES.md` for the full scope and the judgment calls made (e.g. why "list all active pagarés" and "total across all credits" were combined into one `account_summary` message instead of two).
 - `loans.description` — free-text field supporting the `new_loan` message's "por concepto de X" line.
+
+## Changed after Phase 9
+
+- **`message_templates` is no longer admin-editable.** Phase 9 (and Phase 5 before it) treated `content` as something an admin edits freely through the API. In practice, WhatsApp only allows a business to *initiate* a conversation (as opposed to replying within an open 24h window) through a template Meta has pre-approved — see `CONFIGURACION_WHATSAPP_META.md`. A freely-editable `content` column in our own database doesn't reflect that reality: changing it without a matching change to the Meta-approved template would just break sending. So `is_active` and the create/update/activate/delete endpoints were removed (including the soft-delete endpoint added right before this change — same reasoning: deleting one of the 4 fixed rows would leave a message type with nothing to render and no way to recreate it outside a migration) — `type` is now `UNIQUE` (exactly one row per type), and `MessageTemplatesController` only exposes `GET /message-templates`, for the admin to see what's currently being sent.
+- **Updating a template's content is a migration, not an API call** — the same controlled, reviewed process used for every other data change in this project (see "Migrations" above). `1784300000000-MakeMessageTemplatesStatic.ts` is both the migration that made this change and the one seeding the current canonical content per type; a future content change (e.g. after Meta approves new copy) follows the same pattern: a new migration.
 
 ## Related documents
 
