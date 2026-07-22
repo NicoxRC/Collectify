@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
@@ -14,6 +14,7 @@ describe('MessageTemplatesService', () => {
     findOneBy: jest.Mock;
     create: jest.Mock;
     save: jest.Mock;
+    softDelete: jest.Mock;
     manager: { transaction: jest.Mock };
   };
   let queryBuilder: {
@@ -46,6 +47,7 @@ describe('MessageTemplatesService', () => {
       findOneBy: jest.fn(),
       create: jest.fn((dto: Partial<MessageTemplate>) => dto),
       save: jest.fn(),
+      softDelete: jest.fn(),
       manager: {
         transaction: jest.fn(
           async (fn: (manager: unknown) => Promise<void>) => {
@@ -144,6 +146,40 @@ describe('MessageTemplatesService', () => {
         NotFoundException,
       );
       expect(repository.manager.transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('remove', () => {
+    it('soft-deletes an inactive template', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockTemplate,
+        isActive: false,
+      });
+
+      await service.remove(mockTemplate.id);
+
+      expect(repository.softDelete).toHaveBeenCalledWith(mockTemplate.id);
+    });
+
+    it('throws BadRequestException when the template is active', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockTemplate,
+        isActive: true,
+      });
+
+      await expect(service.remove(mockTemplate.id)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(repository.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the template does not exist', async () => {
+      repository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.remove('missing-id')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(repository.softDelete).not.toHaveBeenCalled();
     });
   });
 });

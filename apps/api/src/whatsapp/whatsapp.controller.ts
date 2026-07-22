@@ -1,4 +1,4 @@
-import { Controller, Param, Post } from '@nestjs/common';
+import { Controller, Get, Param, Post } from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import {
   ApiBearerAuth,
@@ -28,6 +28,20 @@ export class WhatsappController {
     private readonly accountSummaryService: AccountSummaryService,
     private readonly schedulerRegistry: SchedulerRegistry,
   ) {}
+
+  @Get('cron/status')
+  @ApiOperation({
+    summary: 'Whether the weekly overdue reminder job is running (admin only)',
+    description:
+      'Added for the Fase 5 client UI — pause/resume existed with no way to read current state.',
+  })
+  @ApiResponse({ status: 200, description: 'Returns the job running state.' })
+  getCronStatus(): { running: boolean } {
+    const job = this.schedulerRegistry.getCronJob(OverdueReminderCron.JOB_NAME);
+    // The `cron` package's CronJob exposes this as `isActive` (a getter),
+    // not `running` — confirmed in node_modules/cron/dist/job.d.ts.
+    return { running: job.isActive };
+  }
 
   @Post('cron/pause')
   @ApiOperation({
