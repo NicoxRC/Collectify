@@ -82,23 +82,25 @@ export function MessageLogsPage() {
           subtitle="Todos los mensajes enviados vía WhatsApp"
         />
         {isAdmin && cronStatus && (
-          <div className="flex items-center gap-2.5 rounded border border-border bg-surface px-3.5 py-2">
+          <div className="flex items-center gap-3.5 rounded border border-border bg-surface px-5 py-3.5">
             <span
-              className={`size-1.5 rounded-full ${cronStatus.running ? 'bg-[#22c55e]' : 'bg-[#eab308]'}`}
+              className={`size-2 shrink-0 rounded-full ${cronStatus.running ? 'bg-[#22c55e]' : 'bg-[#eab308]'}`}
             />
-            <span className="text-small text-muted">
-              Envío automático:{' '}
-              <span className="text-white">
-                {cronStatus.running ? 'Activo' : 'Pausado'}
+            <div className="flex flex-col gap-0.5">
+              <span className="text-small font-medium text-white">
+                Envío automático — {cronStatus.running ? 'Activo' : 'Pausado'}
               </span>
-            </span>
+              <span className="text-meta text-muted">
+                Recordatorio de mora · Lun, mié y vie, 9:00 a.m.
+              </span>
+            </div>
             <button
               type="button"
               onClick={() =>
                 cronStatus.running ? pauseCron.mutate() : resumeCron.mutate()
               }
               disabled={pauseCron.isPending || resumeCron.isPending}
-              className="rounded-[3px] border border-border bg-input px-2.5 py-1 text-meta text-muted hover:text-white disabled:opacity-50"
+              className="ml-2 rounded border border-border bg-input px-4 py-2 text-small text-muted hover:text-white disabled:opacity-50"
             >
               {cronStatus.running ? 'Pausar' : 'Reanudar'}
             </button>
