@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { FindOptionsWhere, ILike, In, Repository } from 'typeorm';
 
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
@@ -166,61 +166,62 @@ export class LoansService {
   // two extra queries total, not one per loan, to back the standalone
   // "Préstamos" list (F-16/17), a different screen from Clientes that
   // needs to show whose loan it is and its collection status at a glance.
+  //
+  // Matches how the client already files physical pagarés — by
+  // promissoryNoteNumber, ascending — instead of most-recently-created
+  // first. Changed at the client's request; see
+  // apps/client/docs/DESIGN_TOKENS.md "Known design/backend gaps".
+  //
+  // promissoryNoteNumber is a free-text column (it allows things like
+  // "#743"), so a plain text sort compares it character by character, not
+  // as a number — "101" sorts before "2" because '1' < '2' as characters.
+  // Sorted by its numeric part instead (missing/non-numeric values last,
+  // then a text sort as a stable tiebreaker) — done in application code
+  // (fetch every match unpaginated, sort, then slice the page) rather than
+  // a computed DB expression, same tradeoff as ClientsService.findAll's
+  // name sort and fine at this business's scale.
   async findAll(query: QueryLoansDto): Promise<PaginatedResult<LoanSummary>> {
     const page = query.page ?? DEFAULT_PAGE;
     const limit = query.limit ?? DEFAULT_PAGE_SIZE;
 
-    const qb = this.loansRepository
-      .createQueryBuilder('loan')
-      .leftJoinAndSelect('loan.client', 'client')
-      // Matches how the client already files physical pagarés — by
-      // promissoryNoteNumber, ascending — instead of most-recently-created
-      // first. Changed at the client's request; see
-      // apps/client/docs/DESIGN_TOKENS.md "Known design/backend gaps".
-      //
-      // promissoryNoteNumber is a free-text column (it allows things like
-      // "#743"), so a plain text ORDER BY compares it character by
-      // character, not as a number — "101" sorts before "2" because '1' <
-      // '2' as characters. Strip everything but digits and order by that as
-      // a number instead (NULLIF + '' guards numberless values, ordered
-      // last; the text ORDER BY after it is just a stable tiebreaker for
-      // duplicates/non-numeric values).
-      //
-      // Has to be a named addSelect(), not inlined directly into orderBy():
-      // TypeORM's entity-hydrating orderBy naively splits any string
-      // containing a '.' on the first dot to look up an alias (to validate
-      // it's a real joined table) — with the expression inlined, it choked
-      // trying to resolve "NULLIF(regexp_replace(loan" as an alias. Giving
-      // it its own dot-free alias here sidesteps that entirely.
-      .addSelect(
-        "NULLIF(regexp_replace(loan.promissory_note_number, '\\D', '', 'g'), '')::bigint",
-        'promissory_note_number_numeric',
-      )
-      .orderBy('promissory_note_number_numeric', 'ASC', 'NULLS LAST')
-      .addOrderBy('loan.promissoryNoteNumber', 'ASC')
-      .skip((page - 1) * limit)
-      .take(limit);
+    const matches = await this.loansRepository.find({
+      where: this.buildFindAllWhere(query),
+      relations: { client: true },
+    });
+    const sorted = matches.sort(compareLoansByPromissoryNoteNumber);
 
-    if (query.clientId) {
-      qb.andWhere('loan.clientId = :clientId', { clientId: query.clientId });
-    }
-    if (query.status) {
-      qb.andWhere('loan.status = :status', { status: query.status });
-    }
-    if (query.search) {
-      qb.andWhere(
-        '(client.firstName ILIKE :search OR client.lastName ILIKE :search OR loan.promissoryNoteNumber ILIKE :search)',
-        { search: `%${query.search}%` },
-      );
-    }
-
-    const [loans, total] = await qb.getManyAndCount();
+    const total = sorted.length;
+    const start = (page - 1) * limit;
+    const loans = sorted.slice(start, start + limit);
     const items = await this.summarize(loans);
 
     return {
       items,
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  private buildFindAllWhere(
+    query: QueryLoansDto,
+  ): FindOptionsWhere<Loan> | FindOptionsWhere<Loan>[] {
+    const base: FindOptionsWhere<Loan> = {};
+    if (query.clientId) {
+      base.clientId = query.clientId;
+    }
+    if (query.status) {
+      base.status = query.status;
+    }
+
+    if (!query.search) {
+      return base;
+    }
+
+    const search = ILike(`%${query.search}%`);
+    return [
+      { ...base, client: { firstName: search } },
+      { ...base, client: { lastName: search } },
+      { ...base, promissoryNoteNumber: search },
+    ];
   }
 
   private async summarize(loans: Loan[]): Promise<LoanSummary[]> {
@@ -478,4 +479,38 @@ export class LoansService {
     }
     return error;
   }
+}
+
+// Mirrors NULLIF(regexp_replace(promissory_note_number, '\D', '', 'g'),
+// '')::bigint from the previous SQL-level sort: strip everything but
+// digits, null when nothing's left. BigInt (not parseInt) to match
+// Postgres's bigint precision for unusually long numbers.
+function extractNumericPart(promissoryNoteNumber: string): bigint | null {
+  const digits = promissoryNoteNumber.replace(/\D/g, '');
+  return digits === '' ? null : BigInt(digits);
+}
+
+// NULLS LAST for the numeric part, then a plain text compare as the
+// tiebreaker — same two-level ORDER BY as the previous query builder.
+function compareLoansByPromissoryNoteNumber(a: Loan, b: Loan): number {
+  const numericA = extractNumericPart(a.promissoryNoteNumber);
+  const numericB = extractNumericPart(b.promissoryNoteNumber);
+
+  if (numericA === null && numericB !== null) {
+    return 1;
+  }
+  if (numericA !== null && numericB === null) {
+    return -1;
+  }
+  if (numericA !== null && numericB !== null && numericA !== numericB) {
+    return numericA < numericB ? -1 : 1;
+  }
+
+  if (a.promissoryNoteNumber < b.promissoryNoteNumber) {
+    return -1;
+  }
+  if (a.promissoryNoteNumber > b.promissoryNoteNumber) {
+    return 1;
+  }
+  return 0;
 }

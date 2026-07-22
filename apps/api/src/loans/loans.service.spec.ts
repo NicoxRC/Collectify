@@ -15,7 +15,7 @@ import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 describe('LoansService', () => {
   let service: LoansService;
   let loansRepository: {
-    createQueryBuilder: jest.Mock;
+    find: jest.Mock;
     findOneBy: jest.Mock;
     findOne: jest.Mock;
     create: jest.Mock;
@@ -30,16 +30,6 @@ describe('LoansService', () => {
   };
   let paymentsRepository: { find: jest.Mock };
   let newLoanReminderService: { sendNewLoanMessage: jest.Mock };
-  let queryBuilder: {
-    leftJoinAndSelect: jest.Mock;
-    addSelect: jest.Mock;
-    orderBy: jest.Mock;
-    addOrderBy: jest.Mock;
-    skip: jest.Mock;
-    take: jest.Mock;
-    andWhere: jest.Mock;
-    getManyAndCount: jest.Mock;
-  };
 
   const mockLoan: Loan = {
     id: 'loan-1',
@@ -61,18 +51,8 @@ describe('LoansService', () => {
   };
 
   beforeEach(async () => {
-    queryBuilder = {
-      leftJoinAndSelect: jest.fn().mockReturnThis(),
-      addSelect: jest.fn().mockReturnThis(),
-      orderBy: jest.fn().mockReturnThis(),
-      addOrderBy: jest.fn().mockReturnThis(),
-      skip: jest.fn().mockReturnThis(),
-      take: jest.fn().mockReturnThis(),
-      andWhere: jest.fn().mockReturnThis(),
-      getManyAndCount: jest.fn(),
-    };
     loansRepository = {
-      createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
+      find: jest.fn(),
       findOneBy: jest.fn(),
       findOne: jest.fn(),
       create: jest.fn((dto: Partial<Loan>) => dto),
@@ -390,7 +370,7 @@ describe('LoansService', () => {
     });
 
     it('returns a paginated page and applies clientId/status filters', async () => {
-      queryBuilder.getManyAndCount.mockResolvedValue([[mockLoan], 1]);
+      loansRepository.find.mockResolvedValue([mockLoan]);
 
       const result = await service.findAll({
         clientId: 'client-1',
@@ -409,37 +389,41 @@ describe('LoansService', () => {
         ],
         meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
       });
-      expect(queryBuilder.leftJoinAndSelect).toHaveBeenCalledWith(
-        'loan.client',
-        'client',
-      );
-      expect(queryBuilder.andWhere).toHaveBeenCalledWith(
-        'loan.clientId = :clientId',
-        {
-          clientId: 'client-1',
-        },
-      );
-      expect(queryBuilder.andWhere).toHaveBeenCalledWith(
-        'loan.status = :status',
-        {
-          status: LoanStatus.Active,
-        },
-      );
+      expect(loansRepository.find).toHaveBeenCalledWith({
+        where: { clientId: 'client-1', status: LoanStatus.Active },
+        relations: { client: true },
+      });
     });
 
-    it('applies the search term across client name and promissory note number', async () => {
-      queryBuilder.getManyAndCount.mockResolvedValue([[mockLoan], 1]);
+    it('applies the search term as an OR across client name and promissory note number', async () => {
+      loansRepository.find.mockResolvedValue([mockLoan]);
 
       await service.findAll({ search: 'Juana' });
 
-      expect(queryBuilder.andWhere).toHaveBeenCalledWith(
-        expect.stringContaining('ILIKE'),
-        { search: '%Juana%' },
+      const [[callArg]] = loansRepository.find.mock.calls as [
+        [
+          {
+            where: Array<{
+              client?: { firstName?: unknown; lastName?: unknown };
+              promissoryNoteNumber?: unknown;
+            }>;
+          },
+        ],
+      ];
+      expect(callArg.where).toHaveLength(3);
+      const operators = callArg.where.map(
+        (condition) =>
+          condition.client?.firstName ??
+          condition.client?.lastName ??
+          condition.promissoryNoteNumber,
       );
+      for (const operator of operators) {
+        expect(operator).toMatchObject({ _type: 'ilike', _value: '%Juana%' });
+      }
     });
 
     it('returns an empty page when there are no matches', async () => {
-      queryBuilder.getManyAndCount.mockResolvedValue([[], 0]);
+      loansRepository.find.mockResolvedValue([]);
 
       const result = await service.findAll({});
 
@@ -448,8 +432,31 @@ describe('LoansService', () => {
       expect(installmentsRepository.find).not.toHaveBeenCalled();
     });
 
+    it('sorts loans by the numeric part of their promissory note number', async () => {
+      const loan101 = {
+        ...mockLoan,
+        id: 'loan-101',
+        promissoryNoteNumber: '#101',
+      };
+      const loan2 = { ...mockLoan, id: 'loan-2', promissoryNoteNumber: '#2' };
+      const loan20 = {
+        ...mockLoan,
+        id: 'loan-20',
+        promissoryNoteNumber: '#20',
+      };
+      loansRepository.find.mockResolvedValue([loan101, loan2, loan20]);
+
+      const result = await service.findAll({});
+
+      expect(result.items.map((loan) => loan.id)).toEqual([
+        'loan-2',
+        'loan-20',
+        'loan-101',
+      ]);
+    });
+
     it('aggregates outstandingBalance, installmentsPaid, and overdueDays from installments', async () => {
-      queryBuilder.getManyAndCount.mockResolvedValue([[mockLoan], 1]);
+      loansRepository.find.mockResolvedValue([mockLoan]);
       const overdueDueDate = new Date();
       overdueDueDate.setDate(overdueDueDate.getDate() - 10);
       const overdueDateString = overdueDueDate.toISOString().slice(0, 10);
@@ -482,7 +489,7 @@ describe('LoansService', () => {
     });
 
     it('sets nextInstallmentDueDate to the oldest pending installment, whether overdue or upcoming', async () => {
-      queryBuilder.getManyAndCount.mockResolvedValue([[mockLoan], 1]);
+      loansRepository.find.mockResolvedValue([mockLoan]);
 
       installmentsRepository.find.mockResolvedValue([
         {
@@ -519,7 +526,7 @@ describe('LoansService', () => {
     });
 
     it('sets nextInstallmentDueDate to null when no installments are pending', async () => {
-      queryBuilder.getManyAndCount.mockResolvedValue([[mockLoan], 1]);
+      loansRepository.find.mockResolvedValue([mockLoan]);
 
       installmentsRepository.find.mockResolvedValue([
         {
@@ -538,7 +545,7 @@ describe('LoansService', () => {
     });
 
     it('sets overdueBalance to only the overdue installments, unlike outstandingBalance which includes upcoming ones too', async () => {
-      queryBuilder.getManyAndCount.mockResolvedValue([[mockLoan], 1]);
+      loansRepository.find.mockResolvedValue([mockLoan]);
       const overdueDueDate = new Date();
       overdueDueDate.setDate(overdueDueDate.getDate() - 10);
       const overdueDateString = overdueDueDate.toISOString().slice(0, 10);
@@ -577,7 +584,7 @@ describe('LoansService', () => {
     });
 
     it('sets overdueBalance to 0 when nothing is overdue', async () => {
-      queryBuilder.getManyAndCount.mockResolvedValue([[mockLoan], 1]);
+      loansRepository.find.mockResolvedValue([mockLoan]);
 
       installmentsRepository.find.mockResolvedValue([
         {
