@@ -114,6 +114,23 @@ export interface UpdateLoanInput {
   description?: string;
 }
 
+// Matches apps/api/src/loans/dto/refinanceLoan.dto.ts exactly — same shape
+// as CreateLoanInput minus clientId (the new loan always belongs to the
+// same client as the one being refinanced, enforced server-side). Phase 6:
+// POST /loans/:id/refinance closes the old loan out (status: 'refinanced',
+// its remaining pending installments marked 'cancelled' — confirmed
+// business decision, see docs/DATABASE.md "Refinancing") and creates this
+// new loan linked back via refinancedFromLoanId.
+export interface RefinanceLoanInput {
+  promissoryNoteNumber: string;
+  principalAmount: number;
+  interestRate: number;
+  disbursedAt: string;
+  installmentFrequency: InstallmentFrequency;
+  installmentAmounts: number[];
+  description?: string;
+}
+
 export const loansApi = {
   getAll: async (params: LoansQueryParams = {}): Promise<PaginatedLoans> => {
     const { data, meta } = await apiClient.get<LoanSummary[]>('/loans', {
@@ -159,6 +176,20 @@ export const loansApi = {
   markAsPaid: async (id: string): Promise<LoanDetail> => {
     const { data } = await apiClient.post<LoanDetail>(
       `/loans/${id}/mark-as-paid`,
+    );
+    return data;
+  },
+
+  // Admin only — enforced server-side. Returns the newly-created loan
+  // (with its generated installments), not the old one — the caller
+  // navigates there after a successful refinance.
+  refinance: async (
+    id: string,
+    input: RefinanceLoanInput,
+  ): Promise<LoanDetail> => {
+    const { data } = await apiClient.post<LoanDetail>(
+      `/loans/${id}/refinance`,
+      input,
     );
     return data;
   },
