@@ -1,0 +1,103 @@
+import { apiClient } from '@/lib/apiClient';
+import { MessageType } from '@/features/messageTemplates/messageTemplatesApi';
+
+// Matches apps/api/src/whatsapp/entities/messageLog.entity.ts's
+// MessageLogStatus. Only two real states exist — the backend never tracks
+// WhatsApp delivery/read receipts (no webhook integration), it only knows
+// whether the initial send API call succeeded or not, synchronously, at
+// send time. Figma's "Leído"/"Entregado"/"Pendiente" don't correspond to
+// anything stored — see DESIGN_TOKENS.md.
+export enum MessageLogStatus {
+  Sent = 'sent',
+  Failed = 'failed',
+}
+
+// GET /message-logs now leftJoinAndSelects `client` (added this phase) so
+// the list can show a name instead of a bare clientId — comes back as a
+// nested object, not a flattened clientFullName like LoanSummary.
+export interface MessageLog {
+  id: string;
+  clientId: string;
+  client: {
+    id: string;
+    firstName: string;
+    lastName: string;
+  };
+  type: MessageType;
+  phoneNumber: string;
+  messageContent: string;
+  status: MessageLogStatus;
+  sentAt: string;
+  createdAt: string;
+}
+
+export interface MessageLogsQueryParams {
+  clientId?: string;
+  status?: MessageLogStatus;
+  dateFrom?: string;
+  dateTo?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface PaginatedMessageLogs {
+  items: MessageLog[];
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+// GET /message-logs/:id/items — matches
+// apps/api/src/whatsapp/entities/messageLogItem.entity.ts. Added this phase
+// (announced first): backs the "Mensaje completo" drawer's related-
+// installments section. A single overdue reminder can cover several
+// installments across several loans (consolidated per client), so this is
+// a list, not Figma's single "Préstamo relacionado" line.
+export interface MessageLogItem {
+  id: string;
+  messageLogId: string;
+  installmentId: string;
+  installment: {
+    id: string;
+    installmentNumber: number;
+    loanId: string;
+    loan: {
+      id: string;
+      promissoryNoteNumber: string;
+    };
+  };
+  overdueDaysSnapshot: number;
+  interestSnapshot: number;
+  createdAt: string;
+}
+
+export const messageLogsApi = {
+  // type is always forced to Overdue — this phase's scope. Not exposed as
+  // a filter in the UI.
+  getAll: async (
+    params: MessageLogsQueryParams = {},
+  ): Promise<PaginatedMessageLogs> => {
+    const { data, meta } = await apiClient.get<MessageLog[]>('/message-logs', {
+      clientId: params.clientId,
+      type: MessageType.Overdue,
+      status: params.status,
+      dateFrom: params.dateFrom,
+      dateTo: params.dateTo,
+      search: params.search,
+      page: params.page,
+      limit: params.limit,
+    });
+    return { items: data, meta: meta as PaginatedMessageLogs['meta'] };
+  },
+
+  getItems: async (id: string): Promise<MessageLogItem[]> => {
+    const { data } = await apiClient.get<MessageLogItem[]>(
+      `/message-logs/${id}/items`,
+    );
+    return data;
+  },
+};

@@ -5,6 +5,7 @@ import {
   IsEnum,
   IsInt,
   IsOptional,
+  IsString,
   IsUUID,
   Min,
 } from 'class-validator';
@@ -17,6 +18,13 @@ export class QueryMessageLogsDto {
   @IsOptional()
   @IsUUID()
   clientId?: string;
+
+  @ApiPropertyOptional({
+    description: "Matches against the client's first/last name",
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
 
   @ApiPropertyOptional({ enum: MessageType })
   @IsOptional()

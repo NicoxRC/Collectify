@@ -114,7 +114,7 @@ export function ClientsListPage() {
           <button
             type="button"
             onClick={() => setEditingClient('new')}
-            className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-gray-200"
+            className="rounded bg-white px-4 py-2.5 text-body font-semibold text-background hover:bg-white/90"
           >
             + Nuevo cliente
           </button>
@@ -225,7 +225,7 @@ function Th({
 }) {
   return (
     <th
-      className={`h-[38px] px-3.5 text-left text-section-label font-medium tracking-[0.36px] text-muted ${className}`}
+      className={`h-[38px] px-3.5 text-left text-label font-medium tracking-[0.36px] text-muted ${className}`}
     >
       {children}
     </th>

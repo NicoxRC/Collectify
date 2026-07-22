@@ -1,5 +1,8 @@
 import { useState } from 'react';
 
+import { CloseButton } from '@/components/ui/CloseButton';
+import { CurrencyInput } from '@/components/ui/CurrencyInput';
+import { DatePicker } from '@/components/ui/DatePicker';
 import { useClients } from '@/features/clients/useClients';
 import {
   subtractDaysFromDateString,
@@ -8,6 +11,7 @@ import {
 import { InstallmentFrequency } from '@/features/loans/loansApi';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency } from '@/lib/format';
+import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type { Client } from '@/features/clients/clientsApi';
 import type { CreateLoanInput } from '@/features/loans/loansApi';
@@ -76,7 +80,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   });
 
   const [promissoryNoteNumber, setPromissoryNoteNumber] = useState('');
-  const [principalAmount, setPrincipalAmount] = useState('');
+  const [principalAmount, setPrincipalAmount] = useState(0);
   const [interestRate, setInterestRate] = useState('');
   const [firstDueDate, setFirstDueDate] = useState('');
   const [installmentFrequency, setInstallmentFrequency] = useState(
@@ -91,7 +95,9 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const principal = parseFloat(principalAmount) || 0;
+  useEscapeKey(onClose);
+
+  const principal = principalAmount;
   const count = parseInt(totalInstallments, 10) || 0;
   const amountsSum = installmentAmounts.reduce(
     (sum, amount) => sum + amount,
@@ -108,11 +114,11 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     setInstallmentAmounts(splitEvenly(nextPrincipal, nextCount));
   };
 
-  const handlePrincipalChange = (value: string) => {
+  const handlePrincipalChange = (value: number) => {
     setPrincipalAmount(value);
     setFieldErrors((prev) => ({ ...prev, principalAmount: undefined }));
     if (!amountsManuallyEdited) {
-      resplit(parseFloat(value) || 0, count);
+      resplit(value, count);
     }
   };
 
@@ -125,10 +131,10 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     setAmountsManuallyEdited(false);
   };
 
-  const handleAmountChange = (index: number, value: string) => {
+  const handleAmountChange = (index: number, value: number) => {
     setAmountsManuallyEdited(true);
     setInstallmentAmounts((prev) =>
-      prev.map((amount, i) => (i === index ? parseFloat(value) || 0 : amount)),
+      prev.map((amount, i) => (i === index ? value : amount)),
     );
     setFieldErrors((prev) => ({ ...prev, installmentAmounts: undefined }));
   };
@@ -215,18 +221,11 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
       <div className="max-h-[90vh] w-full max-w-[520px] overflow-y-auto rounded-lg border border-border bg-surface px-8 py-7">
         <div className="flex items-center justify-between">
           <h2 className="text-[16px] font-medium text-white">Nuevo préstamo</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Cerrar"
-            className="flex size-6 items-center justify-center rounded bg-input text-[14px] text-muted hover:text-white"
-          >
-            ×
-          </button>
+          <CloseButton onClick={onClose} />
         </div>
         <p className="mt-1 text-label text-muted">
           Solo administradores pueden crear préstamos.
@@ -336,12 +335,10 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
 
           <div className="flex gap-4">
             <Field label="Monto" error={fieldErrors.principalAmount}>
-              <input
-                type="number"
-                min={0}
+              <CurrencyInput
                 value={principalAmount}
-                onChange={(event) => handlePrincipalChange(event.target.value)}
-                placeholder="Ej: 1500000"
+                onChange={handlePrincipalChange}
+                placeholder="Ej: $1.500.000"
                 className={inputClassName(Boolean(fieldErrors.principalAmount))}
               />
             </Field>
@@ -364,11 +361,10 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
               label="Fecha de la primera cuota"
               error={fieldErrors.firstDueDate}
             >
-              <input
-                type="date"
+              <DatePicker
                 value={firstDueDate}
-                onChange={(event) => {
-                  setFirstDueDate(event.target.value);
+                onChange={(next) => {
+                  setFirstDueDate(next);
                   setFieldErrors((prev) => ({
                     ...prev,
                     firstDueDate: undefined,
@@ -404,13 +400,9 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                     <span className="w-14 shrink-0 text-meta text-muted">
                       Cuota {index + 1}
                     </span>
-                    <input
-                      type="number"
-                      min={0}
+                    <CurrencyInput
                       value={amount}
-                      onChange={(event) =>
-                        handleAmountChange(index, event.target.value)
-                      }
+                      onChange={(next) => handleAmountChange(index, next)}
                       className="h-8 w-full rounded border border-border bg-background px-2.5 text-small text-white focus:border-subtle focus:outline-none"
                     />
                   </div>
@@ -443,7 +435,12 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
               onChange={(event) => setDescription(event.target.value)}
               placeholder="Ej: Compra de electrodoméstico…"
               rows={2}
-              className={`${inputClassName(false)} resize-none`}
+              // Not inputClassName(false) — that has a fixed h-[42px] meant
+              // for single-line inputs, which fights with rows={2} and
+              // squeezes the placeholder text with no vertical padding.
+              // py-2.5 instead lets the textarea size itself naturally,
+              // matching MessageTemplateForm.tsx's textarea.
+              className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
             />
           </Field>
 
@@ -466,7 +463,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSubmitting ? 'Creando…' : 'Crear préstamo'}
             </button>

@@ -1,15 +1,19 @@
+import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
+import { MessageLogItem } from '../entities/messageLogItem.entity';
 import { MessageType } from '../messageType.enum';
 
 import { MessageLogsService } from './messageLogs.service';
 
 describe('MessageLogsService', () => {
   let service: MessageLogsService;
-  let repository: { createQueryBuilder: jest.Mock };
+  let repository: { createQueryBuilder: jest.Mock; findOneBy: jest.Mock };
+  let messageLogItemsRepository: { find: jest.Mock };
   let queryBuilder: {
+    leftJoinAndSelect: jest.Mock;
     orderBy: jest.Mock;
     skip: jest.Mock;
     take: jest.Mock;
@@ -31,6 +35,7 @@ describe('MessageLogsService', () => {
 
   beforeEach(async () => {
     queryBuilder = {
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
@@ -39,12 +44,20 @@ describe('MessageLogsService', () => {
     };
     repository = {
       createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
+      findOneBy: jest.fn(),
+    };
+    messageLogItemsRepository = {
+      find: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MessageLogsService,
         { provide: getRepositoryToken(MessageLog), useValue: repository },
+        {
+          provide: getRepositoryToken(MessageLogItem),
+          useValue: messageLogItemsRepository,
+        },
       ],
     }).compile();
 
@@ -105,5 +118,46 @@ describe('MessageLogsService', () => {
 
     expect(result.items).toEqual([]);
     expect(result.meta.totalPages).toBe(0);
+  });
+
+  it('joins client and applies the search filter against first/last name', async () => {
+    queryBuilder.getManyAndCount.mockResolvedValue([[mockLog], 1]);
+
+    await service.findAll({ search: 'Juana' });
+
+    expect(queryBuilder.leftJoinAndSelect).toHaveBeenCalledWith(
+      'messageLog.client',
+      'client',
+    );
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+      '(client.firstName ILIKE :search OR client.lastName ILIKE :search)',
+      { search: '%Juana%' },
+    );
+  });
+
+  describe('getItems', () => {
+    it('returns the items for an existing message log', async () => {
+      repository.findOneBy.mockResolvedValue(mockLog);
+      const items = [{ id: 'item-1', messageLogId: 'log-1' }];
+      messageLogItemsRepository.find.mockResolvedValue(items);
+
+      const result = await service.getItems('log-1');
+
+      expect(result).toEqual(items);
+      expect(messageLogItemsRepository.find).toHaveBeenCalledWith({
+        where: { messageLogId: 'log-1' },
+        relations: { installment: { loan: true } },
+        order: { createdAt: 'ASC' },
+      });
+    });
+
+    it('throws NotFoundException when the message log does not exist', async () => {
+      repository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.getItems('missing-id')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(messageLogItemsRepository.find).not.toHaveBeenCalled();
+    });
   });
 });

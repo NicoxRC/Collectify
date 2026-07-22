@@ -15,7 +15,7 @@ import {
 const TEMPLATE = [
   'Hola {{clientFullName}}, tienes cuotas vencidas:',
   '{{installmentsList}}',
-  'El valor a pagar hoy es ${{grandTotal}}',
+  'El valor a pagar hoy es {{grandTotal}}',
 ].join('\n');
 
 describe('messageRenderer', () => {
@@ -225,7 +225,7 @@ describe('messageRenderer', () => {
     const SUMMARY_TEMPLATE = [
       'Hola {{clientFullName}}, este es tu estado de cuenta:',
       '{{installmentsList}}',
-      'Total: ${{grandTotal}}',
+      'Total: {{grandTotal}}',
     ].join('\n');
 
     it('renders an overdue line, an upcoming line, and a due-today line', () => {

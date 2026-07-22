@@ -10,7 +10,9 @@
 // message exactly, per docs/DATABASE.md's placeholder structure) — only the
 // outer template (greeting + where the list/total go) is admin-editable via
 // MessageTemplate.content, using {{clientFullName}}, {{installmentsList}},
-// {{grandTotal}}.
+// {{grandTotal}}. {{grandTotal}} is substituted WITH a leading "$" already
+// included (e.g. "$158.000"), matching how the $ is baked into every
+// installment line — template authors should not type a $ before it.
 
 const NUMBER_EMOJIS = [
   '1️⃣',
@@ -68,7 +70,7 @@ export function renderOverdueReminderMessage(
   return templateContent
     .replaceAll('{{clientFullName}}', clientFullName)
     .replaceAll('{{installmentsList}}', installmentsList)
-    .replaceAll('{{grandTotal}}', grandTotal);
+    .replaceAll('{{grandTotal}}', `$${grandTotal}`);
 }
 
 // ── New loan ("Primera vez") ────────────────────────────────────────────
@@ -226,5 +228,5 @@ export function renderAccountSummaryMessage(
   return templateContent
     .replaceAll('{{clientFullName}}', clientFullName)
     .replaceAll('{{installmentsList}}', installmentsList)
-    .replaceAll('{{grandTotal}}', grandTotal);
+    .replaceAll('{{grandTotal}}', `$${grandTotal}`);
 }

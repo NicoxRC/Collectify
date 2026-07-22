@@ -85,7 +85,7 @@ function Td({
     <td
       className={
         muted
-          ? `h-11 px-3.5 text-small text-mid ${className}`
+          ? `h-11 px-3.5 text-small text-muted ${className}`
           : `h-11 px-3.5 text-small font-medium text-white ${className}`
       }
     >

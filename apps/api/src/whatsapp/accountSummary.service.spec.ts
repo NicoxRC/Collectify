@@ -138,7 +138,7 @@ describe('AccountSummaryService', () => {
       clientsRepository.findOneBy.mockResolvedValue(mockClient);
       messageTemplatesService.findActiveOrThrow.mockResolvedValue({
         content:
-          'Hola {{clientFullName}}\n{{installmentsList}}\nTotal: ${{grandTotal}}',
+          'Hola {{clientFullName}}\n{{installmentsList}}\nTotal: {{grandTotal}}',
       });
     });
 

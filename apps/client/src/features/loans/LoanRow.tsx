@@ -20,7 +20,7 @@ export function LoanRow({ loan, rowNumber }: LoanRowProps) {
   return (
     <tr className="border-t border-border">
       <Td muted>{rowNumber}</Td>
-      <Td muted>{loan.promissoryNoteNumber}</Td>
+      <Td>{loan.promissoryNoteNumber}</Td>
       <Td>{loan.clientFullName}</Td>
       <Td>{formatCurrency(loan.principalAmount)}</Td>
       <Td>{formatCurrency(loan.outstandingBalance)}</Td>
@@ -64,7 +64,7 @@ function Td({
     <td
       className={
         muted
-          ? `h-11 px-3.5 text-small text-mid ${className}`
+          ? `h-11 px-3.5 text-small text-muted ${className}`
           : `h-11 px-3.5 text-small font-medium text-white ${className}`
       }
     >

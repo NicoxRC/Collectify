@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -61,5 +70,22 @@ export class MessageTemplatesController {
   @ApiResponse({ status: 404, description: 'Template not found.' })
   activate(@Param('id') id: string): Promise<MessageTemplate> {
     return this.messageTemplatesService.activate(id);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  @ApiOperation({
+    summary: 'Delete a message template (admin only)',
+    description:
+      'Soft delete. Rejects deleting the currently active template of its type — deactivate or replace it first.',
+  })
+  @ApiResponse({ status: 204, description: 'The template was deleted.' })
+  @ApiResponse({ status: 404, description: 'Template not found.' })
+  @ApiResponse({
+    status: 400,
+    description: 'The template is active and cannot be deleted.',
+  })
+  remove(@Param('id') id: string): Promise<void> {
+    return this.messageTemplatesService.remove(id);
   }
 }

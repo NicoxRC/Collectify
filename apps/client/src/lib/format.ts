@@ -22,6 +22,14 @@ export function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+// Two-letter initials from a full name (e.g. "Ana Gómez" -> "AG"), for
+// avatar circles (Sidebar footer, ProfilePage). Falls back to the first
+// letter alone if there's no second word.
+export function getInitials(fullName: string): string {
+  const [first, second] = fullName.trim().split(/\s+/);
+  return `${first?.charAt(0) ?? ''}${second?.charAt(0) ?? ''}`.toUpperCase();
+}
+
 // Renders a date-ONLY string ('YYYY-MM-DD' — disbursedAt, installment
 // dueDate, payment paidAt: all Postgres 'date' columns, no time-of-day) for
 // display. `new Date('2026-10-01')` parses that as UTC midnight; calling

@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -84,5 +88,20 @@ export class MessageTemplatesService {
     );
 
     return this.findOne(id);
+  }
+
+  // Soft delete (the entity already has deletedAt for this). Blocks
+  // deleting the currently active template — it's what a scheduled/manual
+  // send looks up via findActiveOrThrow, so removing it out from under a
+  // live message flow would break the next send with no template to render
+  // from. Deactivate/replace it first, or activate a different one.
+  async remove(id: string): Promise<void> {
+    const template = await this.findOne(id);
+    if (template.isActive) {
+      throw new BadRequestException(
+        `Message template ${id} is active and cannot be deleted — activate a different template first`,
+      );
+    }
+    await this.messageTemplatesRepository.softDelete(id);
   }
 }

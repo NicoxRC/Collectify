@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -8,6 +8,7 @@ import {
 
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
 import { MessageLog } from '../entities/messageLog.entity';
+import { MessageLogItem } from '../entities/messageLogItem.entity';
 
 import { QueryMessageLogsDto } from './dto/queryMessageLogs.dto';
 import { MessageLogsService } from './messageLogs.service';
@@ -21,12 +22,26 @@ export class MessageLogsController {
   @Get()
   @ApiOperation({
     summary:
-      'List sent reminder messages (paginated, filter by client/date range/status)',
+      'List sent reminder messages (paginated, filter by client/type/status/date range/search)',
+    description:
+      "Each row includes the client (name), not just clientId. search matches the client's first/last name.",
   })
   @ApiResponse({ status: 200, description: 'Returns a page of message logs.' })
   findAll(
     @Query() query: QueryMessageLogsDto,
   ): Promise<PaginatedResult<MessageLog>> {
     return this.messageLogsService.findAll(query);
+  }
+
+  @Get(':id/items')
+  @ApiOperation({
+    summary: 'List the installments covered by a specific sent message',
+    description:
+      'A message can cover several installments across several loans (consolidated per client) — returns one row per installment included, with its overdueDays/interest snapshot at send time and the related installment/loan.',
+  })
+  @ApiResponse({ status: 200, description: 'Returns the message log items.' })
+  @ApiResponse({ status: 404, description: 'Message log not found.' })
+  getItems(@Param('id') id: string): Promise<MessageLogItem[]> {
+    return this.messageLogsService.getItems(id);
   }
 }
