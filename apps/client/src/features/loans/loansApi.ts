@@ -46,6 +46,18 @@ export interface LoanSummary extends Loan {
   outstandingBalance: number;
   installmentsPaid: number;
   overdueDays: number;
+  // The due date of the oldest still-pending installment, whether it's
+  // already overdue or upcoming — null when nothing's pending anymore
+  // (fully paid/cancelled). Added post-Phase-5, client request: see
+  // apps/client/docs/DESIGN_TOKENS.md "Known design/backend gaps".
+  nextInstallmentDueDate: string | null;
+  // Sum of totalDue across ONLY the overdue installments — unlike
+  // outstandingBalance, which includes every pending installment whether
+  // overdue or not. Use this one for "how much is actually late" (e.g. the
+  // client's "En mora" stat); use outstandingBalance for "how much is left
+  // on the whole loan". Added post-Phase-5, client request: see
+  // apps/client/docs/DESIGN_TOKENS.md "Known design/backend gaps".
+  overdueBalance: number;
 }
 
 // GET /loans/:id return shape (apps/api's LoanDetail). Does NOT include
