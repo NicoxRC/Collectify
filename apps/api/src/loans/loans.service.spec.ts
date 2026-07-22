@@ -480,6 +480,120 @@ describe('LoansService', () => {
       // Pending installment: amount + interest (6% / 30 * 10 days * 300000)
       expect(summary.outstandingBalance).toBeCloseTo(306000, 0);
     });
+
+    it('sets nextInstallmentDueDate to the oldest pending installment, whether overdue or upcoming', async () => {
+      queryBuilder.getManyAndCount.mockResolvedValue([[mockLoan], 1]);
+
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'installment-1',
+          loanId: 'loan-1',
+          installmentNumber: 1,
+          amount: 300000,
+          dueDate: '2026-08-15',
+          status: InstallmentStatus.Pending,
+        },
+        {
+          id: 'installment-2',
+          loanId: 'loan-1',
+          installmentNumber: 2,
+          amount: 300000,
+          dueDate: '2026-09-15',
+          status: InstallmentStatus.Pending,
+        },
+        {
+          id: 'installment-3',
+          loanId: 'loan-1',
+          installmentNumber: 3,
+          amount: 300000,
+          dueDate: '2026-07-15',
+          status: InstallmentStatus.Paid,
+        },
+      ]);
+
+      const [summary] = (await service.findAll({})).items;
+
+      // Oldest PENDING due date wins — the earlier Paid one (07-15) is
+      // excluded even though its date is smaller.
+      expect(summary.nextInstallmentDueDate).toBe('2026-08-15');
+    });
+
+    it('sets nextInstallmentDueDate to null when no installments are pending', async () => {
+      queryBuilder.getManyAndCount.mockResolvedValue([[mockLoan], 1]);
+
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'installment-1',
+          loanId: 'loan-1',
+          installmentNumber: 1,
+          amount: 300000,
+          dueDate: '2026-07-15',
+          status: InstallmentStatus.Paid,
+        },
+      ]);
+
+      const [summary] = (await service.findAll({})).items;
+
+      expect(summary.nextInstallmentDueDate).toBeNull();
+    });
+
+    it('sets overdueBalance to only the overdue installments, unlike outstandingBalance which includes upcoming ones too', async () => {
+      queryBuilder.getManyAndCount.mockResolvedValue([[mockLoan], 1]);
+      const overdueDueDate = new Date();
+      overdueDueDate.setDate(overdueDueDate.getDate() - 10);
+      const overdueDateString = overdueDueDate.toISOString().slice(0, 10);
+
+      const upcomingDueDate = new Date();
+      upcomingDueDate.setDate(upcomingDueDate.getDate() + 20);
+      const upcomingDateString = upcomingDueDate.toISOString().slice(0, 10);
+
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'installment-1',
+          loanId: 'loan-1',
+          installmentNumber: 1,
+          amount: 300000,
+          dueDate: overdueDateString,
+          status: InstallmentStatus.Pending,
+        },
+        {
+          id: 'installment-2',
+          loanId: 'loan-1',
+          installmentNumber: 2,
+          amount: 300000,
+          dueDate: upcomingDateString,
+          status: InstallmentStatus.Pending,
+        },
+      ]);
+
+      const [summary] = (await service.findAll({})).items;
+
+      // Only installment-1 (the overdue one): 300000 + interest (6% / 30 *
+      // 10 days * 300000) = 306000. installment-2 is pending but NOT
+      // overdue, so it's excluded here even though outstandingBalance
+      // includes it.
+      expect(summary.overdueBalance).toBeCloseTo(306000, 0);
+      expect(summary.outstandingBalance).toBeCloseTo(606000, 0);
+    });
+
+    it('sets overdueBalance to 0 when nothing is overdue', async () => {
+      queryBuilder.getManyAndCount.mockResolvedValue([[mockLoan], 1]);
+
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'installment-1',
+          loanId: 'loan-1',
+          installmentNumber: 1,
+          amount: 300000,
+          dueDate: '2099-01-01',
+          status: InstallmentStatus.Pending,
+        },
+      ]);
+
+      const [summary] = (await service.findAll({})).items;
+
+      expect(summary.overdueBalance).toBe(0);
+    });
   });
 
   describe('update', () => {

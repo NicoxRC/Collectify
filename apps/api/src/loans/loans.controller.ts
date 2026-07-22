@@ -37,9 +37,12 @@ export class LoansController {
     summary: 'List loans (paginated, filterable by client/status)',
     description:
       'Each row includes clientFullName, outstandingBalance, installmentsPaid, ' +
-      "and overdueDays — aggregated from the loan's installments, for the " +
-      'standalone Préstamos list screen (does not require opening the loan). ' +
-      'search matches the client name or promissory note number.',
+      'overdueDays, nextInstallmentDueDate, and overdueBalance — aggregated ' +
+      "from the loan's installments, for the standalone Préstamos list " +
+      'screen (does not require opening the loan). outstandingBalance sums ' +
+      'every pending installment (overdue or not); overdueBalance sums ' +
+      'only the overdue ones. search matches the client name or ' +
+      'promissory note number.',
   })
   @ApiResponse({ status: 200, description: 'Returns a page of loans.' })
   findAll(

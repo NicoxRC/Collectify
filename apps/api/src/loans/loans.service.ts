@@ -61,6 +61,24 @@ export interface LoanSummary extends Omit<Loan, 'client'> {
   // (docs/DATABASE.md); "how late is the most overdue cuota" is the one
   // that matches how collections actually prioritize follow-up.
   overdueDays: number;
+  // The due date of the oldest still-pending installment — whether it's
+  // already overdue or not. Deliberately a single field rather than
+  // separate "last overdue" / "next upcoming" dates: a loan can have both
+  // overdue AND not-yet-due installments pending at once (payments aren't
+  // required in order — see InstallmentsService.registerPayment), so "the
+  // next one to collect" is always the oldest pending one, whichever kind
+  // it is. Pair with `overdueDays` to know which case you're looking at.
+  // Null when there are no pending installments left (fully paid/cancelled).
+  nextInstallmentDueDate: string | null;
+  // Sum of totalDue (amount + accrued interest) across ONLY the installments
+  // that are actually overdue (overdueDays > 0) — unlike `outstandingBalance`,
+  // which includes every still-pending installment whether overdue or not.
+  // Added for ClientDetailPage's "En mora" stat card: the client caught that
+  // using outstandingBalance there showed the loan's whole remaining balance
+  // instead of just what's actually late, e.g. a loan with 8 pending
+  // installments and only 1 overdue was showing the sum of all 8. 0 when
+  // nothing's overdue.
+  overdueBalance: number;
 }
 
 interface PersistLoanParams {
@@ -236,6 +254,24 @@ export class LoansService {
           (max, installment) => Math.max(max, installment.overdueDays),
           0,
         ),
+        nextInstallmentDueDate: enriched
+          .filter(
+            (installment) => installment.status === InstallmentStatus.Pending,
+          )
+          .reduce<string | null>(
+            (earliest, installment) =>
+              !earliest || installment.dueDate < earliest
+                ? installment.dueDate
+                : earliest,
+            null,
+          ),
+        overdueBalance: enriched
+          .filter(
+            (installment) =>
+              installment.status === InstallmentStatus.Pending &&
+              installment.overdueDays > 0,
+          )
+          .reduce((sum, installment) => sum + installment.totalDue, 0),
       };
     });
   }
