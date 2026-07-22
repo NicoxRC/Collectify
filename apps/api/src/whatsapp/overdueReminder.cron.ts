@@ -11,6 +11,9 @@ import { OverdueReminderService } from './overdueReminder.service';
 // schedule is only known at runtime, from OVERDUE_REMINDER_CRON — decorator
 // arguments are evaluated at class-definition time, before DI/ConfigService
 // exist. This is also what makes pause/resume via SchedulerRegistry possible.
+// Runs 3x/week (Mon/Wed/Fri by default) — the "weekly" in runWeeklyReminder
+// refers to the message's grouping window (one consolidated message per
+// client), not the cadence, which is controlled entirely by this env var.
 @Injectable()
 export class OverdueReminderCron implements OnModuleInit {
   static readonly JOB_NAME = 'overdueReminder';
