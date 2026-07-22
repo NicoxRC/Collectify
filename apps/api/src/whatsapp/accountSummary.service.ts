@@ -94,16 +94,14 @@ export class AccountSummaryService {
   }
 
   private async gatherPendingInstallments(clientId: string) {
-    const installments = await this.installmentsRepository
-      .createQueryBuilder('installment')
-      .innerJoinAndSelect('installment.loan', 'loan')
-      .where('loan.clientId = :clientId', { clientId })
-      .andWhere('loan.status = :loanStatus', { loanStatus: LoanStatus.Active })
-      .andWhere('installment.status = :installmentStatus', {
-        installmentStatus: InstallmentStatus.Pending,
-      })
-      .orderBy('installment.dueDate', 'ASC')
-      .getMany();
+    const installments = await this.installmentsRepository.find({
+      where: {
+        status: InstallmentStatus.Pending,
+        loan: { clientId, status: LoanStatus.Active },
+      },
+      relations: { loan: true },
+      order: { dueDate: 'ASC' },
+    });
 
     return installments.map((installment) => {
       const enriched = enrichInstallment(
