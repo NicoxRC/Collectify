@@ -231,7 +231,9 @@ This matches the manual calculations found across both source spreadsheets — v
 {{installmentsList}}   -- rendered block, one line per overdue installment:
                           "La cuota No. {{number}} del pagaré #{{promissoryNoteNumber}}
                            por ${{totalDue}} (incluidos intereses) venció hace {{overdueDays}} días."
-{{grandTotal}}          -- sum of totalDueForInstallment across all included installments
+{{grandTotal}}          -- sum of totalDueForInstallment across all included installments,
+                           substituted WITH a leading "$" already included (e.g. "$158.000") —
+                           template authors should not type a $ before this placeholder.
 ```
 
 The real message format numbers each overdue installment with an emoji (1️⃣, 2️⃣...) and ends with "El valor a pagar hoy es $X". See `ARCHITECTURE.md` for how the `whatsapp` module renders this.
@@ -255,7 +257,7 @@ The real message format numbers each overdue installment with an emoji (1️⃣,
 ```
 {{clientFullName}}
 {{installmentsList}}
-{{grandTotal}}
+{{grandTotal}}          -- also includes the leading "$" automatically, same as `overdue`
 ```
 
 ### `message_logs`
