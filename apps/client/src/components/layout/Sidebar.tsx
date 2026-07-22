@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 
 import { useAuth } from '@/features/auth/useAuth';
+import { getInitials } from '@/lib/format';
 
 import type { UserRole } from '@/features/auth/authApi';
 
@@ -21,6 +22,8 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', to: '/' },
   { label: 'Clientes', to: '/clientes' },
   { label: 'Préstamos', to: '/prestamos' },
+  { label: 'Mensajes', to: '/mensajes' },
+  { label: 'Plantillas', to: '/plantillas', roles: ['admin'] },
 ];
 
 export function Sidebar() {
@@ -52,7 +55,14 @@ export function Sidebar() {
           <NavLink
             key={item.to}
             to={item.to}
-            end
+            // `end` restricts the active match to an exact path — needed
+            // on "/" (Dashboard) only, since without it every route would
+            // match (every path starts with "/"). Every other item should
+            // stay highlighted on its nested detail routes too (e.g.
+            // /clientes/:id, /prestamos/:id), so the sidebar keeps
+            // answering "where am I" one level deep, not just on the
+            // exact list page.
+            end={item.to === '/'}
             className={({ isActive }) =>
               [
                 'flex items-center gap-2.5 rounded px-4 py-2.5 text-small',
@@ -69,26 +79,35 @@ export function Sidebar() {
 
       <div className="border-t border-border" />
 
-      {/* User + logout — the real design puts this in the sidebar footer,
-          not in a top header bar (there isn't one, see AppLayout.tsx).
-          Shows email, not a full name: /auth/me only returns
-          id/email/role (see apps/api AuthenticatedUser interface) even
-          though the User entity has fullName — nothing to display there
-          without a backend change. */}
+      {/* User block — the real design puts this in the sidebar footer, not
+          a top header bar (there isn't one, see AppLayout.tsx). Links to
+          /perfil ("Mi perfil"), which now also holds "Cambiar
+          contraseña" — the client shared that design after an initial
+          version of this put a key icon here instead. Shows the real
+          name/initials now that GET /auth/me exposes fullName (see
+          apps/client/docs/DESIGN_TOKENS.md "Known design/backend gaps") —
+          previously fell back to email initials. */}
       <div className="flex items-center gap-2 px-3.5 py-3">
-        <div className="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-border">
-          <span className="text-[9px] font-medium text-muted">
-            {user?.email.slice(0, 2).toUpperCase()}
-          </span>
-        </div>
-        <div className="flex flex-1 flex-col gap-0.5 overflow-hidden">
-          <span className="truncate text-label font-medium text-white">
-            {user?.email}
-          </span>
-          <span className="text-[8px] tracking-[0.32px] text-muted">
-            {user?.role.toUpperCase()}
-          </span>
-        </div>
+        <NavLink
+          to="/perfil"
+          className={({ isActive }) =>
+            `flex flex-1 items-center gap-2 overflow-hidden rounded ${isActive ? 'text-white' : ''}`
+          }
+        >
+          <div className="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-border">
+            <span className="text-[9px] font-medium text-muted">
+              {user ? getInitials(user.fullName) : ''}
+            </span>
+          </div>
+          <div className="flex flex-1 flex-col gap-0.5 overflow-hidden">
+            <span className="truncate text-label font-medium text-white">
+              {user?.fullName}
+            </span>
+            <span className="text-[8px] tracking-[0.32px] text-muted">
+              {user?.role.toUpperCase()}
+            </span>
+          </div>
+        </NavLink>
         <button
           type="button"
           onClick={logout}

@@ -3,12 +3,17 @@ import { apiClient } from '@/lib/apiClient';
 // Matches apps/api/src/users/entities/user.entity.ts UserRole enum.
 export type UserRole = 'admin' | 'collector';
 
-// Matches apps/api/src/auth/interfaces/authenticatedUser.interface.ts —
-// note it does NOT include fullName, only id/email/role.
+// Matches apps/api/src/auth/interfaces/authenticatedUser.interface.ts.
+// fullName/createdAt added for the "Mi perfil" screen (client request,
+// post-Phase-5) — both already existed on the User entity, GET /auth/me
+// just didn't surface them yet. See apps/client/docs/DESIGN_TOKENS.md
+// "Known design/backend gaps".
 export interface AuthenticatedUser {
   id: string;
   email: string;
+  fullName: string;
   role: UserRole;
+  createdAt: string;
 }
 
 export interface LoginInput {
