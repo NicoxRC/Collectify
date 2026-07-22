@@ -2,6 +2,11 @@
 /dist
 /node_modules
 
+# Vite's local dependency pre-bundle cache — regenerated automatically,
+# shouldn't be tracked (accidentally committed via `git add -A` while
+# the cache happened to exist on disk)
+.vite
+
 # Logs
 logs
 *.log
