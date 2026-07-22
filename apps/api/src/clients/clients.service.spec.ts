@@ -22,17 +22,7 @@ describe('ClientsService', () => {
     findOneBy: jest.Mock;
     findOne: jest.Mock;
     softDelete: jest.Mock;
-    createQueryBuilder: jest.Mock;
-  };
-  let queryBuilder: {
-    withDeleted: jest.Mock;
-    addSelect: jest.Mock;
-    andWhere: jest.Mock;
-    orderBy: jest.Mock;
-    addOrderBy: jest.Mock;
-    skip: jest.Mock;
-    take: jest.Mock;
-    getManyAndCount: jest.Mock;
+    find: jest.Mock;
   };
 
   const mockClient: Client = {
@@ -47,23 +37,13 @@ describe('ClientsService', () => {
   };
 
   beforeEach(async () => {
-    queryBuilder = {
-      withDeleted: jest.fn().mockReturnThis(),
-      addSelect: jest.fn().mockReturnThis(),
-      andWhere: jest.fn().mockReturnThis(),
-      orderBy: jest.fn().mockReturnThis(),
-      addOrderBy: jest.fn().mockReturnThis(),
-      skip: jest.fn().mockReturnThis(),
-      take: jest.fn().mockReturnThis(),
-      getManyAndCount: jest.fn(),
-    };
     repository = {
       create: jest.fn((dto: Partial<Client>) => dto),
       save: jest.fn(),
       findOneBy: jest.fn(),
       findOne: jest.fn(),
       softDelete: jest.fn(),
-      createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
+      find: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -316,7 +296,7 @@ describe('ClientsService', () => {
 
   describe('findAll', () => {
     it('returns a paginated page of active clients by default', async () => {
-      queryBuilder.getManyAndCount.mockResolvedValue([[mockClient], 1]);
+      repository.find.mockResolvedValue([mockClient]);
 
       const result = await service.findAll({});
 
@@ -324,52 +304,85 @@ describe('ClientsService', () => {
         items: [mockClient],
         meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
       });
-      expect(queryBuilder.andWhere).toHaveBeenCalledWith(
-        'client.deletedAt IS NULL',
-      );
+      expect(repository.find).toHaveBeenCalledWith({
+        where: {},
+        withDeleted: false,
+      });
     });
 
     it('filters to soft-deleted clients when isActive is false', async () => {
-      queryBuilder.getManyAndCount.mockResolvedValue([[], 0]);
+      repository.find.mockResolvedValue([]);
 
       await service.findAll({ isActive: false });
 
-      expect(queryBuilder.andWhere).toHaveBeenCalledWith(
-        'client.deletedAt IS NOT NULL',
-      );
+      expect(repository.find).toHaveBeenCalledWith({
+        where: {
+          deletedAt: expect.objectContaining({ _type: 'not' }) as unknown,
+        },
+        withDeleted: true,
+      });
     });
 
     it('applies no deletedAt filter at all when isActive is "all"', async () => {
-      queryBuilder.getManyAndCount.mockResolvedValue([[mockClient], 1]);
+      repository.find.mockResolvedValue([mockClient]);
 
       await service.findAll({ isActive: 'all' });
 
-      expect(queryBuilder.andWhere).not.toHaveBeenCalledWith(
-        'client.deletedAt IS NULL',
-      );
-      expect(queryBuilder.andWhere).not.toHaveBeenCalledWith(
-        'client.deletedAt IS NOT NULL',
-      );
+      expect(repository.find).toHaveBeenCalledWith({
+        where: {},
+        withDeleted: true,
+      });
     });
 
-    it('applies the search term across name, document, and phone', async () => {
-      queryBuilder.getManyAndCount.mockResolvedValue([[mockClient], 1]);
+    it('applies the search term as an OR across name, document, and phone', async () => {
+      repository.find.mockResolvedValue([mockClient]);
 
       await service.findAll({ search: 'Juana' });
 
-      expect(queryBuilder.andWhere).toHaveBeenCalledWith(
-        expect.stringContaining('ILIKE'),
-        { search: '%Juana%' },
-      );
+      const [[callArg]] = repository.find.mock.calls as [
+        [{ where: Record<string, unknown>[] }],
+      ];
+      expect(callArg.where).toHaveLength(4);
+      for (const condition of callArg.where) {
+        const [, operator] = Object.entries(condition).find(
+          ([key]) => key !== 'deletedAt',
+        )!;
+        expect(operator).toMatchObject({ _type: 'ilike', _value: '%Juana%' });
+      }
+    });
+
+    it('sorts alphabetically by first name then last name, accent- and case-insensitively', async () => {
+      const andres = { ...mockClient, id: 'c1', firstName: 'Ándres' };
+      const beatriz = { ...mockClient, id: 'c2', firstName: 'beatriz' };
+      const carlos = { ...mockClient, id: 'c3', firstName: 'Carlos' };
+      repository.find.mockResolvedValue([carlos, andres, beatriz]);
+
+      const result = await service.findAll({});
+
+      expect(result.items.map((client) => client.id)).toEqual([
+        'c1',
+        'c2',
+        'c3',
+      ]);
     });
 
     it('respects custom page and limit', async () => {
-      queryBuilder.getManyAndCount.mockResolvedValue([[], 0]);
+      repository.find.mockResolvedValue(
+        Array.from({ length: 12 }, (_, i) => ({
+          ...mockClient,
+          id: `client-${i}`,
+        })),
+      );
 
-      await service.findAll({ page: 2, limit: 5 });
+      const result = await service.findAll({ page: 2, limit: 5 });
 
-      expect(queryBuilder.skip).toHaveBeenCalledWith(5);
-      expect(queryBuilder.take).toHaveBeenCalledWith(5);
+      expect(result.items).toHaveLength(5);
+      expect(result.meta).toEqual({
+        page: 2,
+        limit: 5,
+        total: 12,
+        totalPages: 3,
+      });
     });
   });
 });
