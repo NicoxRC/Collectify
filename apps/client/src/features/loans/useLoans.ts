@@ -4,6 +4,7 @@ import { loansApi } from '@/features/loans/loansApi';
 
 import type {
   LoansQueryParams,
+  RefinanceLoanInput,
   UpdateLoanInput,
 } from '@/features/loans/loansApi';
 
@@ -51,6 +52,18 @@ export function useMarkLoanAsPaid() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: loansApi.markAsPaid,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['loans'] }),
+  });
+}
+
+export function useRefinanceLoan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: RefinanceLoanInput }) =>
+      loansApi.refinance(id, input),
+    // Invalidates every loan query — this mutates two loans at once (old
+    // loan's status/installments, new loan created), so a targeted
+    // invalidation isn't worth the complexity.
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['loans'] }),
   });
 }

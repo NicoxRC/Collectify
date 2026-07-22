@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
 
 import { useAuth } from '@/features/auth/useAuth';
 import { useClient } from '@/features/clients/useClients';
@@ -13,10 +18,12 @@ import {
 } from '@/features/loans/loanStatusDisplay';
 import { LoanStatus } from '@/features/loans/loansApi';
 import { MarkAsPaidDialog } from '@/features/loans/MarkAsPaidDialog';
+import { RefinanceLoanForm } from '@/features/loans/RefinanceLoanForm';
 import {
   useLoan,
   useLoanPayments,
   useMarkLoanAsPaid,
+  useRefinanceLoan,
   useUpdateLoan,
 } from '@/features/loans/useLoans';
 import { formatCurrency, formatDateOnly } from '@/lib/format';
@@ -35,6 +42,7 @@ import type { ReactNode } from 'react';
 export function LoanDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
@@ -44,11 +52,21 @@ export function LoanDetailPage() {
   const registerPayment = useRegisterPayment(id ?? '');
   const markAsPaid = useMarkLoanAsPaid();
   const updateLoan = useUpdateLoan();
+  const refinanceLoan = useRefinanceLoan();
+
+  // Phase 6: fetch whichever side of the refinance chain applies, purely
+  // to show a nicer label (promissoryNoteNumber) than a bare link — both
+  // are no-ops (`enabled: false`) when there's nothing to link to.
+  const { data: refinancedToLoan } = useLoan(loan?.refinancedToLoanId ?? '');
+  const { data: refinancedFromLoan } = useLoan(
+    loan?.refinancedFromLoanId ?? '',
+  );
 
   const [payingInstallment, setPayingInstallment] =
     useState<Installment | null>(null);
   const [isChangingStatus, setIsChangingStatus] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [isRefinancing, setIsRefinancing] = useState(false);
 
   const pendingInstallments =
     loan?.installments.filter(
@@ -177,8 +195,46 @@ export function LoanDetailPage() {
               Cambiar estado
             </button>
           )}
+          {isAdmin && (
+            <button
+              type="button"
+              disabled={loan.status !== LoanStatus.Active}
+              onClick={() => setIsRefinancing(true)}
+              className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Refinanciar
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Phase 6: either side of the refinance chain, whichever applies.
+          A loan is never both at once (refinanced loans are closed out,
+          not further refinanced), so these are mutually exclusive in
+          practice, but not enforced as an if/else here since both checks
+          are independently cheap and harmless. */}
+      {loan.status === LoanStatus.Refinanced && loan.refinancedToLoanId && (
+        <div className="rounded border border-border bg-surface px-4 py-3 text-small text-muted">
+          Este préstamo fue refinanciado. Ver el préstamo nuevo:{' '}
+          <Link
+            to={`/prestamos/${loan.refinancedToLoanId}`}
+            className="text-white hover:underline"
+          >
+            {refinancedToLoan?.promissoryNoteNumber ?? '…'}
+          </Link>
+        </div>
+      )}
+      {loan.refinancedFromLoanId && (
+        <div className="rounded border border-border bg-surface px-4 py-3 text-small text-muted">
+          Este préstamo nació de una refinanciación. Ver el préstamo original:{' '}
+          <Link
+            to={`/prestamos/${loan.refinancedFromLoanId}`}
+            className="text-white hover:underline"
+          >
+            {refinancedFromLoan?.promissoryNoteNumber ?? '…'}
+          </Link>
+        </div>
+      )}
 
       <div className="grid grid-cols-5 gap-4">
         <KpiCard
@@ -226,51 +282,71 @@ export function LoanDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {loan.installments.map((installment) => (
-                <tr key={installment.id} className="border-t border-border">
-                  <Td>{installment.installmentNumber}</Td>
-                  <Td>{formatDateOnly(installment.dueDate)}</Td>
-                  <Td>{formatCurrency(installment.amount)}</Td>
-                  <Td>
-                    {installment.status === InstallmentStatus.Pending &&
-                    installment.overdueDays > 0 ? (
-                      <span
-                        className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${moraBadgeClasses(installment.overdueDays)}`}
-                      >
-                        {installment.overdueDays} días
-                      </span>
-                    ) : (
-                      <span className="text-mid">—</span>
-                    )}
-                  </Td>
-                  <Td>
-                    {installment.interest > 0
-                      ? formatCurrency(installment.interest)
-                      : '—'}
-                  </Td>
-                  <Td className="font-medium text-white">
-                    {formatCurrency(
-                      installment.status === InstallmentStatus.Pending
-                        ? installment.totalDue
-                        : installment.amount,
-                    )}
-                  </Td>
-                  <Td>{installmentStatusLabel(installment.status)}</Td>
-                  <Td>
-                    {installment.status === InstallmentStatus.Pending ? (
-                      <button
-                        type="button"
-                        onClick={() => setPayingInstallment(installment)}
-                        className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-muted hover:text-white"
-                      >
-                        Pagar
-                      </button>
-                    ) : (
-                      <span className="text-meta text-mid">—</span>
-                    )}
-                  </Td>
-                </tr>
-              ))}
+              {loan.installments.map((installment) => {
+                // Phase 6: cancelled installments (remaining pending ones
+                // on a loan at the moment it's refinanced — see
+                // docs/DATABASE.md "Refinancing") are kept, not hidden, but
+                // shown visually de-emphasized so they read as historical
+                // record rather than something still actionable.
+                const isCancelled =
+                  installment.status === InstallmentStatus.Cancelled;
+                return (
+                  <tr
+                    key={installment.id}
+                    className={`border-t border-border ${isCancelled ? 'opacity-50' : ''}`}
+                  >
+                    <Td>{installment.installmentNumber}</Td>
+                    <Td>{formatDateOnly(installment.dueDate)}</Td>
+                    <Td>{formatCurrency(installment.amount)}</Td>
+                    <Td>
+                      {installment.status === InstallmentStatus.Pending &&
+                      installment.overdueDays > 0 ? (
+                        <span
+                          className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${moraBadgeClasses(installment.overdueDays)}`}
+                        >
+                          {installment.overdueDays} días
+                        </span>
+                      ) : (
+                        <span className="text-mid">—</span>
+                      )}
+                    </Td>
+                    <Td>
+                      {installment.interest > 0
+                        ? formatCurrency(installment.interest)
+                        : '—'}
+                    </Td>
+                    <Td className="font-medium text-white">
+                      {formatCurrency(
+                        installment.status === InstallmentStatus.Pending
+                          ? installment.totalDue
+                          : installment.amount,
+                      )}
+                    </Td>
+                    <Td>
+                      {isCancelled ? (
+                        <span className="rounded-[3px] border border-mid bg-surface px-2 py-[3px] text-meta font-medium text-mid">
+                          Cancelada
+                        </span>
+                      ) : (
+                        installmentStatusLabel(installment.status)
+                      )}
+                    </Td>
+                    <Td>
+                      {installment.status === InstallmentStatus.Pending ? (
+                        <button
+                          type="button"
+                          onClick={() => setPayingInstallment(installment)}
+                          className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-muted hover:text-white"
+                        >
+                          Pagar
+                        </button>
+                      ) : (
+                        <span className="text-meta text-mid">—</span>
+                      )}
+                    </Td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -362,6 +438,23 @@ export function LoanDetailPage() {
           description={loan.description}
           onClose={() => setIsEditing(false)}
           onConfirm={(input) => updateLoan.mutateAsync({ id: loan.id, input })}
+        />
+      )}
+
+      {isRefinancing && (
+        <RefinanceLoanForm
+          oldLoanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
+          oldLoanOutstandingBalance={outstandingBalance}
+          onClose={() => setIsRefinancing(false)}
+          onSubmit={async (input) => {
+            const newLoan = await refinanceLoan.mutateAsync({
+              id: loan.id,
+              input,
+            });
+            // Land on the new loan, not the now-refinanced old one — it's
+            // the one the admin actually cares about going forward.
+            navigate(`/prestamos/${newLoan.id}`);
+          }}
         />
       )}
     </div>

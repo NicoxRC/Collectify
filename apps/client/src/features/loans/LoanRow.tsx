@@ -4,6 +4,7 @@ import {
   estadoBadge,
   moraBadgeClasses,
 } from '@/features/loans/loanStatusDisplay';
+import { LoanStatus } from '@/features/loans/loansApi';
 import { formatCurrency } from '@/lib/format';
 
 import type { LoanSummary } from '@/features/loans/loansApi';
@@ -16,6 +17,13 @@ interface LoanRowProps {
 
 export function LoanRow({ loan, rowNumber }: LoanRowProps) {
   const estado = estadoBadge(loan);
+  // Paid/refinanced loans have no pending installments left, so the "Pago"
+  // shortcut (which opens the payment dialog for the oldest pending
+  // installment) would silently do nothing. Shown disabled instead of
+  // hidden so the row layout stays consistent. See DESIGN_TOKENS.md
+  // "Known design/backend gaps".
+  const hasPendingInstallments =
+    loan.status !== LoanStatus.Paid && loan.status !== LoanStatus.Refinanced;
 
   return (
     <tr className="border-t border-border">
@@ -44,7 +52,16 @@ export function LoanRow({ loan, rowNumber }: LoanRowProps) {
       <Td>
         <div className="flex gap-2">
           <RowAction to={`/prestamos/${loan.id}`}>Ver</RowAction>
-          <RowAction to={`/prestamos/${loan.id}?pago=1`}>Pago</RowAction>
+          {hasPendingInstallments ? (
+            <RowAction to={`/prestamos/${loan.id}?pago=1`}>Pago</RowAction>
+          ) : (
+            <span
+              className="cursor-not-allowed rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-mid"
+              title="No hay cuotas pendientes por pagar"
+            >
+              Pago
+            </span>
+          )}
         </div>
       </Td>
     </tr>
