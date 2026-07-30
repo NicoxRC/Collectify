@@ -432,6 +432,17 @@ describe('LoansService', () => {
       expect(installmentsRepository.find).not.toHaveBeenCalled();
     });
 
+    it('hides a loan whose client was soft-deleted instead of throwing', async () => {
+      const orphanedLoan = { ...mockLoan, id: 'loan-orphan', client: null };
+      loansRepository.find.mockResolvedValue([mockLoan, orphanedLoan]);
+
+      const result = await service.findAll({});
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].id).toBe('loan-1');
+      expect(result.meta.total).toBe(1);
+    });
+
     it('sorts loans by the numeric part of their promissory note number', async () => {
       const loan101 = {
         ...mockLoan,

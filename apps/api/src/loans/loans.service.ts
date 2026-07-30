@@ -188,7 +188,11 @@ export class LoansService {
       where: this.buildFindAllWhere(query),
       relations: { client: true },
     });
-    const sorted = matches.sort(compareLoansByPromissoryNoteNumber);
+    // TypeORM silently drops soft-deleted relations, so a loan whose client
+    // was removed comes back with `client: null` despite the non-null type —
+    // hide those rather than crash summarize() on a null client.
+    const visible = matches.filter((loan) => loan.client !== null);
+    const sorted = visible.sort(compareLoansByPromissoryNoteNumber);
 
     const total = sorted.length;
     const start = (page - 1) * limit;
