@@ -6,6 +6,8 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import { Loan } from '../loans/entities/loan.entity';
+
 import { parseClientsWorkbook } from './clientsImportParser';
 import { Client } from './entities/client.entity';
 import { ClientsService } from './clients.service';
@@ -24,6 +26,7 @@ describe('ClientsService', () => {
     softDelete: jest.Mock;
     find: jest.Mock;
   };
+  let loansRepository: { count: jest.Mock };
 
   const mockClient: Client = {
     id: 'client-1',
@@ -45,11 +48,13 @@ describe('ClientsService', () => {
       softDelete: jest.fn(),
       find: jest.fn(),
     };
+    loansRepository = { count: jest.fn().mockResolvedValue(0) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClientsService,
         { provide: getRepositoryToken(Client), useValue: repository },
+        { provide: getRepositoryToken(Loan), useValue: loansRepository },
       ],
     }).compile();
 
@@ -144,11 +149,15 @@ describe('ClientsService', () => {
   });
 
   describe('softDelete', () => {
-    it('soft-deletes the client when found', async () => {
+    it('soft-deletes the client when found and has no loans', async () => {
       repository.findOneBy.mockResolvedValue(mockClient);
+      loansRepository.count.mockResolvedValue(0);
 
       await service.softDelete(mockClient.id);
 
+      expect(loansRepository.count).toHaveBeenCalledWith({
+        where: { clientId: mockClient.id },
+      });
       expect(repository.softDelete).toHaveBeenCalledWith({ id: mockClient.id });
     });
 
@@ -157,6 +166,16 @@ describe('ClientsService', () => {
 
       await expect(service.softDelete('missing-id')).rejects.toThrow(
         NotFoundException,
+      );
+      expect(repository.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('throws ConflictException when the client has loans, without deleting', async () => {
+      repository.findOneBy.mockResolvedValue(mockClient);
+      loansRepository.count.mockResolvedValue(2);
+
+      await expect(service.softDelete(mockClient.id)).rejects.toThrow(
+        ConflictException,
       );
       expect(repository.softDelete).not.toHaveBeenCalled();
     });
