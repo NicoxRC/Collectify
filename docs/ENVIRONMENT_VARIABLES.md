@@ -45,7 +45,7 @@ META_WHATSAPP_ACCESS_TOKEN=
 META_WHATSAPP_BUSINESS_ACCOUNT_ID=
 
 # ── Scheduled jobs ──────────────────────────────────────
-OVERDUE_REMINDER_CRON=0 9 * * 1
+OVERDUE_REMINDER_CRON=0 9 * * 1,3,5
 UPCOMING_DUE_REMINDER_CRON=0 8 * * *
 UPCOMING_DUE_REMINDER_DAYS=5,3,1
 
@@ -70,7 +70,7 @@ CLIENT_URL=http://localhost:5173
 | `META_WHATSAPP_PHONE_NUMBER_ID` | ⚠️ Pending | Meta's identifier for the WhatsApp Business phone number. **Not yet available — the client hasn't set up their Meta Business account.** Leave blank locally until provided; the `whatsapp` module should handle a missing value gracefully in development (log instead of send). |
 | `META_WHATSAPP_ACCESS_TOKEN` | ⚠️ Pending | Access token from the Meta for Developers app. Same status as above — pending client setup. |
 | `META_WHATSAPP_BUSINESS_ACCOUNT_ID` | ⚠️ Pending | The WhatsApp Business Account ID tied to the Meta app. Same status as above. |
-| `OVERDUE_REMINDER_CRON` | ✅ | Cron expression controlling when the weekly overdue reminder job runs. Default `0 9 * * 1` = every Monday at 9:00 AM. |
+| `OVERDUE_REMINDER_CRON` | ✅ | Cron expression controlling when the overdue reminder job runs. Default `0 9 * * 1,3,5` = every Monday, Wednesday, and Friday at 9:00 AM. Changed from a single weekly run (Monday only) at the client's request — the message content is still one consolidated summary per client, it's just sent three times a week instead of once. |
 | `UPCOMING_DUE_REMINDER_CRON` | ✅ | Cron expression controlling when the daily upcoming-due ("Aviso") reminder job runs. Default `0 8 * * *` = every day at 8:00 AM. Added in Phase 9 — see `docs/phases/PHASE_9_MESSAGE_TYPES.md`. |
 | `UPCOMING_DUE_REMINDER_DAYS` | ✅ | Comma-separated list of day thresholds before an installment's due date to send the "Aviso" reminder. Default `5,3,1`. Added in Phase 9. |
 | `CLIENT_URL` | ✅ | The client's URL, used to configure CORS. `http://localhost:5173` locally; the Cloudflare Pages URL in production. |
