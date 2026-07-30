@@ -10,6 +10,7 @@ import { validate } from 'class-validator';
 import { FindOptionsWhere, ILike, IsNull, Not, Repository } from 'typeorm';
 
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
+import { Loan } from '../loans/entities/loan.entity';
 
 import {
   ParsedClientRow,
@@ -36,6 +37,8 @@ export class ClientsService {
   constructor(
     @InjectRepository(Client)
     private readonly clientsRepository: Repository<Client>,
+    @InjectRepository(Loan)
+    private readonly loansRepository: Repository<Loan>,
   ) {}
 
   async create(dto: CreateClientDto): Promise<Client> {
@@ -140,6 +143,16 @@ export class ClientsService {
 
   async softDelete(id: string): Promise<void> {
     await this.findOne(id);
+
+    const loanCount = await this.loansRepository.count({
+      where: { clientId: id },
+    });
+    if (loanCount > 0) {
+      throw new ConflictException(
+        'No se puede eliminar un cliente que tiene préstamos asociados.',
+      );
+    }
+
     await this.clientsRepository.softDelete({ id });
   }
 
