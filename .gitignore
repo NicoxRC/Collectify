@@ -1,9 +1,3 @@
-# Claude Code / AI agent tooling
-.claude/
-.agents/
-skills-lock.json
-CLAUDE.md
-
 # Internal QA notes — not for the repo
 PRUEBAS.md
 CONFIGURACION_WHATSAPP_META.md
