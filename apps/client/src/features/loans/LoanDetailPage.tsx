@@ -26,6 +26,9 @@ import {
   useRefinanceLoan,
   useUpdateLoan,
 } from '@/features/loans/useLoans';
+import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
+import { useMessageLogs } from '@/features/messageLogs/useMessageLogs';
+import { MessageType } from '@/features/messageTemplates/messageTemplatesApi';
 import { formatCurrency, formatDateOnly } from '@/lib/format';
 
 import type { Installment } from '@/features/installments/installmentsApi';
@@ -38,7 +41,11 @@ import type { ReactNode } from 'react';
 //     4's own scope requires showing each installment's overdueDays/
 //     interest/totalDue "exactly as returned by GET /loans/:id" — there's
 //     no other place in this design for that.
-//   - "LOG DE MENSAJES WHATSAPP" and "Enviar mensaje" dropped: Phase 5/9.
+//   - "LOG DE MENSAJES WHATSAPP" and "Enviar mensaje" dropped: the
+//     new-loan message has no manual trigger by design (sent
+//     automatically at creation), so there's nothing to log/send here —
+//     Fase 9 added only the "Mensaje de confirmación" status badge above
+//     instead, next to the other status badges.
 export function LoanDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -61,6 +68,28 @@ export function LoanDetailPage() {
   const { data: refinancedFromLoan } = useLoan(
     loan?.refinancedFromLoanId ?? '',
   );
+
+  // Fase 9: the new-loan ("Primera vez") message is sent automatically at
+  // loan creation (see NewLoanReminderService in the api), with no manual
+  // trigger — this only surfaces whether it actually went through, so a
+  // failed/skipped send is visible instead of silent (per
+  // docs/phasesClient/PHASE_9_MESSAGE_TYPES.md). There's no loanId on
+  // MessageLog (it's per-client, see docs/DATABASE.md), so the matching
+  // log is found by checking which of the client's new_loan messages
+  // mentions this loan's promissoryNoteNumber — the rendered message
+  // always includes it ("tu pagaré #{{promissoryNoteNumber}}...", see the
+  // canonical template content), so this is reliable without an extra
+  // per-log items request.
+  const { data: newLoanMessages } = useMessageLogs({
+    clientId: loan?.clientId,
+    type: MessageType.NewLoan,
+    limit: 50,
+  });
+  const newLoanMessage = loan
+    ? newLoanMessages?.items.find((message) =>
+        message.messageContent.includes(loan.promissoryNoteNumber),
+      )
+    : undefined;
 
   const [payingInstallment, setPayingInstallment] =
     useState<Installment | null>(null);
@@ -164,6 +193,22 @@ export function LoanDetailPage() {
                 {overdueDays} días
               </span>
             )}
+            <span
+              className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${
+                newLoanMessage?.status === MessageLogStatus.Sent
+                  ? 'border-[#22c55e] bg-[#051e0e] text-[#22c55e]'
+                  : newLoanMessage?.status === MessageLogStatus.Failed
+                    ? 'border-[#ef4444] bg-[#240a0a] text-[#ef4444]'
+                    : 'border-muted bg-border text-muted'
+              }`}
+            >
+              Mensaje de confirmación:{' '}
+              {newLoanMessage?.status === MessageLogStatus.Sent
+                ? 'Enviado'
+                : newLoanMessage?.status === MessageLogStatus.Failed
+                  ? 'Fallido'
+                  : 'No enviado'}
+            </span>
           </div>
         </div>
 
