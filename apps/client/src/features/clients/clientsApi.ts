@@ -10,9 +10,22 @@ export interface Client {
   lastName: string;
   documentNumber: string;
   phoneNumber: string;
+  // Nullable — unset means no cupo enforced for this client. See
+  // docs/phases/PHASE_10_CLIENT_CAPACITY.md.
+  creditLimit: number | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+}
+
+// What GET /clients/:id returns — Client plus fields computed on read by
+// ClientsService.findOneDetail, never stored. GET /clients (list) returns
+// plain Client rows without these, per the backend's findAll/findOneDetail
+// split. See docs/phases/PHASE_10_CLIENT_CAPACITY.md.
+export interface ClientDetail extends Client {
+  creditUsed: number;
+  creditAvailable: number | null;
+  isMoraBlocked: boolean;
 }
 
 export interface ClientsQueryParams {
@@ -43,6 +56,11 @@ export interface CreateClientInput {
   lastName: string;
   documentNumber: string;
   phoneNumber: string;
+  // Omitted (not 0/null) means no cupo enforced — see CreateClientDto's
+  // @IsOptional() @IsPositive(). There is currently no way to explicitly
+  // clear a previously-set cupo via PATCH; see DESIGN_TOKENS.md "Known
+  // design/backend gaps".
+  creditLimit?: number;
 }
 
 export type UpdateClientInput = Partial<CreateClientInput>;
@@ -60,8 +78,8 @@ export const clientsApi = {
     return { items: data, meta: meta as PaginatedClients['meta'] };
   },
 
-  getOne: async (id: string): Promise<Client> => {
-    const { data } = await apiClient.get<Client>(`/clients/${id}`);
+  getOne: async (id: string): Promise<ClientDetail> => {
+    const { data } = await apiClient.get<ClientDetail>(`/clients/${id}`);
     return data;
   },
 
@@ -75,9 +93,15 @@ export const clientsApi = {
     return data;
   },
 
-  // Soft-deletes the client (this is what "Desactivar" does — there is no
-  // "reactivate" endpoint on the backend yet, see the gaps note above).
+  // Soft-deletes the client (this is what "Desactivar" does).
   remove: async (id: string): Promise<void> => {
     await apiClient.delete(`/clients/${id}`);
+  },
+
+  // Restores a soft-deleted client. Admin only — see
+  // docs/phases/PHASE_10_CLIENT_CAPACITY.md.
+  reactivate: async (id: string): Promise<Client> => {
+    const { data } = await apiClient.patch<Client>(`/clients/${id}/reactivate`);
+    return data;
   },
 };
