@@ -88,6 +88,80 @@ Phase 5 only covered the weekly overdue reminder. Real usage requires three more
 
 **Exit criteria:** all four message types (including the existing overdue reminder) are admin-configurable via templates and produce output matching the real formats the client shared.
 
+## Phase 10 — Client capacity (cupo) and reactivation
+
+- A per-client credit limit ("cupo"), enforced automatically when creating a new loan
+- Automatic block on new loans when a client has any installment overdue more than 30 days, even with cupo available
+- Reactivation of soft-deleted clients
+
+**Exit criteria:** a client's available cupo and mora-block status are visible and enforced at loan creation time; an inactive client is no longer a dead end.
+
+## Phase 11 — Audit logging
+
+- A generic, interceptor-based audit trail for sensitive actions (clients, loans, payments, users, templates, permissions) — who did what, and when
+- Admin-only read-only log viewer
+
+**Exit criteria:** an admin can answer "who did X" for any covered action without needing direct database access.
+
+## Phase 12 — Payment attachments
+
+- Attach a photo of the deposit/receipt when registering a payment; the API only stores the image URL, hosted externally (see `docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md` for the provider comparison)
+- Render the payment's observation (already existed but was never displayed) and attached image in the payment history
+
+**Exit criteria:** a payment's photo and observation are visible in the payment history, not just captured and hidden.
+
+## Phase 13 — Initial installment (cuota inicial)
+
+- Mark one installment at loan creation as an initial/down payment, exempt from mora
+
+**Exit criteria:** a loan can have an initial installment that never accrues mora, regardless of when it's paid.
+
+## Phase 14 — Configurable interest concepts (amortizador)
+
+- Replace the single flat interest rate with several named, configurable interest/fee concepts per loan
+- Exact per-installment breakdown available on demand
+- See `docs/phases/PHASE_14_INTEREST_CONCEPTS.md` for the size/scope warning — this is the largest phase in this batch and may need to be split once its open questions are resolved
+
+**Exit criteria:** a loan can be created with multiple named concepts, and the exact breakdown of what a client owes is retrievable per installment.
+
+## Phase 15 — Usury rate ceiling (tasa de usura global)
+
+- A global, month-to-month usury ceiling, admin-updatable, applied to interest calculations
+
+**Exit criteria:** the current legal usury ceiling is tracked and enforced, instead of interest rates being unchecked against any legal maximum.
+
+## Phase 16 — Early payoff and interest-first allocation (liquidación anticipada)
+
+- Correct calculation of "what does the client owe if they pay off today," applying interest-first allocation (Colombian Civil Code Art. 1653) instead of summing remaining installment totals
+
+**Exit criteria:** an early payoff quote reflects interest actually caused to date, not future interest that hasn't accrued.
+
+## Phase 17 — Refinancing recalculation (abono a capital)
+
+- Automatic calculation of the new principal when refinancing, derived from pending installments minus interest caused to date, replacing/pre-filling Phase 6's manual entry
+- Optional extra paydown against the new principal at refinancing time
+
+**Exit criteria:** refinancing produces a computed, explained new principal instead of a blank manually-entered figure.
+
+## Phase 18 — Message audiences, cronjobs and log retention
+
+- A curated group of clients attachable to each (still static, Meta-approved) message template, with a configurable send schedule
+- Manual retry for failed message sends, without losing the sent-message history
+
+**Exit criteria:** an admin can target a specific group of clients per template on its own schedule, and recover from a failed send without re-sending everything.
+
+## Phase 19 — User management UI
+
+- Frontend for the company user management the API has supported since Phase 2 but never had a panel for: create, deactivate, reactivate collector/admin accounts
+
+**Exit criteria:** an admin can manage company user accounts entirely through the panel.
+
+## Phase 20 — Module permissions matrix
+
+- Granular, per-employee control over which modules of the panel they can access, beyond the current binary admin/collector role
+
+**Exit criteria:** an admin can control module-level access per employee, resolving the "exact permission boundaries" open note in `docs/GLOSSARY.md`.
+
 ---
 
 ## Explicitly out of scope for now
@@ -102,6 +176,8 @@ These were discussed and intentionally deferred — tracked here so nobody assum
 | Public-facing marketplace | Discussed as a possible future direction; would likely be a **separate application**, not a retrofit of this admin panel (see `ARCHITECTURE.md`) |
 | Mobile app | Mentioned as a future possibility; the current REST API is not designed against this requirement yet — would need revisiting if it becomes concrete |
 | Multi-tenant support (selling this to other lending businesses) | Not designed for yet; would require significant changes to the data model (currently single-tenant) |
+| Payment gateway integration | Deferred — explicitly excluded from the Phase 10-20 documentation round; scope not yet defined |
+| Electronic signature | Deferred — explicitly excluded from the Phase 10-20 documentation round; scope not yet defined |
 
 ## Related documents
 

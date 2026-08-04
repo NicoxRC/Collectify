@@ -17,3 +17,4 @@ There's no fixed exit criteria here, unlike earlier phases — done means whatev
 
 - `docs/PROJECT_ROADMAP.md` — Phase 8 description
 - `docs/phases/PHASE_3_CLIENTS.md` — where Excel import was originally deferred from
+- `docs/phasesClient/PHASE_19_USER_MANAGEMENT.md` — the "User management UI" candidate item above was picked up and given concrete scope here
