@@ -14,6 +14,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
+import { Audit } from '../auditLog/decorators/audit.decorator';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../users/entities/user.entity';
@@ -69,6 +70,7 @@ export class LoansController {
 
   @Post()
   @Roles(UserRole.Admin)
+  @Audit('loan.create', 'loan')
   @ApiOperation({
     summary: 'Create a loan and generate its installments (admin only)',
     description:
@@ -96,6 +98,7 @@ export class LoansController {
 
   @Patch(':id')
   @Roles(UserRole.Admin)
+  @Audit('loan.update', 'loan')
   @ApiOperation({ summary: "Update a loan's interest rate (admin only)" })
   @ApiResponse({ status: 200, description: 'The loan was updated.' })
   @ApiResponse({ status: 404, description: 'Loan not found.' })
@@ -105,6 +108,7 @@ export class LoansController {
 
   @Post(':id/mark-as-paid')
   @Roles(UserRole.Admin)
+  @Audit('loan.markAsPaid', 'loan')
   @ApiOperation({
     summary:
       'Manually close a loan out as paid (admin only) — for payments received outside the system',
@@ -141,6 +145,7 @@ export class LoansController {
 
   @Post(':id/refinance')
   @Roles(UserRole.Admin)
+  @Audit('loan.refinance', 'loan')
   @ApiOperation({
     summary: 'Refinance a loan: close it out and open a new one (admin only)',
     description:
