@@ -1,20 +1,27 @@
 import { useQuery } from '@tanstack/react-query';
 
 import {
-  MessageType,
+  MESSAGE_TYPE_ORDER,
   messageTemplatesApi,
 } from '@/features/messageTemplates/messageTemplatesApi';
 
-// Filters to Overdue client-side — same scope decision as before the
-// backend refactor (client explicitly chose to keep this screen scoped to
-// `overdue`; the other three types are real but out of scope). Worth
-// revisiting now that the screen is read-only-anyway — showing all four
-// wouldn't need any new UI, just removing this filter.
+// Fase 9: all four types are now shown (previously filtered to `overdue`
+// only — that scoping made sense before the backend made templates
+// read-only, since editing a global content field only had one flow
+// wired up; now that this is just a read-only viewer, there's no reason
+// to hide the other three). Sorted into a fixed, meaningful order
+// (MESSAGE_TYPE_ORDER) instead of whatever order the API happens to
+// return, since the four don't have a natural alphabetical/chronological
+// order.
 export function useMessageTemplates() {
   return useQuery({
     queryKey: ['messageTemplates'],
     queryFn: messageTemplatesApi.getAll,
     select: (templates) =>
-      templates.filter((template) => template.type === MessageType.Overdue),
+      [...templates].sort(
+        (a, b) =>
+          MESSAGE_TYPE_ORDER.indexOf(a.type) -
+          MESSAGE_TYPE_ORDER.indexOf(b.type),
+      ),
   });
 }
