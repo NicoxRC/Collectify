@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, ILike, In, Repository } from 'typeorm';
 
+import { ClientsService } from '../clients/clients.service';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 
@@ -105,9 +106,12 @@ export class LoansService {
     @InjectRepository(Payment)
     private readonly paymentsRepository: Repository<Payment>,
     private readonly newLoanReminderService: NewLoanReminderService,
+    private readonly clientsService: ClientsService,
   ) {}
 
   async create(dto: CreateLoanDto): Promise<LoanDetail> {
+    await this.assertClientCanTakeNewLoan(dto.clientId, dto.principalAmount);
+
     const savedLoan = await this.persistLoanWithInstallments({
       clientId: dto.clientId,
       promissoryNoteNumber: dto.promissoryNoteNumber,
@@ -359,6 +363,35 @@ export class LoansService {
       where: { installmentId: In(installmentIds) },
       order: { paidAt: 'ASC' },
     });
+  }
+
+  // Phase 10 cupo/mora-block guard — only on create(), not refinance(): the
+  // phase brief scopes this to new-loan creation specifically (refinancing
+  // restructures existing exposure rather than adding new exposure, and
+  // isn't mentioned in docs/phases/PHASE_10_CLIENT_CAPACITY.md's guard
+  // scope). Two distinct rejection reasons, checked and reported
+  // separately, per that doc: mora-block first, since it applies regardless
+  // of how much cupo is left.
+  private async assertClientCanTakeNewLoan(
+    clientId: string,
+    principalAmount: number,
+  ): Promise<void> {
+    const isMoraBlocked = await this.clientsService.hasMoraBlock(clientId);
+    if (isMoraBlocked) {
+      throw new BadRequestException(
+        'This client has at least one installment more than 30 days ' +
+          'overdue and cannot be given a new loan until it is resolved.',
+      );
+    }
+
+    const { creditAvailable } =
+      await this.clientsService.getCreditUsage(clientId);
+    if (creditAvailable !== null && principalAmount > creditAvailable) {
+      throw new BadRequestException(
+        `This loan's principal (${principalAmount}) exceeds the client's ` +
+          `available cupo (${creditAvailable}).`,
+      );
+    }
   }
 
   // Shared by create() and refinance() — both need a loan row plus its

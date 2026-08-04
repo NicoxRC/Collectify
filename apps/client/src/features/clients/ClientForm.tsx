@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { CloseButton } from '@/components/ui/CloseButton';
+import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { ApiError } from '@/lib/apiClient';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
@@ -40,6 +41,10 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
     client?.documentNumber ?? '',
   );
   const [phoneNumber, setPhoneNumber] = useState(client?.phoneNumber ?? '');
+  // 0 means "no cupo set" per CurrencyInput's own empty-value convention —
+  // matches creditLimit being omitted/undefined on submit below. See
+  // docs/phases/PHASE_10_CLIENT_CAPACITY.md.
+  const [creditLimit, setCreditLimit] = useState(client?.creditLimit ?? 0);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -83,7 +88,13 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
     setIsSubmitting(true);
 
     try {
-      await onSubmit({ firstName, lastName, documentNumber, phoneNumber });
+      await onSubmit({
+        firstName,
+        lastName,
+        documentNumber,
+        phoneNumber,
+        ...(creditLimit > 0 ? { creditLimit } : {}),
+      });
       onClose();
     } catch (err) {
       if (err instanceof ApiError) {
@@ -188,6 +199,18 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
                 className={inputClassName(Boolean(fieldErrors.phoneNumber))}
               />
             </Field>
+          </div>
+
+          <div className="flex gap-4">
+            <Field label="Cupo (opcional)">
+              <CurrencyInput
+                value={creditLimit}
+                onChange={setCreditLimit}
+                placeholder="Sin cupo (ilimitado)"
+                className={inputClassName(false)}
+              />
+            </Field>
+            <div className="flex-1" />
           </div>
 
           {formError && (

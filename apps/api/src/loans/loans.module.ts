@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { ClientsModule } from '../clients/clients.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 
 import { Installment } from './entities/installment.entity';
@@ -15,6 +16,7 @@ import { LoansService } from './loans.service';
   imports: [
     TypeOrmModule.forFeature([Loan, Installment, Payment]),
     WhatsappModule,
+    ClientsModule,
   ],
   controllers: [LoansController, InstallmentsController],
   providers: [LoansService, InstallmentsService],

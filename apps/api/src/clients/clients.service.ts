@@ -7,10 +7,15 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { FindOptionsWhere, ILike, IsNull, Not, Repository } from 'typeorm';
+import { FindOptionsWhere, ILike, In, IsNull, Not, Repository } from 'typeorm';
 
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
-import { Loan } from '../loans/entities/loan.entity';
+import {
+  Installment,
+  InstallmentStatus,
+} from '../loans/entities/installment.entity';
+import { Loan, LoanStatus } from '../loans/entities/loan.entity';
+import { enrichInstallment } from '../loans/installments/enrichInstallment';
 
 import {
   ParsedClientRow,
@@ -32,6 +37,23 @@ export interface ImportClientsResult {
   skipped: RowError[];
 }
 
+// "Cupo usado" = capital + interés acumulado across the client's active
+// loans' still-pending installments — the same totalDue-based math as
+// LoansService.summarize()'s outstandingBalance, just aggregated across
+// every active loan instead of one. Confirmed with the human for Phase 10
+// (see docs/DATABASE.md "Changed after Phase 10").
+export interface ClientDetail extends Client {
+  creditUsed: number;
+  creditAvailable: number | null;
+  isMoraBlocked: boolean;
+}
+
+interface EnrichedInstallment {
+  status: InstallmentStatus;
+  overdueDays: number;
+  totalDue: number;
+}
+
 @Injectable()
 export class ClientsService {
   constructor(
@@ -39,6 +61,8 @@ export class ClientsService {
     private readonly clientsRepository: Repository<Client>,
     @InjectRepository(Loan)
     private readonly loansRepository: Repository<Loan>,
+    @InjectRepository(Installment)
+    private readonly installmentsRepository: Repository<Installment>,
   ) {}
 
   async create(dto: CreateClientDto): Promise<Client> {
@@ -126,6 +150,80 @@ export class ClientsService {
     return client;
   }
 
+  // Used by GET /clients/:id. Kept separate from findOne() (used internally
+  // by update()/softDelete()) because the extra fields here are computed,
+  // not columns — spreading them onto an entity that later gets passed to
+  // repository.save() would be asking for trouble.
+  async findOneDetail(id: string): Promise<ClientDetail> {
+    const client = await this.findOne(id);
+    const enriched = await this.enrichActiveInstallments(id);
+
+    const creditUsed = sumTotalDue(enriched);
+    const creditAvailable =
+      client.creditLimit !== null ? client.creditLimit - creditUsed : null;
+    const isMoraBlocked = enriched.some(
+      (installment) => installment.overdueDays > 30,
+    );
+
+    return { ...client, creditUsed, creditAvailable, isMoraBlocked };
+  }
+
+  // { creditLimit, creditUsed, creditAvailable } on its own, for callers
+  // (e.g. LoansService.create()'s cupo guard) that don't need the rest of
+  // the client record.
+  async getCreditUsage(clientId: string): Promise<{
+    creditLimit: number | null;
+    creditUsed: number;
+    creditAvailable: number | null;
+  }> {
+    const client = await this.findOne(clientId);
+    const enriched = await this.enrichActiveInstallments(clientId);
+    const creditUsed = sumTotalDue(enriched);
+    const creditAvailable =
+      client.creditLimit !== null ? client.creditLimit - creditUsed : null;
+
+    return { creditLimit: client.creditLimit, creditUsed, creditAvailable };
+  }
+
+  // Per-installment, not client-aggregate (confirmed with the human for
+  // Phase 10): true as soon as any single pending installment on any of the
+  // client's active loans is more than 30 days overdue.
+  async hasMoraBlock(clientId: string): Promise<boolean> {
+    const enriched = await this.enrichActiveInstallments(clientId);
+    return enriched.some((installment) => installment.overdueDays > 30);
+  }
+
+  // Shared by findOneDetail/getCreditUsage/hasMoraBlock: every installment
+  // (any status) across the client's *active* loans, enriched the same way
+  // as LoansService.summarize(). Refinanced-away and paid-off loans are
+  // LoanStatus.Refinanced/Paid, not Active, so they're excluded here without
+  // needing a separate rule — their balance no longer counts toward cupo or
+  // mora, which is what refinancing/paying off a loan is supposed to mean.
+  private async enrichActiveInstallments(
+    clientId: string,
+  ): Promise<EnrichedInstallment[]> {
+    const loans = await this.loansRepository.find({
+      where: { clientId, status: LoanStatus.Active },
+    });
+    if (loans.length === 0) {
+      return [];
+    }
+
+    const installments = await this.installmentsRepository.find({
+      where: { loanId: In(loans.map((loan) => loan.id)) },
+    });
+    const interestRateByLoanId = new Map(
+      loans.map((loan) => [loan.id, loan.interestRate]),
+    );
+
+    return installments.map((installment) =>
+      enrichInstallment(
+        installment,
+        interestRateByLoanId.get(installment.loanId) ?? 0,
+      ),
+    );
+  }
+
   async update(id: string, dto: UpdateClientDto): Promise<Client> {
     const client = await this.findOne(id);
 
@@ -154,6 +252,29 @@ export class ClientsService {
     }
 
     await this.clientsRepository.softDelete({ id });
+  }
+
+  // Mirrors UsersService.reactivate() (see users.service.ts), adapted to
+  // Client's actual TypeORM soft-delete (deletedAt) instead of Users'
+  // isActive flag — restore() on the soft-deleted row. Reactivating an
+  // already-active client is a clear error rather than a silent no-op,
+  // same choice as UsersService.deactivate() erroring on self-deactivation:
+  // an admin hitting this on an active client is more likely a mistake
+  // worth surfacing than an action to silently swallow.
+  async reactivate(id: string): Promise<Client> {
+    const client = await this.clientsRepository.findOne({
+      where: { id },
+      withDeleted: true,
+    });
+    if (!client) {
+      throw new NotFoundException(`Client with id ${id} not found`);
+    }
+    if (client.deletedAt === null) {
+      throw new BadRequestException('This client is already active');
+    }
+
+    await this.clientsRepository.restore({ id });
+    return this.findOne(id);
   }
 
   // Bulk onboarding from the client's own Excel process (see
@@ -245,6 +366,15 @@ export class ClientsService {
     }
     return error;
   }
+}
+
+// Sum of totalDue (amount + accrued interest) across only the still-pending
+// installments — same "capital + interés acumulado" definition confirmed
+// for cupo usado, mirroring LoansService.summarize()'s outstandingBalance.
+function sumTotalDue(installments: EnrichedInstallment[]): number {
+  return installments
+    .filter((installment) => installment.status === InstallmentStatus.Pending)
+    .reduce((sum, installment) => sum + installment.totalDue, 0);
 }
 
 // Mirrors TRANSLATE(LOWER(x), 'áéíóúñü', 'aeiounu') from the previous

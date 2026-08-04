@@ -46,3 +46,11 @@ export function useDeleteClient() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clients'] }),
   });
 }
+
+export function useReactivateClient() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: clientsApi.reactivate,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clients'] }),
+  });
+}

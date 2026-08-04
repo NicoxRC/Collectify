@@ -27,7 +27,11 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { UserRole } from '../users/entities/user.entity';
 
-import { ClientsService, ImportClientsResult } from './clients.service';
+import {
+  ClientDetail,
+  ClientsService,
+  ImportClientsResult,
+} from './clients.service';
 import { CreateClientDto } from './dto/createClient.dto';
 import { QueryClientsDto } from './dto/queryClients.dto';
 import { UpdateClientDto } from './dto/updateClient.dto';
@@ -52,10 +56,16 @@ export class ClientsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get a client by id' })
-  @ApiResponse({ status: 200, description: 'Returns the client.' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Returns the client, including creditUsed, creditAvailable and ' +
+      'isMoraBlocked — all computed on read, not stored columns. See ' +
+      'docs/phases/PHASE_10_CLIENT_CAPACITY.md.',
+  })
   @ApiResponse({ status: 404, description: 'Client not found.' })
-  findOne(@Param('id') id: string): Promise<Client> {
-    return this.clientsService.findOne(id);
+  findOne(@Param('id') id: string): Promise<ClientDetail> {
+    return this.clientsService.findOneDetail(id);
   }
 
   @Post()
@@ -78,6 +88,16 @@ export class ClientsController {
     @Body() dto: UpdateClientDto,
   ): Promise<Client> {
     return this.clientsService.update(id, dto);
+  }
+
+  @Patch(':id/reactivate')
+  @Roles(UserRole.Admin)
+  @ApiOperation({ summary: 'Restore a soft-deleted client (admin only)' })
+  @ApiResponse({ status: 200, description: 'The client was reactivated.' })
+  @ApiResponse({ status: 400, description: 'The client is already active.' })
+  @ApiResponse({ status: 404, description: 'Client not found.' })
+  reactivate(@Param('id') id: string): Promise<Client> {
+    return this.clientsService.reactivate(id);
   }
 
   @Post('import')

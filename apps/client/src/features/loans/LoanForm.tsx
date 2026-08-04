@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { CloseButton } from '@/components/ui/CloseButton';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { DatePicker } from '@/components/ui/DatePicker';
-import { useClients } from '@/features/clients/useClients';
+import { useClient, useClients } from '@/features/clients/useClients';
 import {
   subtractDaysFromDateString,
   subtractMonthsFromDateString,
@@ -13,7 +13,7 @@ import { ApiError } from '@/lib/apiClient';
 import { formatCurrency } from '@/lib/format';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
-import type { Client } from '@/features/clients/clientsApi';
+import type { Client, ClientDetail } from '@/features/clients/clientsApi';
 import type { CreateLoanInput } from '@/features/loans/loansApi';
 import type { FormEvent } from 'react';
 
@@ -78,6 +78,18 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     search: clientSearch,
     isActive: true,
   });
+  // GET /clients (search results) doesn't include creditUsed/creditAvailable/
+  // isMoraBlocked — only GET /clients/:id does (computed on read, see
+  // ClientsService.findOneDetail). Fetched once a client is picked, to
+  // surface cupo/mora-block inline before the admin fills out the rest of
+  // the form. See docs/phases/PHASE_10_CLIENT_CAPACITY.md.
+  const { data: selectedClientDetail } = useClient(selectedClient?.id ?? '');
+  // Drives disabling the rest of the form below — the client caught that
+  // leaving everything fillable when we already know upfront it'll be
+  // rejected just produces a confusing duplicate error (the inline notice
+  // plus the same message again from the failed submit). See
+  // docs/phases/PHASE_10_CLIENT_CAPACITY.md.
+  const isMoraBlocked = Boolean(selectedClientDetail?.isMoraBlocked);
 
   const [promissoryNoteNumber, setPromissoryNoteNumber] = useState('');
   const [principalAmount, setPrincipalAmount] = useState(0);
@@ -143,6 +155,12 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     const errors: FieldErrors = {};
     if (!selectedClient) {
       errors.clientId = 'Selecciona un cliente.';
+    } else if (isMoraBlocked) {
+      // Defensive fallback only — the fieldset/submit button below are
+      // disabled whenever this is true, so this normally can't be reached
+      // through the UI.
+      errors.clientId =
+        'Este cliente no puede recibir un nuevo préstamo mientras esté bloqueado por mora.';
     }
     if (!promissoryNoteNumber.trim()) {
       errors.promissoryNoteNumber = 'El número de pagaré es obligatorio.';
@@ -208,6 +226,19 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
         if (err.statusCode === 409) {
           setFieldErrors({
             promissoryNoteNumber: 'Ya existe un préstamo con este número.',
+          });
+          // Phase 10 guard — LoansService.create() rejects with one of two
+          // distinct English messages (see loans.service.ts's
+          // assertClientCanTakeNewLoan); matched here and translated,
+          // anchored to the field the admin needs to look at.
+        } else if (err.statusCode === 400 && /overdue/i.test(err.message)) {
+          setFieldErrors({
+            clientId:
+              'Este cliente tiene una cuota con más de 30 días de mora y no puede recibir un nuevo préstamo.',
+          });
+        } else if (err.statusCode === 400 && /cupo/i.test(err.message)) {
+          setFieldErrors({
+            principalAmount: 'El monto supera el cupo disponible del cliente.',
           });
         } else {
           setFormError(err.message);
@@ -293,6 +324,17 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
             )}
           </Field>
 
+          {selectedClient && selectedClientDetail && (
+            <ClientCapacityNotice clientDetail={selectedClientDetail} />
+          )}
+
+          {/* Disabled (not hidden) once the selected client is
+              mora-blocked — the client asked for this after seeing the
+              alternative: fill out the whole form, hit "Crear préstamo",
+              and get the same rejection message a second time at the
+              bottom. Nothing here is fillable until a non-blocked client
+              is picked instead. */}
+          <fieldset disabled={isMoraBlocked} className="contents">
           <div className="flex gap-4">
             <Field
               label="N° de pagaré"
@@ -443,6 +485,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
               className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
             />
           </Field>
+          </fieldset>
 
           {formError && (
             <p className="text-small text-red-400" role="alert">
@@ -462,7 +505,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isMoraBlocked}
               className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSubmitting ? 'Creando…' : 'Crear préstamo'}
@@ -471,6 +514,40 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
         </form>
       </div>
     </div>
+  );
+}
+
+// Inline surfacing of the client's cupo/mora-block status once picked —
+// mirrors the same rejection reasons the backend would otherwise only
+// reveal after submit (see the 400-handling in handleSubmit above). Purely
+// informational: the backend is still the source of truth and re-checks
+// both at submit time regardless of what this shows.
+function ClientCapacityNotice({
+  clientDetail,
+}: {
+  clientDetail: ClientDetail;
+}) {
+  if (clientDetail.isMoraBlocked) {
+    return (
+      <p
+        role="alert"
+        className="rounded border border-[#ef4444] bg-[#240a0a] px-3.5 py-2.5 text-small text-[#ef4444]"
+      >
+        Este cliente tiene una cuota con más de 30 días de mora y no puede
+        recibir un nuevo préstamo.
+      </p>
+    );
+  }
+
+  if (clientDetail.creditLimit === null) {
+    return null;
+  }
+
+  return (
+    <p className="text-meta text-muted">
+      Cupo disponible: {formatCurrency(clientDetail.creditAvailable ?? 0)} de{' '}
+      {formatCurrency(clientDetail.creditLimit)}
+    </p>
   );
 }
 
