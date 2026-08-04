@@ -148,6 +148,14 @@ export function ClientDetailPage() {
               <span className="rounded-[3px] border border-muted bg-border px-2 py-[3px] text-meta font-medium text-white">
                 Activo
               </span>
+              {client.isMoraBlocked && (
+                <span
+                  title="Este cliente tiene una cuota con más de 30 días de mora y no puede recibir un nuevo préstamo."
+                  className="rounded-[3px] border border-[#ef4444] bg-[#240a0a] px-2 py-[3px] text-meta font-medium text-[#ef4444]"
+                >
+                  Bloqueado por mora
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -172,7 +180,7 @@ export function ClientDetailPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <StatCard label="Préstamos totales" value={String(totalLoans)} />
         <StatCard
           label="Monto prestado"
@@ -180,6 +188,19 @@ export function ClientDetailPage() {
         />
         <StatCard label="En mora" value={formatCurrency(totalOverdueBalance)} />
         <StatCard label="Mensajes enviados" value={String(totalMessages)} />
+        {/* Computed on read by the backend (ClientsService.getCreditUsage),
+            not stored — see docs/phases/PHASE_10_CLIENT_CAPACITY.md. Shows
+            "Sin límite" instead of a dollar figure when the client has no
+            cupo configured (creditLimit null), matching how the backend
+            represents "no cupo enforced". */}
+        <StatCard
+          label="Cupo disponible"
+          value={
+            client.creditLimit === null
+              ? 'Sin límite'
+              : formatCurrency(client.creditAvailable ?? 0)
+          }
+        />
       </div>
 
       <div className="flex flex-col gap-2.5">
