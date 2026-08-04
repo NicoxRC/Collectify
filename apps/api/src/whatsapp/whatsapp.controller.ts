@@ -65,6 +65,22 @@ export class WhatsappController {
     return { paused: false };
   }
 
+  @Get('cron/upcoming-due/status')
+  @ApiOperation({
+    summary:
+      'Whether the daily upcoming-due reminder job is running (admin only)',
+    description:
+      'Mirrors GET /cron/status for the overdue reminder — added for the ' +
+      'Fase 9 client UI, which needs to render Pausar/Reanudar correctly.',
+  })
+  @ApiResponse({ status: 200, description: 'Returns the job running state.' })
+  getUpcomingDueCronStatus(): { running: boolean } {
+    const job = this.schedulerRegistry.getCronJob(
+      UpcomingDueReminderCron.JOB_NAME,
+    );
+    return { running: job.isActive };
+  }
+
   @Post('cron/upcoming-due/pause')
   @ApiOperation({
     summary: 'Pause the daily upcoming-due reminder job (admin only)',

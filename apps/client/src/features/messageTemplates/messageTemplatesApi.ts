@@ -8,6 +8,25 @@ export enum MessageType {
   AccountSummary = 'account_summary',
 }
 
+// Display order + Spanish labels for the four message types — shared
+// across this page, MessageLogsPage, and ClientDetailPage/LoanDetailPage
+// (Fase 9) so the wording is consistent everywhere a type shows up.
+// Matches the terms in docs/GLOSSARY.md exactly: "Mensaje de primera vez",
+// "Aviso", "Recordatorio de mora", "Estado de cuenta".
+export const MESSAGE_TYPE_ORDER: MessageType[] = [
+  MessageType.NewLoan,
+  MessageType.UpcomingDue,
+  MessageType.Overdue,
+  MessageType.AccountSummary,
+];
+
+export const MESSAGE_TYPE_LABELS: Record<MessageType, string> = {
+  [MessageType.NewLoan]: 'Primera vez',
+  [MessageType.UpcomingDue]: 'Aviso',
+  [MessageType.Overdue]: 'Recordatorio de mora',
+  [MessageType.AccountSummary]: 'Estado de cuenta',
+};
+
 // Post-refactor (main, PR #16 on the backend side): templates are no
 // longer admin-editable. WhatsApp only allows a business to *initiate* a
 // conversation through a Meta-approved template, so a freely-editable

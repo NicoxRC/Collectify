@@ -15,7 +15,12 @@ import {
 } from '@/features/loans/loanStatusDisplay';
 import { useLoans } from '@/features/loans/useLoans';
 import { useMessageLogs } from '@/features/messageLogs/useMessageLogs';
-import { useSendReminder } from '@/features/whatsapp/useWhatsapp';
+import { MESSAGE_TYPE_LABELS } from '@/features/messageTemplates/messageTemplatesApi';
+import {
+  useSendAccountSummary,
+  useSendReminder,
+  useSendUpcomingDueReminder,
+} from '@/features/whatsapp/useWhatsapp';
 import { ApiError } from '@/lib/apiClient';
 import {
   formatCurrency,
@@ -57,6 +62,8 @@ export function ClientDetailPage() {
   } = useLoans({ clientId: id, limit: 100 });
   const { data: messages } = useMessageLogs({ clientId: id, limit: 5 });
   const sendReminder = useSendReminder();
+  const sendUpcomingDueReminder = useSendUpcomingDueReminder();
+  const sendAccountSummary = useSendAccountSummary();
   const [sendError, setSendError] = useState<string | null>(null);
 
   if (!id) {
@@ -286,35 +293,84 @@ export function ClientDetailPage() {
         </div>
       </div>
 
-      {/* Fase 5 — only the overdue reminder is in scope this phase (client's
-          choice), so this only ever shows/sends that one message type. */}
+      {/* Fase 5 built this scoped to the overdue reminder only; Fase 9 added
+          manual triggers for the other two on-demand-capable types (Aviso
+          also has a cron, but its pause/resume lives on MessageLogsPage —
+          "the page about automatic sends" — not per-client). The new-loan
+          message has no manual trigger by design (sent automatically at
+          loan creation, see LoanDetailPage.tsx), so it never appears here
+          as a button, only in the history list below like any other type. */}
       <div className="flex flex-col gap-2.5">
         <div className="flex items-center justify-between">
           <span className="text-section-label font-medium tracking-[0.36px] text-muted">
             HISTORIAL DE MENSAJES
           </span>
           {isAdmin && (
-            <button
-              type="button"
-              disabled={sendReminder.isPending}
-              onClick={async () => {
-                setSendError(null);
-                try {
-                  await sendReminder.mutateAsync(client.id);
-                } catch (err) {
-                  setSendError(
-                    err instanceof ApiError
-                      ? err.message
-                      : 'No se pudo enviar el recordatorio.',
-                  );
-                }
-              }}
-              className="rounded-[3px] border border-border bg-input px-2.5 py-1 text-meta text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {sendReminder.isPending
-                ? 'Enviando…'
-                : 'Enviar recordatorio de mora'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={sendReminder.isPending}
+                onClick={async () => {
+                  setSendError(null);
+                  try {
+                    await sendReminder.mutateAsync(client.id);
+                  } catch (err) {
+                    setSendError(
+                      err instanceof ApiError
+                        ? err.message
+                        : 'No se pudo enviar el recordatorio.',
+                    );
+                  }
+                }}
+                className="rounded-[3px] border border-border bg-input px-2.5 py-1 text-meta text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {sendReminder.isPending
+                  ? 'Enviando…'
+                  : 'Enviar recordatorio de mora'}
+              </button>
+              <button
+                type="button"
+                disabled={sendUpcomingDueReminder.isPending}
+                onClick={async () => {
+                  setSendError(null);
+                  try {
+                    await sendUpcomingDueReminder.mutateAsync(client.id);
+                  } catch (err) {
+                    setSendError(
+                      err instanceof ApiError
+                        ? err.message
+                        : 'No se pudo enviar el aviso.',
+                    );
+                  }
+                }}
+                className="rounded-[3px] border border-border bg-input px-2.5 py-1 text-meta text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {sendUpcomingDueReminder.isPending
+                  ? 'Enviando…'
+                  : 'Enviar aviso'}
+              </button>
+              <button
+                type="button"
+                disabled={sendAccountSummary.isPending}
+                onClick={async () => {
+                  setSendError(null);
+                  try {
+                    await sendAccountSummary.mutateAsync(client.id);
+                  } catch (err) {
+                    setSendError(
+                      err instanceof ApiError
+                        ? err.message
+                        : 'No se pudo enviar el estado de cuenta.',
+                    );
+                  }
+                }}
+                className="rounded-[3px] border border-border bg-input px-2.5 py-1 text-meta text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {sendAccountSummary.isPending
+                  ? 'Enviando…'
+                  : 'Enviar resumen de cuenta'}
+              </button>
+            </div>
           )}
         </div>
 
@@ -333,6 +389,9 @@ export function ClientDetailPage() {
                     <td className="h-11 px-3.5 text-small text-muted">
                       {new Date(message.sentAt).toLocaleDateString('es-CO')}
                     </td>
+                    <td className="h-11 px-3.5 text-small text-muted">
+                      {MESSAGE_TYPE_LABELS[message.type]}
+                    </td>
                     <td className="h-11 px-3.5 text-right">
                       <span
                         className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${
@@ -350,7 +409,7 @@ export function ClientDetailPage() {
             </table>
           ) : (
             <p className="border border-border p-4 text-small text-muted">
-              Todavía no se le han enviado recordatorios de mora a este cliente.
+              Todavía no se le han enviado mensajes a este cliente.
             </p>
           )}
         </div>
