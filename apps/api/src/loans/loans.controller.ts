@@ -80,7 +80,11 @@ export class LoansController {
   })
   @ApiResponse({
     status: 400,
-    description: 'installmentAmounts does not sum to principalAmount.',
+    description:
+      'installmentAmounts does not sum to principalAmount, OR the client ' +
+      'is mora-blocked (an installment more than 30 days overdue), OR the ' +
+      "principal exceeds the client's available cupo — see the error " +
+      'message for which one applies.',
   })
   @ApiResponse({
     status: 409,
