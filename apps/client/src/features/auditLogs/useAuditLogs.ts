@@ -1,0 +1,12 @@
+import { useQuery } from '@tanstack/react-query';
+
+import { auditLogsApi } from '@/features/auditLogs/auditLogsApi';
+
+import type { AuditLogsQueryParams } from '@/features/auditLogs/auditLogsApi';
+
+export function useAuditLogs(params: AuditLogsQueryParams) {
+  return useQuery({
+    queryKey: ['auditLogs', params],
+    queryFn: () => auditLogsApi.getAll(params),
+  });
+}
