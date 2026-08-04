@@ -1,5 +1,11 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsPhoneNumber, IsString } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsNotEmpty,
+  IsOptional,
+  IsPhoneNumber,
+  IsPositive,
+  IsString,
+} from 'class-validator';
 
 export class CreateClientDto {
   @ApiProperty({ example: 'Juana' })
@@ -20,4 +26,14 @@ export class CreateClientDto {
   @ApiProperty({ example: '+573001234567' })
   @IsPhoneNumber('CO')
   phoneNumber!: string;
+
+  @ApiPropertyOptional({
+    example: 2000000,
+    description:
+      'Maximum credit exposure ("cupo") — unset means no cupo is enforced ' +
+      'for this client. See docs/phases/PHASE_10_CLIENT_CAPACITY.md.',
+  })
+  @IsOptional()
+  @IsPositive()
+  creditLimit?: number;
 }
