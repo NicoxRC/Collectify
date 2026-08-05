@@ -27,6 +27,8 @@ A single scheduled payment within a loan. A loan is divided into a fixed number 
 ### Payment / Pago
 A record of money received against a specific installment. An installment can receive multiple partial payments. In code: `Payment` entity, `payments` table.
 
+**Comprobante (deposit receipt photo)** — added Phase 12: a payment can optionally carry a photo of the deposit/receipt, alongside its existing free-text `observation`. In code: `Payment.imageUrl`, nullable — the api only stores the URL, hosted externally (Cloudinary); it never receives the image bytes. See `docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md`.
+
 ## Status and mora
 
 ### Overdue (Mora / Vencido)
