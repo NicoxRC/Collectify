@@ -24,6 +24,10 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Préstamos', to: '/prestamos' },
   { label: 'Mensajes', to: '/mensajes' },
   { label: 'Plantillas', to: '/plantillas', roles: ['admin'] },
+  // Not in the original Figma nav (no frame exists for Phase 11) —
+  // admin-only, same treatment as Plantillas. See
+  // docs/phases/PHASE_11_AUDIT_LOG.md.
+  { label: 'Auditoría', to: '/auditoria', roles: ['admin'] },
 ];
 
 export function Sidebar() {

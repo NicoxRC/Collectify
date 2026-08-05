@@ -27,6 +27,8 @@ A single scheduled payment within a loan. A loan is divided into a fixed number 
 ### Payment / Pago
 A record of money received against a specific installment. An installment can receive multiple partial payments. In code: `Payment` entity, `payments` table.
 
+**Comprobante (deposit receipt photo)** — added Phase 12: a payment can optionally carry a photo of the deposit/receipt, alongside its existing free-text `observation`. In code: `Payment.imageUrl`, nullable — the api only stores the URL, hosted externally (Cloudinary); it never receives the image bytes. See `docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md`.
+
 ## Status and mora
 
 ### Overdue (Mora / Vencido)
@@ -115,6 +117,11 @@ The business owner. Full system access — manages clients, loans, installments,
 
 ### Collector / Cobrador
 Both a business role and a system role. In the business, whoever follows up on overdue clients — could be the owner or a dedicated person. In the system, `role: 'collector'` — can view clients, loans, installments, and mora status, and trigger manual reminders, but has restricted access to system configuration (exact permission boundaries to be finalized during development — see `DATABASE.md` roles note).
+
+## Administration
+
+### Audit log
+A record of who did a sensitive action, and when — creating/updating/ deactivating/reactivating clients, users, or loans, refinancing a loan, registering a payment. Added Phase 11 to give the business a real accountability trail instead of "nobody knows who registered this payment." In code: `AuditLog` entity, `audit_logs` table, written automatically by a globally-registered interceptor (`AuditLogInterceptor`) for any endpoint decorated with `@Audit(action, entityType)` — not logging calls hand-added to each service. Append-only, same convention as `message_logs`. See `docs/phases/PHASE_11_AUDIT_LOG.md` and `DATABASE.md`'s `audit_logs` section.
 
 ## Resolved from earlier analysis
 

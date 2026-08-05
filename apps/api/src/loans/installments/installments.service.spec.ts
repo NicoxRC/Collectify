@@ -171,5 +171,34 @@ describe('InstallmentsService', () => {
         service.registerPayment('missing-id', paymentDto),
       ).rejects.toThrow(NotFoundException);
     });
+
+    // Phase 12 — docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md's mandatory
+    // test scope: imageUrl persists when provided, and registration still
+    // works exactly as before (paymentDto has no imageUrl) when omitted.
+    it('persists imageUrl when provided', async () => {
+      installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
+      paymentsRepository.find.mockResolvedValue([{ amountPaid: 100000 }]);
+
+      const result = await service.registerPayment(mockInstallment.id, {
+        ...paymentDto,
+        imageUrl: 'https://res.cloudinary.com/demo/image/upload/receipt.jpg',
+      });
+
+      expect(result).toMatchObject({
+        imageUrl: 'https://res.cloudinary.com/demo/image/upload/receipt.jpg',
+      });
+    });
+
+    it('stores a null imageUrl when omitted', async () => {
+      installmentsRepository.findOneBy.mockResolvedValue(mockInstallment);
+      paymentsRepository.find.mockResolvedValue([{ amountPaid: 100000 }]);
+
+      const result = await service.registerPayment(
+        mockInstallment.id,
+        paymentDto,
+      );
+
+      expect(result).toMatchObject({ imageUrl: null });
+    });
   });
 });

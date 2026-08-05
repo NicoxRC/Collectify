@@ -14,6 +14,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
+import { Audit } from '../auditLog/decorators/audit.decorator';
 import { CurrentUser } from '../auth/decorators/currentUser.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 
@@ -45,6 +46,7 @@ export class UsersController {
 
   @Post()
   @Roles(UserRole.Admin)
+  @Audit('user.create', 'user')
   @ApiOperation({
     summary: 'Create a collector or admin account (admin only)',
     description: 'No self-registration — accounts are always admin-created.',
@@ -57,6 +59,7 @@ export class UsersController {
 
   @Patch(':id/deactivate')
   @Roles(UserRole.Admin)
+  @Audit('user.deactivate', 'user')
   @ApiOperation({
     summary: 'Deactivate a user account (admin only)',
     description:
@@ -77,6 +80,7 @@ export class UsersController {
 
   @Patch(':id/reactivate')
   @Roles(UserRole.Admin)
+  @Audit('user.reactivate', 'user')
   @ApiOperation({
     summary: 'Reactivate a deactivated user account (admin only)',
   })

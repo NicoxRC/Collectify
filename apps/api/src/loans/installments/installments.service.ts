@@ -86,6 +86,7 @@ export class InstallmentsService {
       amountPaid: dto.amountPaid,
       paidAt: dto.paidAt,
       observation: dto.observation ?? null,
+      imageUrl: dto.imageUrl ?? null,
     });
     const savedPayment = await this.paymentsRepository.save(payment);
 

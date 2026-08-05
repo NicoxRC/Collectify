@@ -87,6 +87,10 @@ Vite only exposes variables prefixed with `VITE_` to the frontend code — this 
 
 ```bash
 VITE_API_URL=http://localhost:3000/api/v1
+
+# ── Payment receipt photos — Cloudinary (Phase 12) ─────
+VITE_CLOUDINARY_CLOUD_NAME=
+VITE_CLOUDINARY_UPLOAD_PRESET=
 ```
 
 ### Variable reference
@@ -94,12 +98,18 @@ VITE_API_URL=http://localhost:3000/api/v1
 | Variable | Required | Description |
 |---|---|---|
 | `VITE_API_URL` | ✅ | Base URL the client uses to reach the API. Points to `localhost:3000` locally; points to the Railway-deployed API URL in production. |
+| `VITE_CLOUDINARY_CLOUD_NAME` | ⚠️ Pending | Cloudinary's cloud name, used to build the upload endpoint URL (`https://api.cloudinary.com/v1_1/<cloud_name>/image/upload`). Public value, not a secret — found on the Cloudinary dashboard. **Not yet available — no Cloudinary account has been created for this project yet.** See `docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md` for the provider comparison and recommendation. |
+| `VITE_CLOUDINARY_UPLOAD_PRESET` | ⚠️ Pending | Name of an **unsigned** upload preset configured in the Cloudinary dashboard (Settings → Upload). Unsigned, not signed, because a signed upload needs an api key/secret pair that can't safely live in client-side code — see `lib/imageUpload.ts`. Same pending status as above. |
 
 Accessed in code as:
 
 ```typescript
 const apiUrl = import.meta.env.VITE_API_URL;
 ```
+
+### On the pending Cloudinary credentials
+
+Unlike the pending Meta WhatsApp credentials (which the `api` handles by logging and skipping a background cron job), a missing Cloudinary config has no reasonable "skip silently" behavior here — registering a payment with a photo is a direct, in-the-moment user action, not a scheduled job. `lib/imageUpload.ts` throws a clear `ImageUploadError` instead, which `RegisterPaymentDialog.tsx` surfaces as a blocking error message rather than letting the payment submit without the photo. Registering a payment with **no** photo at all is unaffected either way — the field is optional end to end.
 
 ---
 
