@@ -37,7 +37,11 @@ export class InstallmentsController {
 
   @Post(':id/payments')
   @Audit('payment.register', 'payment')
-  @ApiOperation({ summary: 'Register a payment against an installment' })
+  @ApiOperation({
+    summary: 'Register a payment against an installment',
+    description:
+      'Accepts an optional imageUrl for the deposit receipt photo. The api does not handle image uploads — imageUrl must already point to an externally hosted image (see docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md); the client is responsible for uploading the file and passing back the resulting URL.',
+  })
   @ApiResponse({ status: 201, description: 'The payment was recorded.' })
   @ApiResponse({ status: 404, description: 'Installment not found.' })
   registerPayment(
