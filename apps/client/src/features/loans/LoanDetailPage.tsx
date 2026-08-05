@@ -30,6 +30,7 @@ import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogs } from '@/features/messageLogs/useMessageLogs';
 import { MessageType } from '@/features/messageTemplates/messageTemplatesApi';
 import { formatCurrency, formatDateOnly } from '@/lib/format';
+import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type { Installment } from '@/features/installments/installmentsApi';
 import type { ReactNode } from 'react';
@@ -96,6 +97,10 @@ export function LoanDetailPage() {
   const [isChangingStatus, setIsChangingStatus] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isRefinancing, setIsRefinancing] = useState(false);
+  // Phase 12 — click-to-enlarge for a payment's receipt photo. No Figma
+  // frame exists for this (see DESIGN_TOKENS.md); just the payment's own
+  // imageUrl, no extra fetch needed.
+  const [enlargedImageUrl, setEnlargedImageUrl] = useState<string | null>(null);
 
   const pendingInstallments =
     loan?.installments.filter(
@@ -409,13 +414,14 @@ export function LoanDetailPage() {
                 <Th>Fecha</Th>
                 <Th>Monto</Th>
                 <Th>Observación</Th>
+                <Th>Comprobante</Th>
               </tr>
             </thead>
             <tbody>
               {(payments ?? []).length === 0 && (
                 <tr>
                   <td
-                    colSpan={4}
+                    colSpan={5}
                     className="p-6 text-center text-small text-muted"
                   >
                     Todavía no se han registrado pagos.
@@ -429,6 +435,23 @@ export function LoanDetailPage() {
                   <Td>{formatCurrency(payment.amountPaid)}</Td>
                   <Td className="font-normal text-muted">
                     {payment.observation ?? '—'}
+                  </Td>
+                  <Td>
+                    {payment.imageUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => setEnlargedImageUrl(payment.imageUrl)}
+                        className="block"
+                      >
+                        <img
+                          src={payment.imageUrl}
+                          alt={`Comprobante del pago del ${formatDateOnly(payment.paidAt)}`}
+                          className="h-8 w-8 rounded border border-border object-cover hover:border-subtle"
+                        />
+                      </button>
+                    ) : (
+                      <span className="text-meta text-mid">—</span>
+                    )}
                   </Td>
                 </tr>
               ))}
@@ -453,6 +476,13 @@ export function LoanDetailPage() {
         </Link>
         .
       </div>
+
+      {enlargedImageUrl && (
+        <ImageLightbox
+          imageUrl={enlargedImageUrl}
+          onClose={() => setEnlargedImageUrl(null)}
+        />
+      )}
 
       {payingInstallment && (
         <RegisterPaymentDialog
@@ -561,5 +591,36 @@ function Td({
     >
       {children}
     </td>
+  );
+}
+
+// Phase 12 — click-to-enlarge view for a payment's receipt photo. Its own
+// component (not inline JSX) so useEscapeKey only attaches its listener
+// while the lightbox is actually mounted, same pattern as every other
+// dialog in this file (RegisterPaymentDialog, MarkAsPaidDialog, etc.).
+function ImageLightbox({
+  imageUrl,
+  onClose,
+}: {
+  imageUrl: string;
+  onClose: () => void;
+}) {
+  useEscapeKey(onClose);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <img
+        src={imageUrl}
+        alt="Comprobante de pago ampliado"
+        className="max-h-[85vh] max-w-[85vw] rounded border border-border object-contain"
+        // Prevents a click on the image itself from bubbling up to the
+        // backdrop's onClose — otherwise there'd be no way to right-click
+        // or select the image without immediately closing the lightbox.
+        onClick={(event) => event.stopPropagation()}
+      />
+    </div>
   );
 }
