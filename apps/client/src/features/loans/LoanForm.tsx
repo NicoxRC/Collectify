@@ -335,156 +335,163 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
               bottom. Nothing here is fillable until a non-blocked client
               is picked instead. */}
           <fieldset disabled={isMoraBlocked} className="contents">
-          <div className="flex gap-4">
-            <Field
-              label="N° de pagaré"
-              error={fieldErrors.promissoryNoteNumber}
-            >
-              <input
-                value={promissoryNoteNumber}
-                onChange={(event) => {
-                  setPromissoryNoteNumber(event.target.value);
-                  setFieldErrors((prev) => ({
-                    ...prev,
-                    promissoryNoteNumber: undefined,
-                  }));
-                }}
-                placeholder="Ej: #743"
-                className={inputClassName(
-                  Boolean(fieldErrors.promissoryNoteNumber),
-                )}
-              />
-            </Field>
-            <Field label="Tasa de interés (%)" error={fieldErrors.interestRate}>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step="0.1"
-                value={interestRate}
-                onChange={(event) => {
-                  setInterestRate(event.target.value);
-                  setFieldErrors((prev) => ({
-                    ...prev,
-                    interestRate: undefined,
-                  }));
-                }}
-                placeholder="Ej: 6"
-                className={inputClassName(Boolean(fieldErrors.interestRate))}
-              />
-            </Field>
-          </div>
-
-          <div className="flex gap-4">
-            <Field label="Monto" error={fieldErrors.principalAmount}>
-              <CurrencyInput
-                value={principalAmount}
-                onChange={handlePrincipalChange}
-                placeholder="Ej: $1.500.000"
-                className={inputClassName(Boolean(fieldErrors.principalAmount))}
-              />
-            </Field>
-            <Field label="N° cuotas" error={fieldErrors.totalInstallments}>
-              <input
-                type="number"
-                min={1}
-                value={totalInstallments}
-                onChange={(event) => handleCountChange(event.target.value)}
-                placeholder="Ej: 12"
-                className={inputClassName(
-                  Boolean(fieldErrors.totalInstallments),
-                )}
-              />
-            </Field>
-          </div>
-
-          <div className="flex gap-4">
-            <Field
-              label="Fecha de la primera cuota"
-              error={fieldErrors.firstDueDate}
-            >
-              <DatePicker
-                value={firstDueDate}
-                onChange={(next) => {
-                  setFirstDueDate(next);
-                  setFieldErrors((prev) => ({
-                    ...prev,
-                    firstDueDate: undefined,
-                  }));
-                }}
-                className={inputClassName(Boolean(fieldErrors.firstDueDate))}
-              />
-            </Field>
-            <Field label="Periodicidad de cuotas">
-              <select
-                value={installmentFrequency}
-                onChange={(event) =>
-                  setInstallmentFrequency(
-                    event.target.value as InstallmentFrequency,
-                  )
-                }
-                className={inputClassName(false)}
+            <div className="flex gap-4">
+              <Field
+                label="N° de pagaré"
+                error={fieldErrors.promissoryNoteNumber}
               >
-                <option value={InstallmentFrequency.Monthly}>Mensual</option>
-                <option value={InstallmentFrequency.Biweekly}>Quincenal</option>
-              </select>
-            </Field>
-          </div>
-
-          {count > 0 && (
-            <Field
-              label={`Desglose por cuota (${installmentAmounts.length})`}
-              error={fieldErrors.installmentAmounts}
-            >
-              <div className="flex max-h-[160px] flex-col gap-2 overflow-y-auto rounded border border-border bg-input p-2.5">
-                {installmentAmounts.map((amount, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <span className="w-14 shrink-0 text-meta text-muted">
-                      Cuota {index + 1}
-                    </span>
-                    <CurrencyInput
-                      value={amount}
-                      onChange={(next) => handleAmountChange(index, next)}
-                      className="h-8 w-full rounded border border-border bg-background px-2.5 text-small text-white focus:border-subtle focus:outline-none"
-                    />
-                  </div>
-                ))}
-              </div>
-              <div className="mt-1.5 flex items-center justify-between">
-                <span
-                  className={`text-meta ${amountsMatchPrincipal ? 'text-muted' : 'text-red-400'}`}
-                >
-                  Suma: {formatCurrency(amountsSum)} /{' '}
-                  {formatCurrency(principal)}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAmountsManuallyEdited(false);
-                    resplit(principal, count);
+                <input
+                  value={promissoryNoteNumber}
+                  onChange={(event) => {
+                    setPromissoryNoteNumber(event.target.value);
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      promissoryNoteNumber: undefined,
+                    }));
                   }}
-                  className="text-meta text-muted hover:text-white"
-                >
-                  Repartir en partes iguales
-                </button>
-              </div>
-            </Field>
-          )}
+                  placeholder="Ej: #743"
+                  className={inputClassName(
+                    Boolean(fieldErrors.promissoryNoteNumber),
+                  )}
+                />
+              </Field>
+              <Field
+                label="Tasa de interés (%)"
+                error={fieldErrors.interestRate}
+              >
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.1"
+                  value={interestRate}
+                  onChange={(event) => {
+                    setInterestRate(event.target.value);
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      interestRate: undefined,
+                    }));
+                  }}
+                  placeholder="Ej: 6"
+                  className={inputClassName(Boolean(fieldErrors.interestRate))}
+                />
+              </Field>
+            </div>
 
-          <Field label="Descripción (opcional)">
-            <textarea
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="Ej: Compra de electrodoméstico…"
-              rows={2}
-              // Not inputClassName(false) — that has a fixed h-[42px] meant
-              // for single-line inputs, which fights with rows={2} and
-              // squeezes the placeholder text with no vertical padding.
-              // py-2.5 instead lets the textarea size itself naturally,
-              // matching MessageTemplateForm.tsx's textarea.
-              className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
-            />
-          </Field>
+            <div className="flex gap-4">
+              <Field label="Monto" error={fieldErrors.principalAmount}>
+                <CurrencyInput
+                  value={principalAmount}
+                  onChange={handlePrincipalChange}
+                  placeholder="Ej: $1.500.000"
+                  className={inputClassName(
+                    Boolean(fieldErrors.principalAmount),
+                  )}
+                />
+              </Field>
+              <Field label="N° cuotas" error={fieldErrors.totalInstallments}>
+                <input
+                  type="number"
+                  min={1}
+                  value={totalInstallments}
+                  onChange={(event) => handleCountChange(event.target.value)}
+                  placeholder="Ej: 12"
+                  className={inputClassName(
+                    Boolean(fieldErrors.totalInstallments),
+                  )}
+                />
+              </Field>
+            </div>
+
+            <div className="flex gap-4">
+              <Field
+                label="Fecha de la primera cuota"
+                error={fieldErrors.firstDueDate}
+              >
+                <DatePicker
+                  value={firstDueDate}
+                  onChange={(next) => {
+                    setFirstDueDate(next);
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      firstDueDate: undefined,
+                    }));
+                  }}
+                  className={inputClassName(Boolean(fieldErrors.firstDueDate))}
+                />
+              </Field>
+              <Field label="Periodicidad de cuotas">
+                <select
+                  value={installmentFrequency}
+                  onChange={(event) =>
+                    setInstallmentFrequency(
+                      event.target.value as InstallmentFrequency,
+                    )
+                  }
+                  className={inputClassName(false)}
+                >
+                  <option value={InstallmentFrequency.Monthly}>Mensual</option>
+                  <option value={InstallmentFrequency.Biweekly}>
+                    Quincenal
+                  </option>
+                </select>
+              </Field>
+            </div>
+
+            {count > 0 && (
+              <Field
+                label={`Desglose por cuota (${installmentAmounts.length})`}
+                error={fieldErrors.installmentAmounts}
+              >
+                <div className="flex max-h-[160px] flex-col gap-2 overflow-y-auto rounded border border-border bg-input p-2.5">
+                  {installmentAmounts.map((amount, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <span className="w-14 shrink-0 text-meta text-muted">
+                        Cuota {index + 1}
+                      </span>
+                      <CurrencyInput
+                        value={amount}
+                        onChange={(next) => handleAmountChange(index, next)}
+                        className="h-8 w-full rounded border border-border bg-background px-2.5 text-small text-white focus:border-subtle focus:outline-none"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-1.5 flex items-center justify-between">
+                  <span
+                    className={`text-meta ${amountsMatchPrincipal ? 'text-muted' : 'text-red-400'}`}
+                  >
+                    Suma: {formatCurrency(amountsSum)} /{' '}
+                    {formatCurrency(principal)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAmountsManuallyEdited(false);
+                      resplit(principal, count);
+                    }}
+                    className="text-meta text-muted hover:text-white"
+                  >
+                    Repartir en partes iguales
+                  </button>
+                </div>
+              </Field>
+            )}
+
+            <Field label="Descripción (opcional)">
+              <textarea
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="Ej: Compra de electrodoméstico…"
+                rows={2}
+                // Not inputClassName(false) — that has a fixed h-[42px] meant
+                // for single-line inputs, which fights with rows={2} and
+                // squeezes the placeholder text with no vertical padding.
+                // py-2.5 instead lets the textarea size itself naturally,
+                // matching MessageTemplateForm.tsx's textarea.
+                className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
+              />
+            </Field>
           </fieldset>
 
           {formError && (
