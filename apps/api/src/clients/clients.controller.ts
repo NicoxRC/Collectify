@@ -23,6 +23,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
+import { Audit } from '../auditLog/decorators/audit.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { UserRole } from '../users/entities/user.entity';
@@ -70,6 +71,7 @@ export class ClientsController {
 
   @Post()
   @Roles(UserRole.Admin)
+  @Audit('client.create', 'client')
   @ApiOperation({ summary: 'Create a client (admin only)' })
   @ApiResponse({ status: 201, description: 'The client was created.' })
   @ApiResponse({ status: 409, description: 'Document number already in use.' })
@@ -79,6 +81,7 @@ export class ClientsController {
 
   @Patch(':id')
   @Roles(UserRole.Admin)
+  @Audit('client.update', 'client')
   @ApiOperation({ summary: 'Update a client (admin only)' })
   @ApiResponse({ status: 200, description: 'The client was updated.' })
   @ApiResponse({ status: 404, description: 'Client not found.' })
@@ -92,6 +95,7 @@ export class ClientsController {
 
   @Patch(':id/reactivate')
   @Roles(UserRole.Admin)
+  @Audit('client.reactivate', 'client')
   @ApiOperation({ summary: 'Restore a soft-deleted client (admin only)' })
   @ApiResponse({ status: 200, description: 'The client was reactivated.' })
   @ApiResponse({ status: 400, description: 'The client is already active.' })
@@ -143,6 +147,7 @@ export class ClientsController {
   @Delete(':id')
   @Roles(UserRole.Admin)
   @HttpCode(HttpStatus.NO_CONTENT)
+  @Audit('client.deactivate', 'client')
   @ApiOperation({ summary: 'Soft-delete a client (admin only)' })
   @ApiResponse({ status: 204, description: 'The client was deleted.' })
   @ApiResponse({ status: 404, description: 'Client not found.' })

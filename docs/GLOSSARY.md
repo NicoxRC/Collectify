@@ -116,6 +116,11 @@ The business owner. Full system access — manages clients, loans, installments,
 ### Collector / Cobrador
 Both a business role and a system role. In the business, whoever follows up on overdue clients — could be the owner or a dedicated person. In the system, `role: 'collector'` — can view clients, loans, installments, and mora status, and trigger manual reminders, but has restricted access to system configuration (exact permission boundaries to be finalized during development — see `DATABASE.md` roles note).
 
+## Administration
+
+### Audit log
+A record of who did a sensitive action, and when — creating/updating/ deactivating/reactivating clients, users, or loans, refinancing a loan, registering a payment. Added Phase 11 to give the business a real accountability trail instead of "nobody knows who registered this payment." In code: `AuditLog` entity, `audit_logs` table, written automatically by a globally-registered interceptor (`AuditLogInterceptor`) for any endpoint decorated with `@Audit(action, entityType)` — not logging calls hand-added to each service. Append-only, same convention as `message_logs`. See `docs/phases/PHASE_11_AUDIT_LOG.md` and `DATABASE.md`'s `audit_logs` section.
+
 ## Resolved from earlier analysis
 
 The following were open questions in an earlier version of this glossary, now resolved after reviewing the client's real data:

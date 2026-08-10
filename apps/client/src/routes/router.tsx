@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router-dom';
 
 import { AppLayout } from '@/components/layout/AppLayout';
+import { AuditLogsPage } from '@/features/auditLogs/AuditLogsPage';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { ProfilePage } from '@/features/auth/ProfilePage';
 import { ProtectedRoute } from '@/features/auth/ProtectedRoute';
@@ -73,6 +74,10 @@ export const router = createBrowserRouter([
               {
                 path: 'plantillas',
                 element: <MessageTemplatesPage />,
+              },
+              {
+                path: 'auditoria',
+                element: <AuditLogsPage />,
               },
             ],
           },
