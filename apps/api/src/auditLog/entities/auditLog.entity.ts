@@ -47,7 +47,15 @@ export class AuditLog {
   // (the route's own :id), resolved from the response for create actions —
   // see AuditLogInterceptor.resolveEntityId. Not every action necessarily
   // resolves to one (kept nullable rather than forcing a placeholder).
-  @Column({ nullable: true })
+  //
+  // Explicit `type: 'uuid'` is required here (unlike actorUserId below,
+  // which TypeORM infers correctly because it's shadowed by the
+  // `actorUser` relation's @JoinColumn on the same db column) — TypeScript
+  // emits `Object` as the design:type metadata for a plain `string | null`
+  // property with no backing relation, which TypeORM then rejects outright
+  // ("Data type Object ... is not supported by postgres"). Matches
+  // `entity_id`'s column type in migration 1784600000000-CreateAuditLogsTable.
+  @Column({ type: 'uuid', nullable: true })
   entityId!: string | null;
 
   // Relevant request/response data for this action — shape varies per

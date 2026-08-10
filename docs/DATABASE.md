@@ -215,6 +215,7 @@ This matches the manual calculations found across both source spreadsheets — v
 | `amount_paid` | DECIMAL(12,2) | |
 | `paid_at` | DATE | |
 | `observation` | TEXT | nullable — the source data has many free-text notes like "pagó en el local", "recibió en el Bordo" |
+| `image_url` | VARCHAR, nullable | Added Phase 12 — URL of the deposit receipt photo, hosted externally (Cloudinary). The api only stores this string; it never receives or processes the image itself, same "absence means not provided" convention as `observation`. See `docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md`. |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
 ### `message_templates`
@@ -369,6 +370,10 @@ npm run migration:revert
 
 - `audit_logs` — a generic, append-only trail of sensitive actions (client/loan/payment/user create/update/deactivate/reactivate/refinance/register), written automatically by a globally-registered interceptor rather than hand-added logging calls per service. See "`audit_logs`" above and `docs/phases/PHASE_11_AUDIT_LOG.md`.
 - `InstallmentsController.registerPayment` now captures `@CurrentUser()` — previously it didn't capture the authenticated user at all. No new column on `payments`: the audit log entry is the record of who registered a payment, not a denormalized field on the payment itself.
+
+## Added in Phase 12
+
+- `payments.image_url` — nullable URL of the deposit receipt photo, hosted externally (Cloudinary). The api never receives or stores the image itself, only this string. See `docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md`.
 
 ## Related documents
 
