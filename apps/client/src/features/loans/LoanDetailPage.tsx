@@ -349,8 +349,16 @@ export function LoanDetailPage() {
                     <Td>{formatDateOnly(installment.dueDate)}</Td>
                     <Td>{formatCurrency(installment.amount)}</Td>
                     <Td>
-                      {installment.status === InstallmentStatus.Pending &&
-                      installment.overdueDays > 0 ? (
+                      {installment.isInitial ? (
+                        // Phase 13 — a cuota inicial never accrues mora,
+                        // however far past its due date, so it never shows
+                        // the days-overdue badge. See
+                        // docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
+                        <span className="rounded-[3px] border border-mid bg-surface px-2 py-[3px] text-meta font-medium text-mid">
+                          Sin mora
+                        </span>
+                      ) : installment.status === InstallmentStatus.Pending &&
+                        installment.overdueDays > 0 ? (
                         <span
                           className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${moraBadgeClasses(installment.overdueDays)}`}
                         >

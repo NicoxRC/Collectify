@@ -101,6 +101,12 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   const [totalInstallments, setTotalInstallments] = useState('');
   const [installmentAmounts, setInstallmentAmounts] = useState<number[]>([]);
   const [amountsManuallyEdited, setAmountsManuallyEdited] = useState(false);
+  // 0-based index of the row flagged "Cuota inicial", or null when none is
+  // — mutually exclusive across rows. See
+  // docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
+  const [initialInstallmentIndex, setInitialInstallmentIndex] = useState<
+    number | null
+  >(null);
   const [description, setDescription] = useState('');
 
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -141,6 +147,9 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     // manual edits across a different number of installments.
     resplit(principal, parseInt(value, 10) || 0);
     setAmountsManuallyEdited(false);
+    // The row indices no longer mean the same thing after a resize —
+    // clear rather than risk flagging the wrong row as the initial one.
+    setInitialInstallmentIndex(null);
   };
 
   const handleAmountChange = (index: number, value: number) => {
@@ -149,6 +158,10 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
       prev.map((amount, i) => (i === index ? value : amount)),
     );
     setFieldErrors((prev) => ({ ...prev, installmentAmounts: undefined }));
+  };
+
+  const handleToggleInitial = (index: number) => {
+    setInitialInstallmentIndex((prev) => (prev === index ? null : index));
   };
 
   const validate = (): FieldErrors => {
@@ -218,6 +231,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
         disbursedAt,
         installmentFrequency,
         installmentAmounts,
+        initialInstallmentIndex: initialInstallmentIndex ?? undefined,
         description: description.trim() || undefined,
       });
       onClose();
@@ -454,6 +468,15 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                         onChange={(next) => handleAmountChange(index, next)}
                         className="h-8 w-full rounded border border-border bg-background px-2.5 text-small text-white focus:border-subtle focus:outline-none"
                       />
+                      <label className="flex shrink-0 items-center gap-1.5 text-meta text-muted">
+                        <input
+                          type="checkbox"
+                          checked={initialInstallmentIndex === index}
+                          onChange={() => handleToggleInitial(index)}
+                          className="h-3.5 w-3.5"
+                        />
+                        Inicial
+                      </label>
                     </div>
                   ))}
                 </div>

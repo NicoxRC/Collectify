@@ -20,6 +20,7 @@ export interface Installment {
   amount: number;
   dueDate: string;
   status: InstallmentStatus;
+  isInitial: boolean;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
