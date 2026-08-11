@@ -190,6 +190,34 @@ describe('LoansService', () => {
       expect(loansRepository.save).not.toHaveBeenCalled();
     });
 
+    // Phase 13 — docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
+    it('flags only the chosen installment as isInitial, leaving the rest false', async () => {
+      await service.create({ ...createDto, initialInstallmentIndex: 0 });
+
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({ installmentNumber: 1, isInitial: true }),
+        expect.objectContaining({ installmentNumber: 2, isInitial: false }),
+        expect.objectContaining({ installmentNumber: 3, isInitial: false }),
+      ]);
+    });
+
+    it('flags every installment isInitial: false when no index is given', async () => {
+      await service.create(createDto);
+
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({ isInitial: false }),
+        expect.objectContaining({ isInitial: false }),
+        expect.objectContaining({ isInitial: false }),
+      ]);
+    });
+
+    it('rejects when initialInstallmentIndex is out of range for installmentAmounts', async () => {
+      await expect(
+        service.create({ ...createDto, initialInstallmentIndex: 3 }),
+      ).rejects.toThrow(BadRequestException);
+      expect(loansRepository.save).not.toHaveBeenCalled();
+    });
+
     it('sends the new-loan WhatsApp message for the created loan', async () => {
       await service.create(createDto);
 
@@ -362,6 +390,19 @@ describe('LoansService', () => {
       );
     });
 
+    // Phase 13 — docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
+    it('flags only the chosen installment as isInitial on the new loan', async () => {
+      await service.refinance(mockLoan.id, {
+        ...refinanceDto,
+        initialInstallmentIndex: 1,
+      });
+
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({ installmentNumber: 1, isInitial: false }),
+        expect.objectContaining({ installmentNumber: 2, isInitial: true }),
+      ]);
+    });
+
     it('rejects refinancing an already-paid loan', async () => {
       loansRepository.findOneBy.mockReset();
       loansRepository.findOneBy.mockResolvedValueOnce({
@@ -410,6 +451,7 @@ describe('LoansService', () => {
         amount: 210000,
         dueDate: '2024-01-01', // far in the past — deterministic overdue
         status: InstallmentStatus.Pending,
+        isInitial: false,
         createdAt: new Date(),
         updatedAt: new Date(),
         deletedAt: null,
