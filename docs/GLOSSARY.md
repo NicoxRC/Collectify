@@ -24,6 +24,8 @@ A single scheduled payment within a loan. A loan is divided into a fixed number 
 
 **This is the central unit of the business.** Overdue status, interest, and reminders all operate at the installment level, not the loan level.
 
+**Cuota inicial (initial installment)** — added Phase 13: at most one installment per loan can be flagged as the initial/down payment, made at or near disbursement. It's not a scheduled repayment the client can be "late" on in the usual sense, so it's exempt from mora — it never accrues interest and never counts toward overdue KPIs or reminders, however far past its due date it is. It still must be paid: the amount owed is just the installment's own `amount`, with no interest ever added. In code: `Installment.isInitial`, boolean, defaults `false`. See `docs/phases/PHASE_13_INITIAL_INSTALLMENT.md`.
+
 ### Payment / Pago
 A record of money received against a specific installment. An installment can receive multiple partial payments. In code: `Payment` entity, `payments` table.
 

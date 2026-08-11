@@ -190,6 +190,7 @@ Represents a single *cuota* within a loan.
 | `amount` | DECIMAL(12,2) | the installment's own amount (`VLR CUOTA`) — installments within a loan are not always equal, per real data |
 | `due_date` | DATE | this installment's specific due date (`FECHA COBRO` / `FECHA CUOTA`) |
 | `status` | ENUM (`pending`, `paid`, `cancelled`) | overdue is **calculated on read**, never stored — see below. `cancelled` is set when the parent loan is refinanced with this installment still pending — see "Refinancing" |
+| `is_initial` | BOOLEAN, `NOT NULL DEFAULT false` | Added Phase 13 — flags the "cuota inicial" (down payment made at/near disbursement), at most one per loan. Exempt from mora: always `overdueDays: 0, interest: 0` regardless of `due_date`, though `totalDue` still equals `amount` while pending. Excluded from overdue-reminder and overdue-KPI queries the same way `cancelled`/`paid` installments already are. See `docs/phases/PHASE_13_INITIAL_INSTALLMENT.md`. |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
 **Overdue calculation (confirmed formula):**
