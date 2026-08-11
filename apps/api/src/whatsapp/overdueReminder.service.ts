@@ -119,6 +119,7 @@ export class OverdueReminderService {
       where: {
         status: InstallmentStatus.Pending,
         dueDate: LessThan(today),
+        isInitial: false,
         loan: { clientId, status: LoanStatus.Active },
       },
       relations: { loan: true },
@@ -138,6 +139,7 @@ export class OverdueReminderService {
       where: {
         status: InstallmentStatus.Pending,
         dueDate: LessThan(today),
+        isInitial: false,
         loan: { status: LoanStatus.Active },
       },
       relations: { loan: true },

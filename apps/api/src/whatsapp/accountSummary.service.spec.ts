@@ -70,6 +70,7 @@ describe('AccountSummaryService', () => {
       amount: 300000,
       dueDate: '2099-01-01', // far future by default — not overdue
       status: InstallmentStatus.Pending,
+      isInitial: false,
       createdAt: new Date(),
       updatedAt: new Date(),
       deletedAt: null,

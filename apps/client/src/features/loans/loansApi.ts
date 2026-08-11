@@ -102,6 +102,10 @@ export interface CreateLoanInput {
   disbursedAt: string;
   installmentFrequency: InstallmentFrequency;
   installmentAmounts: number[];
+  // 0-based index into installmentAmounts marking the "cuota inicial" —
+  // exempt from mora regardless of due date. Undefined when the loan has
+  // no initial installment. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
+  initialInstallmentIndex?: number;
   description?: string;
 }
 

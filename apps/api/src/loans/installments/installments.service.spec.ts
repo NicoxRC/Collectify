@@ -31,6 +31,7 @@ describe('InstallmentsService', () => {
     amount: 200000,
     dueDate: '2026-01-01',
     status: InstallmentStatus.Pending,
+    isInitial: false,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,

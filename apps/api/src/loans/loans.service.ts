@@ -90,6 +90,7 @@ interface PersistLoanParams {
   disbursedAt: string;
   installmentFrequency: InstallmentFrequency;
   installmentAmounts: number[];
+  initialInstallmentIndex?: number;
   description?: string | null;
   refinancedFromLoanId?: string | null;
 }
@@ -120,6 +121,7 @@ export class LoansService {
       disbursedAt: dto.disbursedAt,
       installmentFrequency: dto.installmentFrequency,
       installmentAmounts: dto.installmentAmounts,
+      initialInstallmentIndex: dto.initialInstallmentIndex,
       description: dto.description,
     });
 
@@ -156,6 +158,7 @@ export class LoansService {
       disbursedAt: dto.disbursedAt,
       installmentFrequency: dto.installmentFrequency,
       installmentAmounts: dto.installmentAmounts,
+      initialInstallmentIndex: dto.initialInstallmentIndex,
       description: dto.description,
       refinancedFromLoanId: id,
     });
@@ -405,6 +408,10 @@ export class LoansService {
       params.principalAmount,
       params.installmentAmounts,
     );
+    this.assertInitialInstallmentIndexInRange(
+      params.initialInstallmentIndex,
+      params.installmentAmounts,
+    );
 
     const loan = this.loansRepository.create({
       clientId: params.clientId,
@@ -437,6 +444,7 @@ export class LoansService {
           index + 1,
         ),
         status: InstallmentStatus.Pending,
+        isInitial: index === params.initialInstallmentIndex,
       }),
     );
     await this.installmentsRepository.save(installments);
@@ -489,6 +497,20 @@ export class LoansService {
     if (Math.abs(sum - principalAmount) > AMOUNT_SUM_TOLERANCE) {
       throw new BadRequestException(
         `The sum of installment amounts (${sum}) must equal the principal amount (${principalAmount})`,
+      );
+    }
+  }
+
+  private assertInitialInstallmentIndexInRange(
+    initialInstallmentIndex: number | undefined,
+    installmentAmounts: number[],
+  ): void {
+    if (
+      initialInstallmentIndex !== undefined &&
+      initialInstallmentIndex >= installmentAmounts.length
+    ) {
+      throw new BadRequestException(
+        `initialInstallmentIndex (${initialInstallmentIndex}) is out of range — installmentAmounts has ${installmentAmounts.length} entries`,
       );
     }
   }

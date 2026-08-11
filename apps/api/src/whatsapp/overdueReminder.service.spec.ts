@@ -69,6 +69,7 @@ describe('OverdueReminderService', () => {
       amount: 210000,
       dueDate: '2024-01-01',
       status: InstallmentStatus.Pending,
+      isInitial: false,
       createdAt: new Date(),
       updatedAt: new Date(),
       deletedAt: null,
@@ -198,6 +199,21 @@ describe('OverdueReminderService', () => {
         service.sendReminderForClient(mockClient.id),
       ).rejects.toThrow(BadRequestException);
       expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+    });
+
+    // Phase 13 — docs/phases/PHASE_13_INITIAL_INSTALLMENT.md: a cuota
+    // inicial never counts as overdue, so it must never trigger or appear
+    // in the reminder message.
+    it('excludes isInitial installments from the overdue query', async () => {
+      installmentsRepository.find.mockResolvedValue([overdueInstallment()]);
+
+      await service.sendReminderForClient(mockClient.id);
+
+      expect(installmentsRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ isInitial: false }) as unknown,
+        }),
+      );
     });
   });
 

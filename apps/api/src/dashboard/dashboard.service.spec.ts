@@ -72,6 +72,7 @@ describe('DashboardService', () => {
       amount: 210000,
       dueDate: '2024-01-01', // far in the past — deterministic overdue
       status: InstallmentStatus.Pending,
+      isInitial: false,
       createdAt: new Date(),
       updatedAt: new Date(),
       deletedAt: null,
@@ -157,6 +158,18 @@ describe('DashboardService', () => {
 
       expect(result.totalOverdueInstallments).toBe(0);
       expect(result.totalAmountOverdue).toBe(0);
+    });
+
+    // Phase 13 — docs/phases/PHASE_13_INITIAL_INSTALLMENT.md: a cuota
+    // inicial never counts toward overdue KPIs, however late it is.
+    it('excludes isInitial installments from the overdue query', async () => {
+      await service.getSummary();
+
+      expect(installmentsRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ isInitial: false }) as unknown,
+        }),
+      );
     });
   });
 

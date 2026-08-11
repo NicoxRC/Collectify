@@ -71,6 +71,7 @@ describe('UpcomingDueReminderService', () => {
       amount: 299000,
       dueDate: '2026-07-21',
       status: InstallmentStatus.Pending,
+      isInitial: false,
       createdAt: new Date(),
       updatedAt: new Date(),
       deletedAt: null,
