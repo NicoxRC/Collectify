@@ -14,6 +14,7 @@ import {
   moraBadgeClasses,
 } from '@/features/loans/loanStatusDisplay';
 import { useLoans } from '@/features/loans/useLoans';
+import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogs } from '@/features/messageLogs/useMessageLogs';
 import { MESSAGE_TYPE_LABELS } from '@/features/messageTemplates/messageTemplatesApi';
 import {
@@ -60,7 +61,18 @@ export function ClientDetailPage() {
     isLoading: loansLoading,
     isError: loansError,
   } = useLoans({ clientId: id, limit: 100 });
+  // Two separate queries on purpose: `messages` (unfiltered) feeds the
+  // "Mensajes enviados" KPI card below, which must reflect the true total
+  // regardless of status. `failedMessages` feeds the history list itself —
+  // per the client's colleague, this tab should only ever surface
+  // failed/unsent messages (mirrors the same change made to
+  // MessageLogsPage.tsx), not a full sent+failed history.
   const { data: messages } = useMessageLogs({ clientId: id, limit: 5 });
+  const { data: failedMessages } = useMessageLogs({
+    clientId: id,
+    status: MessageLogStatus.Failed,
+    limit: 5,
+  });
   const sendReminder = useSendReminder();
   const sendUpcomingDueReminder = useSendUpcomingDueReminder();
   const sendAccountSummary = useSendAccountSummary();
@@ -402,10 +414,10 @@ export function ClientDetailPage() {
         )}
 
         <div className="overflow-hidden rounded bg-surface">
-          {messages && messages.items.length > 0 ? (
+          {failedMessages && failedMessages.items.length > 0 ? (
             <table className="w-full">
               <tbody>
-                {messages.items.map((message) => (
+                {failedMessages.items.map((message) => (
                   <tr key={message.id} className="border-t border-border">
                     <td className="h-11 px-3.5 text-small text-muted">
                       {new Date(message.sentAt).toLocaleDateString('es-CO')}
@@ -430,7 +442,7 @@ export function ClientDetailPage() {
             </table>
           ) : (
             <p className="border border-border p-4 text-small text-muted">
-              Todavía no se le han enviado mensajes a este cliente.
+              Este cliente no tiene mensajes fallidos pendientes de revisar.
             </p>
           )}
         </div>
