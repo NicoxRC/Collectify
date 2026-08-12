@@ -118,11 +118,12 @@ Phase 5 only covered the weekly overdue reminder. Real usage requires three more
 
 ## Phase 14 — Configurable interest concepts (amortizador)
 
-- Replace the single flat interest rate with several named, configurable interest/fee concepts per loan
+- Replace the single flat interest rate with several named, configurable interest/fee concepts per loan, managed through an admin-editable catalog (not a code change per new concept)
 - Exact per-installment breakdown available on demand
+- An on-the-spot quote/simulator tool ("amortizador proyector") so an admin can show a prospective client what they'd pay before any loan is created — guaranteed to match real loan math exactly
 - See `docs/phases/PHASE_14_INTEREST_CONCEPTS.md` for the size/scope warning — this is the largest phase in this batch and may need to be split once its open questions are resolved
 
-**Exit criteria:** a loan can be created with multiple named concepts, and the exact breakdown of what a client owes is retrievable per installment.
+**Exit criteria:** a loan can be created with multiple named concepts, the exact breakdown of what a client owes is retrievable per installment, and an admin can generate a same-session quote for a prospect without creating a loan record.
 
 ## Phase 15 — Usury rate ceiling (tasa de usura global)
 
@@ -161,6 +162,13 @@ Phase 5 only covered the weekly overdue reminder. Real usage requires three more
 - Granular, per-employee control over which modules of the panel they can access, beyond the current binary admin/collector role
 
 **Exit criteria:** an admin can control module-level access per employee, resolving the "exact permission boundaries" open note in `docs/GLOSSARY.md`.
+
+## Phase 21 — Extended client profile (KYC)
+
+- Significantly more data captured per client at signup — identification detail, contact/address data, employment info, personal and commercial references, and photo documentation (ID scan, selfie) — requested directly by the client for lending risk/security purposes
+- See `docs/phases/PHASE_21_CLIENT_PROFILE.md` for the proposed field list and the open questions that must be confirmed with the client before this phase starts (final field list, reference data shape, document photo count, whether the scanned pagaré belongs here or on `Loan`, mandatory vs. optional)
+
+**Exit criteria:** the confirmed extended field set is captured, stored, and visible on a client's profile, with ID/selfie photos following the same externally-hosted-URL pattern as `Payment.imageUrl` (Phase 12).
 
 ---
 
