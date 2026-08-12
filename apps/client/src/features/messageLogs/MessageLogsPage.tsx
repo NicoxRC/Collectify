@@ -41,14 +41,14 @@ import type { ReactNode } from 'react';
 //   - Added: an admin-only pause/resume control for the weekly cron — the
 //     phase's own scope requires this, but no Figma frame shows where it
 //     goes, so it lives here (the page about automatic sends).
-type StatusFilter = 'all' | MessageLogStatus;
+//   - Changed after go-live (confirmed with the client's colleague): this
+//     page used to have a Todos/Enviados/Fallidos filter defaulting to
+//     "Todos". It now always shows only failed/unsent messages — the
+//     table is meant to be a to-do list of sends that need attention, not
+//     a full audit log. The Enviados/Fallidos legend counts are kept as
+//     read-only context (they still reflect the true totals, not just
+//     what's listed).
 type TypeFilter = 'all' | MessageType;
-
-const STATUS_FILTER_OPTIONS = [
-  { value: 'all', label: 'Todos los estados' },
-  { value: MessageLogStatus.Sent, label: 'Enviados' },
-  { value: MessageLogStatus.Failed, label: 'Fallidos' },
-];
 
 const TYPE_FILTER_OPTIONS = [
   { value: 'all', label: 'Todos los tipos' },
@@ -63,16 +63,17 @@ export function MessageLogsPage() {
   const isAdmin = user?.role === 'admin';
 
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
   const [openLog, setOpenLog] = useState<MessageLog | null>(null);
 
+  // Always scoped to failed/unsent messages — see the Fase-9-comment block
+  // above for why the Todos/Enviados/Fallidos filter was removed.
   const { data, isLoading, isError } = useMessageLogs({
     search: search || undefined,
-    status: statusFilter === 'all' ? undefined : statusFilter,
+    status: MessageLogStatus.Failed,
     type: typeFilter === 'all' ? undefined : typeFilter,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
@@ -109,7 +110,7 @@ export function MessageLogsPage() {
       <div className="flex items-center justify-between">
         <Header
           title="Historial de mensajes"
-          subtitle="Todos los mensajes enviados vía WhatsApp"
+          subtitle="Mensajes de WhatsApp que no se pudieron enviar"
         />
         {isAdmin && (cronStatus || upcomingDueCronStatus) && (
           <div className="flex items-center gap-3">
@@ -160,16 +161,6 @@ export function MessageLogsPage() {
           }}
           ariaLabel="Hasta"
           className="h-[38px] w-[150px] rounded bg-input px-3 text-small text-muted"
-        />
-
-        <Select
-          value={statusFilter}
-          onChange={(next) => {
-            setStatusFilter(next as StatusFilter);
-            setPage(1);
-          }}
-          options={STATUS_FILTER_OPTIONS}
-          className="w-[190px]"
         />
 
         <Select
@@ -229,7 +220,9 @@ export function MessageLogsPage() {
               </EmptyRow>
             )}
             {!isLoading && !isError && logs.length === 0 && (
-              <EmptyRow>No se encontraron mensajes.</EmptyRow>
+              <EmptyRow>
+                No hay mensajes fallidos pendientes de revisar.
+              </EmptyRow>
             )}
             {logs.map((log) => (
               <tr key={log.id} className="border-t border-border">
