@@ -301,3 +301,12 @@ No Figma frames exist for this phase either — built from `docs/phasesClient/PH
 | `lib/imageUpload.ts` | No client-side upload wrapper existed | Thin wrapper around Cloudinary's **unsigned** upload endpoint (a signed upload would need an api key/secret that can't live in client code). Throws a typed `ImageUploadError` rather than failing silently — an upload failure must block payment submission, not let it go through without the photo, per the phase brief's explicit requirement |
 | Photo capture on `RegisterPaymentDialog.tsx` | No file input existed | Added a file input + preview thumbnail. Upload happens on submit, before `onConfirm` fires, with its own `isUploadingImage` state distinct from `isSubmitting` — the submit button reflects both ("Subiendo foto…" vs. "Registrando…") |
 | Photo visible in payment history | Not rendered anywhere, even though the field is new | `LoanDetailPage.tsx`'s payment history table gained a "Comprobante" column: a small thumbnail that opens a click-to-enlarge `ImageLightbox` (new local component, same `useEscapeKey`-per-mounted-dialog pattern as every other modal in the app) |
+
+**Post-launch — Message logs scoped to failed-only (confirmed with the client's colleague)**
+
+No Figma frame change — a behavioral change to an already-built screen, confirmed directly with the client's team, not tied to any roadmap phase number.
+
+| Before | After | What was built |
+|---|---|---|
+| `MessageLogsPage.tsx` had a Todos/Enviados/Fallidos filter, defaulting to Todos (full sent+failed audit log) | Confirmed: this page should only ever surface messages that need attention — i.e. failed/unsent sends | Removed the status filter entirely; `useMessageLogs` is now always called with `status: MessageLogStatus.Failed`. The Enviados/Fallidos legend counts above the table are kept as read-only context (separate `limit: 1` queries, unaffected by the main table's filter) |
+| `ClientDetailPage.tsx`'s "Historial de mensajes" tab showed all of a client's messages (sent + failed), same as the global page used to | Confirmed: same change applies here | Split into two queries: the existing `messages` query (unfiltered) still feeds the "Mensajes enviados" KPI card, since that count must reflect the true total, not just failures. A new `failedMessages` query (`status: Failed`) feeds the history list itself. Empty-state copy updated to reflect the new scope on both screens |
