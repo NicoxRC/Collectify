@@ -56,6 +56,9 @@ export class LoansController {
     summary: 'Get a loan with its installments',
     description:
       'overdueDays, interest, and totalDue on each installment are calculated on read, never stored. ' +
+      'principalPortion and conceptBreakdown (name + amount per interest/fee concept) were computed ' +
+      'once at schedule generation time and are read back as stored — see ' +
+      'docs/phases/PHASE_14_INTEREST_CONCEPTS.md. ' +
       'refinancedToLoanId is a computed reverse lookup — the loan this one was later refinanced into, if any.',
   })
   @ApiResponse({

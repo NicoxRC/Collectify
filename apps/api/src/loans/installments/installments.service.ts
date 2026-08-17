@@ -1,10 +1,18 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { And, Equal, FindOptionsWhere, LessThan, Repository } from 'typeorm';
+import {
+  And,
+  Equal,
+  FindOptionsWhere,
+  In,
+  LessThan,
+  Repository,
+} from 'typeorm';
 
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
 import { Installment, InstallmentStatus } from '../entities/installment.entity';
 import { Loan, LoanStatus } from '../entities/loan.entity';
+import { LoanInstallmentConcept } from '../entities/loanInstallmentConcept.entity';
 import { Payment } from '../entities/payment.entity';
 
 import { CreatePaymentDto } from './dto/createPayment.dto';
@@ -26,6 +34,8 @@ export class InstallmentsService {
     private readonly paymentsRepository: Repository<Payment>,
     @InjectRepository(Loan)
     private readonly loansRepository: Repository<Loan>,
+    @InjectRepository(LoanInstallmentConcept)
+    private readonly loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
   ) {}
 
   async findAll(
@@ -59,13 +69,42 @@ export class InstallmentsService {
       skip: (page - 1) * limit,
       take: limit,
     });
+    const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
+      items.map((installment) => installment.id),
+    );
 
     return {
       items: items.map((installment) =>
-        enrichInstallment(installment, installment.loan.interestRate),
+        enrichInstallment(
+          installment,
+          installment.loan.interestRate,
+          conceptsByInstallmentId.get(installment.id) ?? [],
+        ),
       ),
       meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  // Groups a page of installments' LoanInstallmentConcept rows by
+  // installmentId in one query — see LoansService's identical helper for
+  // GET /loans/:id (docs/phases/PHASE_14_INTEREST_CONCEPTS.md).
+  private async findConceptsByInstallmentId(
+    installmentIds: string[],
+  ): Promise<Map<string, LoanInstallmentConcept[]>> {
+    const map = new Map<string, LoanInstallmentConcept[]>();
+    if (installmentIds.length === 0) {
+      return map;
+    }
+
+    const concepts = await this.loanInstallmentConceptsRepository.find({
+      where: { installmentId: In(installmentIds) },
+    });
+    for (const concept of concepts) {
+      const existing = map.get(concept.installmentId) ?? [];
+      existing.push(concept);
+      map.set(concept.installmentId, existing);
+    }
+    return map;
   }
 
   async registerPayment(

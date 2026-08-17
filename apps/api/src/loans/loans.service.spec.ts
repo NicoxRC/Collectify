@@ -39,6 +39,7 @@ describe('LoansService', () => {
   let loanInstallmentConceptsRepository: {
     create: jest.Mock;
     save: jest.Mock;
+    find: jest.Mock;
   };
   let interestConceptTypesService: { findOneOrThrow: jest.Mock };
   let newLoanReminderService: { sendNewLoanMessage: jest.Mock };
@@ -94,6 +95,7 @@ describe('LoansService', () => {
     loanInstallmentConceptsRepository = {
       create: jest.fn((dto: Partial<LoanInstallmentConcept>) => dto),
       save: jest.fn().mockResolvedValue([]),
+      find: jest.fn().mockResolvedValue([]),
     };
     interestConceptTypesService = {
       findOneOrThrow: jest.fn().mockResolvedValue(mockConceptType),
@@ -463,6 +465,39 @@ describe('LoansService', () => {
         interest: 0,
         totalDue: 0,
       });
+    });
+
+    it('attaches each installment its concept breakdown from LoanInstallmentConcept', async () => {
+      loansRepository.findOneBy.mockResolvedValue(mockLoan);
+      loansRepository.findOne.mockResolvedValue(null);
+      const installment: Installment = {
+        id: 'inst-1',
+        loanId: mockLoan.id,
+        loan: undefined as never,
+        installmentNumber: 1,
+        amount: 306000,
+        principalPortion: 300000,
+        dueDate: '2026-08-01',
+        status: InstallmentStatus.Pending,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+      };
+      installmentsRepository.find.mockResolvedValue([installment]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([
+        {
+          installmentId: 'inst-1',
+          nameSnapshot: 'Interés remuneratorio',
+          computedAmount: 6000,
+        },
+      ]);
+
+      const result = await service.findOne(mockLoan.id);
+
+      expect(result.installments[0].conceptBreakdown).toEqual([
+        { name: 'Interés remuneratorio', amount: 6000 },
+      ]);
+      expect(result.installments[0].principalPortion).toBe(300000);
     });
 
     it('returns null refinancedToLoanId when no loan points back to this one', async () => {

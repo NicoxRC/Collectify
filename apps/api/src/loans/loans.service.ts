@@ -308,6 +308,9 @@ export class LoansService {
       where: { loanId: id },
       order: { installmentNumber: 'ASC' },
     });
+    const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
+      installments.map((installment) => installment.id),
+    );
 
     const refinancedTo = await this.loansRepository.findOne({
       where: { refinancedFromLoanId: id },
@@ -316,10 +319,36 @@ export class LoansService {
     return {
       ...loan,
       installments: installments.map((installment) =>
-        enrichInstallment(installment, loan.interestRate),
+        enrichInstallment(
+          installment,
+          loan.interestRate,
+          conceptsByInstallmentId.get(installment.id) ?? [],
+        ),
       ),
       refinancedToLoanId: refinancedTo?.id ?? null,
     };
+  }
+
+  // Groups a batch of installments' LoanInstallmentConcept rows by
+  // installmentId in one query, for GET /loans/:id's per-installment
+  // conceptBreakdown (docs/phases/PHASE_14_INTEREST_CONCEPTS.md).
+  private async findConceptsByInstallmentId(
+    installmentIds: string[],
+  ): Promise<Map<string, LoanInstallmentConcept[]>> {
+    const map = new Map<string, LoanInstallmentConcept[]>();
+    if (installmentIds.length === 0) {
+      return map;
+    }
+
+    const concepts = await this.loanInstallmentConceptsRepository.find({
+      where: { installmentId: In(installmentIds) },
+    });
+    for (const concept of concepts) {
+      const existing = map.get(concept.installmentId) ?? [];
+      existing.push(concept);
+      map.set(concept.installmentId, existing);
+    }
+    return map;
   }
 
   async update(id: string, dto: UpdateLoanDto): Promise<Loan> {

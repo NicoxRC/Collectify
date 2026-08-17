@@ -23,6 +23,10 @@ export class InstallmentsController {
   @Get()
   @ApiOperation({
     summary: 'List installments (filterable by loan/status/overdue-only)',
+    description:
+      'Each installment includes principalPortion and conceptBreakdown ' +
+      '(name + amount per interest/fee concept), computed once at schedule ' +
+      'generation time — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md.',
   })
   @ApiResponse({ status: 200, description: 'Returns a page of installments.' })
   findAll(
