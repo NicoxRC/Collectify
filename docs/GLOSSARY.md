@@ -7,6 +7,13 @@ This document defines the business vocabulary used throughout the codebase, data
 ### Client
 A person who has received one or more loans from the company. In code: `Client` entity, `clients` table. Identified by full name, national ID (`document_number`), and phone number.
 
+### Cupo (credit limit)
+The maximum credit exposure a client is allowed to carry at once. Optional — a client with no cupo set has no limit enforced. In code: `Client.credit_limit`, nullable.
+
+**"Cupo usado" (credit used)** — confirmed with the client (Phase 10) to be capital plus interest accrued to date across the client's active loans' still-pending installments, i.e. the same `outstandingBalance` sum already computed per loan. Not stored; computed on read (`ClientsService.getCreditUsage`). A new loan is rejected if its principal would push the client past their available cupo (`creditLimit - creditUsed`).
+
+**Mora block** — a client with any single installment more than 30 days overdue on an active loan cannot receive a new loan, regardless of remaining cupo. This is per-installment, not a client-aggregate rule (confirmed with the client, Phase 10) — one overdue cuota is enough, even if every other installment is current. See `docs/phases/PHASE_10_CLIENT_CAPACITY.md` and `DATABASE.md`'s "Changed after Phase 10".
+
 ### Loan / Pagaré
 The Spanish business term is **pagaré** (promissory note) — this is what the client calls it in every message and spreadsheet, always referenced by number (e.g. "pagaré #743"). In code: `Loan` entity, `loans` table, with a `promissory_note_number` field holding this business-facing identifier (distinct from the internal UUID `id`).
 
@@ -17,8 +24,12 @@ A single scheduled payment within a loan. A loan is divided into a fixed number 
 
 **This is the central unit of the business.** Overdue status, interest, and reminders all operate at the installment level, not the loan level.
 
+**Cuota inicial (initial installment)** — added Phase 13: at most one installment per loan can be flagged as the initial/down payment, made at or near disbursement. It's not a scheduled repayment the client can be "late" on in the usual sense, so it's exempt from mora — it never accrues interest and never counts toward overdue KPIs or reminders, however far past its due date it is. It still must be paid: the amount owed is just the installment's own `amount`, with no interest ever added. In code: `Installment.isInitial`, boolean, defaults `false`. See `docs/phases/PHASE_13_INITIAL_INSTALLMENT.md`.
+
 ### Payment / Pago
 A record of money received against a specific installment. An installment can receive multiple partial payments. In code: `Payment` entity, `payments` table.
+
+**Comprobante (deposit receipt photo)** — added Phase 12: a payment can optionally carry a photo of the deposit/receipt, alongside its existing free-text `observation`. In code: `Payment.imageUrl`, nullable — the api only stores the URL, hosted externally (Cloudinary); it never receives the image bytes. See `docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md`.
 
 ## Status and mora
 
@@ -109,6 +120,11 @@ The business owner. Full system access — manages clients, loans, installments,
 ### Collector / Cobrador
 Both a business role and a system role. In the business, whoever follows up on overdue clients — could be the owner or a dedicated person. In the system, `role: 'collector'` — can view clients, loans, installments, and mora status, and trigger manual reminders, but has restricted access to system configuration (exact permission boundaries to be finalized during development — see `DATABASE.md` roles note).
 
+## Administration
+
+### Audit log
+A record of who did a sensitive action, and when — creating/updating/ deactivating/reactivating clients, users, or loans, refinancing a loan, registering a payment. Added Phase 11 to give the business a real accountability trail instead of "nobody knows who registered this payment." In code: `AuditLog` entity, `audit_logs` table, written automatically by a globally-registered interceptor (`AuditLogInterceptor`) for any endpoint decorated with `@Audit(action, entityType)` — not logging calls hand-added to each service. Append-only, same convention as `message_logs`. See `docs/phases/PHASE_11_AUDIT_LOG.md` and `DATABASE.md`'s `audit_logs` section.
+
 ## Resolved from earlier analysis
 
 The following were open questions in an earlier version of this glossary, now resolved after reviewing the client's real data:
@@ -124,6 +140,11 @@ The following were open questions in an earlier version of this glossary, now re
 ## Resolved from Phase 6
 
 - ~~What happens to a refinanced loan's remaining unpaid installments~~ → Confirmed: they're marked with a distinct `cancelled` status — excluded from active mora/reminder processing, but kept in the database as historical record. See `DATABASE.md` "Refinancing".
+
+## Resolved from Phase 10
+
+- ~~What counts toward "cupo usado" (credit used)~~ → Confirmed: capital + interest accrued to date, same basis as `outstandingBalance`. See "Cupo (credit limit)" above.
+- ~~Whether the mora &gt; 30 days block is per-installment or client-aggregate~~ → Confirmed: per-installment — any single overdue installment blocks new loans for that client.
 
 ## Related documents
 

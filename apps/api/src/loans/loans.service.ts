@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, ILike, In, Repository } from 'typeorm';
 
+import { ClientsService } from '../clients/clients.service';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { InterestConceptTypesService } from '../interestConceptTypes/interestConceptTypes.service';
 import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
@@ -111,6 +112,7 @@ interface PersistLoanParams {
   totalInstallments: number;
   concepts: LoanConceptAssignmentDto[];
   installmentConceptOverrides?: InstallmentConceptOverride[];
+  initialInstallmentIndex?: number;
   description?: string | null;
   refinancedFromLoanId?: string | null;
 }
@@ -130,9 +132,12 @@ export class LoansService {
     private readonly loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
     private readonly interestConceptTypesService: InterestConceptTypesService,
     private readonly newLoanReminderService: NewLoanReminderService,
+    private readonly clientsService: ClientsService,
   ) {}
 
   async create(dto: CreateLoanDto): Promise<LoanDetail> {
+    await this.assertClientCanTakeNewLoan(dto.clientId, dto.principalAmount);
+
     const savedLoan = await this.persistLoanWithInstallments({
       clientId: dto.clientId,
       promissoryNoteNumber: dto.promissoryNoteNumber,
@@ -143,6 +148,7 @@ export class LoansService {
       totalInstallments: dto.totalInstallments,
       concepts: dto.concepts,
       installmentConceptOverrides: dto.installmentConceptOverrides,
+      initialInstallmentIndex: dto.initialInstallmentIndex,
       description: dto.description,
     });
 
@@ -215,6 +221,7 @@ export class LoansService {
       totalInstallments: dto.totalInstallments,
       concepts: dto.concepts,
       installmentConceptOverrides: dto.installmentConceptOverrides,
+      initialInstallmentIndex: dto.initialInstallmentIndex,
       description: dto.description,
       refinancedFromLoanId: id,
     });
@@ -453,6 +460,35 @@ export class LoansService {
     });
   }
 
+  // Phase 10 cupo/mora-block guard — only on create(), not refinance(): the
+  // phase brief scopes this to new-loan creation specifically (refinancing
+  // restructures existing exposure rather than adding new exposure, and
+  // isn't mentioned in docs/phases/PHASE_10_CLIENT_CAPACITY.md's guard
+  // scope). Two distinct rejection reasons, checked and reported
+  // separately, per that doc: mora-block first, since it applies regardless
+  // of how much cupo is left.
+  private async assertClientCanTakeNewLoan(
+    clientId: string,
+    principalAmount: number,
+  ): Promise<void> {
+    const isMoraBlocked = await this.clientsService.hasMoraBlock(clientId);
+    if (isMoraBlocked) {
+      throw new BadRequestException(
+        'This client has at least one installment more than 30 days ' +
+          'overdue and cannot be given a new loan until it is resolved.',
+      );
+    }
+
+    const { creditAvailable } =
+      await this.clientsService.getCreditUsage(clientId);
+    if (creditAvailable !== null && principalAmount > creditAvailable) {
+      throw new BadRequestException(
+        `This loan's principal (${principalAmount}) exceeds the client's ` +
+          `available cupo (${creditAvailable}).`,
+      );
+    }
+  }
+
   // Shared by create() and refinance() — both need a loan row plus its
   // generated installments (and each installment's concept breakdown),
   // differing only in whether refinancedFromLoanId is set. As of Phase 14
@@ -472,6 +508,10 @@ export class LoansService {
       params.principalAmount,
       params.totalInstallments,
       conceptsByInstallment,
+    );
+    this.assertInitialInstallmentIndexInRange(
+      params.initialInstallmentIndex,
+      params.totalInstallments,
     );
 
     const loan = this.loansRepository.create({
@@ -494,7 +534,7 @@ export class LoansService {
       throw this.mapUniqueViolation(error);
     }
 
-    const installments = schedule.map((generated) =>
+    const installments = schedule.map((generated, index) =>
       this.installmentsRepository.create({
         loanId: savedLoan.id,
         installmentNumber: generated.installmentNumber,
@@ -506,6 +546,7 @@ export class LoansService {
           generated.installmentNumber,
         ),
         status: InstallmentStatus.Pending,
+        isInitial: index === params.initialInstallmentIndex,
       }),
     );
     const savedInstallments =
@@ -621,6 +662,22 @@ export class LoansService {
     if (existing) {
       throw new ConflictException(
         `A loan with promissory note number ${promissoryNoteNumber} already exists`,
+      );
+    }
+  }
+
+  // Phase 13 guard — the index refers to a position in the generated
+  // schedule (0-based), not a hand-entered array, as of Phase 14.
+  private assertInitialInstallmentIndexInRange(
+    initialInstallmentIndex: number | undefined,
+    totalInstallments: number,
+  ): void {
+    if (
+      initialInstallmentIndex !== undefined &&
+      initialInstallmentIndex >= totalInstallments
+    ) {
+      throw new BadRequestException(
+        `initialInstallmentIndex (${initialInstallmentIndex}) is out of range — this loan has ${totalInstallments} installments`,
       );
     }
   }

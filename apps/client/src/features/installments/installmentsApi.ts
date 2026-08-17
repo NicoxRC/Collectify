@@ -25,6 +25,7 @@ export interface Installment {
   principalPortion: number | null;
   dueDate: string;
   status: InstallmentStatus;
+  isInitial: boolean;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -55,10 +56,14 @@ export interface PaginatedInstallments {
 }
 
 // Matches apps/api/src/loans/installments/dto/createPayment.dto.ts exactly.
+// imageUrl (Phase 12) is the already-hosted receipt photo URL — the api
+// only stores it, it never receives the file itself. See
+// lib/imageUpload.ts for how that URL is obtained before this is called.
 export interface CreatePaymentInput {
   amountPaid: number;
   paidAt: string;
   observation?: string;
+  imageUrl?: string;
 }
 
 // Matches apps/api/src/loans/entities/payment.entity.ts. Note: registering
@@ -71,6 +76,7 @@ export interface Payment {
   amountPaid: number;
   paidAt: string;
   observation: string | null;
+  imageUrl: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;

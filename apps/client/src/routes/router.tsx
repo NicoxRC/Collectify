@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router-dom';
 
 import { AppLayout } from '@/components/layout/AppLayout';
+import { AuditLogsPage } from '@/features/auditLogs/AuditLogsPage';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { ProfilePage } from '@/features/auth/ProfilePage';
 import { ProtectedRoute } from '@/features/auth/ProtectedRoute';
@@ -80,6 +81,10 @@ export const router = createBrowserRouter([
                 // (@Roles(UserRole.Admin)) — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md.
                 path: 'conceptos-de-interes',
                 element: <InterestConceptTypesPage />,
+              },
+              {
+                path: 'auditoria',
+                element: <AuditLogsPage />,
               },
             ],
           },

@@ -9,8 +9,10 @@ import {
   useClients,
   useCreateClient,
   useDeleteClient,
+  useReactivateClient,
   useUpdateClient,
 } from '@/features/clients/useClients';
+import { ApiError } from '@/lib/apiClient';
 
 import type { Client } from '@/features/clients/clientsApi';
 import type { ReactNode } from 'react';
@@ -56,6 +58,8 @@ export function ClientsListPage() {
   const createClient = useCreateClient();
   const updateClient = useUpdateClient();
   const deleteClient = useDeleteClient();
+  const reactivateClient = useReactivateClient();
+  const [reactivateError, setReactivateError] = useState<string | null>(null);
 
   const clients = data?.items ?? [];
   const meta = data?.meta;
@@ -153,11 +157,29 @@ export function ClientsListPage() {
                 isAdmin={isAdmin}
                 onEdit={() => setEditingClient(client)}
                 onDeactivate={() => setDeactivatingClient(client)}
+                onReactivate={async () => {
+                  setReactivateError(null);
+                  try {
+                    await reactivateClient.mutateAsync(client.id);
+                  } catch (err) {
+                    setReactivateError(
+                      err instanceof ApiError
+                        ? err.message
+                        : 'No se pudo reactivar el cliente.',
+                    );
+                  }
+                }}
               />
             ))}
           </tbody>
         </table>
       </div>
+
+      {reactivateError && (
+        <p className="text-small text-red-400" role="alert">
+          {reactivateError}
+        </p>
+      )}
 
       {meta && meta.total > 0 && (
         <div className="flex h-8 items-center justify-between">

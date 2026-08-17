@@ -25,7 +25,7 @@ Tables and columns use **snake_case**; TypeORM maps this automatically to camelC
 
 ### Table names — plural, snake_case
 
-`clients`, `loans`, `installments`, `payments`, `message_templates`, `message_logs`, `message_log_items`, `users`.
+`clients`, `loans`, `installments`, `payments`, `message_templates`, `message_logs`, `message_log_items`, `users`, `audit_logs`.
 
 ### Timestamps — every table has them
 
@@ -36,7 +36,7 @@ updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 
 ### Soft delete — always, no hard deletes
 
-Every table (except `message_logs` and `message_log_items`, which are append-only, see below) includes `deleted_at`, handled via TypeORM's `@DeleteDateColumn` and `.softDelete()`.
+Every table (except `message_logs`, `message_log_items`, and `audit_logs`, which are append-only, see below) includes `deleted_at`, handled via TypeORM's `@DeleteDateColumn` and `.softDelete()`.
 
 ## Business model overview — read this first
 
@@ -147,7 +147,13 @@ System users — Owner (Admin) and Collector roles, see `GLOSSARY.md`.
 | `last_name` | VARCHAR | |
 | `document_number` | VARCHAR | national ID (cédula) — confirmed required, present in both source spreadsheets as `DOCUMENTO` |
 | `phone_number` | VARCHAR | E.164 format, e.g. `+573001234567` |
+| `credit_limit` | DECIMAL(12,2), nullable | maximum credit exposure ("cupo") enforced at loan creation. Nullable — unset means no cupo is enforced for this client, same "absence of a value means the rule doesn't apply" convention as `loans.description`. Added Phase 10, see "Changed after Phase 10" below. |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
+
+**Changed after Phase 10 — cupo and mora-block rules confirmed with the client:**
+- **"Cupo usado" (credit used)** = capital + interest accrued to date across the client's *active* loans' still-pending installments — the same `totalDue`-based sum already computed per loan as `outstandingBalance` (see `loans` below), just aggregated across every active loan instead of one. Refinanced-away and paid-off loans don't count (their `status` is no longer `active`). Not a stored column — computed on read by `ClientsService.getCreditUsage`/`findOneDetail`, exposed as `creditUsed`/`creditAvailable` on `GET /clients/:id`.
+- **Mora block (+30 days)** is per-installment, not client-aggregate: a client is blocked from new loans as soon as *any single* pending installment across their active loans is more than 30 days overdue — not an average or the oldest one specifically. Computed on read by `ClientsService.hasMoraBlock`, exposed as `isMoraBlocked` on `GET /clients/:id`.
+- Both are checked by `LoansService.create()` before a new loan is persisted, reported as two distinct rejection reasons (over cupo vs. mora-blocked) — see `docs/phases/PHASE_10_CLIENT_CAPACITY.md`.
 
 ### `loans`
 
@@ -184,6 +190,7 @@ Represents a single *cuota* within a loan.
 | `amount` | DECIMAL(12,2) | the installment's own amount (`VLR CUOTA`) — installments within a loan are not always equal, per real data |
 | `due_date` | DATE | this installment's specific due date (`FECHA COBRO` / `FECHA CUOTA`) |
 | `status` | ENUM (`pending`, `paid`, `cancelled`) | overdue is **calculated on read**, never stored — see below. `cancelled` is set when the parent loan is refinanced with this installment still pending — see "Refinancing" |
+| `is_initial` | BOOLEAN, `NOT NULL DEFAULT false` | Added Phase 13 — flags the "cuota inicial" (down payment made at/near disbursement), at most one per loan. Exempt from mora: always `overdueDays: 0, interest: 0` regardless of `due_date`, though `totalDue` still equals `amount` while pending. Excluded from overdue-reminder and overdue-KPI queries the same way `cancelled`/`paid` installments already are. See `docs/phases/PHASE_13_INITIAL_INSTALLMENT.md`. |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
 **Overdue calculation (confirmed formula):**
@@ -209,6 +216,7 @@ This matches the manual calculations found across both source spreadsheets — v
 | `amount_paid` | DECIMAL(12,2) | |
 | `paid_at` | DATE | |
 | `observation` | TEXT | nullable — the source data has many free-text notes like "pagó en el local", "recibió en el Bordo" |
+| `image_url` | VARCHAR, nullable | Added Phase 12 — URL of the deposit receipt photo, hosted externally (Cloudinary). The api only stores this string; it never receives or processes the image itself, same "absence means not provided" convention as `observation`. See `docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md`. |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
 ### `message_templates`
@@ -291,6 +299,22 @@ This table is what lets us reconstruct "what exactly did we tell this client on 
 
 Reused as-is across all message types added in Phase 9, not extended: for an installment that isn't overdue (a `new_loan` or not-yet-due `upcoming_due`/`account_summary` line), `overdue_days_snapshot` and `interest_snapshot` are legitimately `0` — `enrichInstallment()` already returns `0` for both in that case, this isn't a special case. "Days until due" for `upcoming_due` is not stored as a separate column; it's preserved as text in `message_logs.message_content`.
 
+### `audit_logs`
+
+Added Phase 11 — a generic, append-only trail of sensitive actions across the system (clients, loans, payments, users), written automatically by a global interceptor rather than hand-added logging calls in each service. See `docs/phases/PHASE_11_AUDIT_LOG.md`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `actor_user_id` | UUID, nullable | FK → `users.id`, `ON DELETE SET NULL` — nullable because not every action necessarily has an authenticated actor (e.g. a future cron-triggered action); `SET NULL` keeps the log entry (with its `metadata`) even after the acting user is deleted, rather than losing history |
+| `action` | VARCHAR | `<entityType>.<verb>`, e.g. `client.create`, `loan.refinance`, `payment.register`, `user.deactivate` — free text, not an enum, since new actions are added by decorating a new endpoint (`@Audit()`), not by a schema migration |
+| `entity_type` | VARCHAR | e.g. `client`, `loan`, `payment`, `user` |
+| `entity_id` | UUID, nullable | the specific record this action affected — resolved from the endpoint's response for create actions, from the route's own `:id` otherwise (see `AuditLogInterceptor.resolveEntityId`) |
+| `metadata` | JSONB, nullable | the request's route params and body at the time of the action; known-sensitive fields (`password`, `passwordHash`, etc.) are redacted to `[redacted]` before this is ever written — never stored in the clear |
+| `created_at` | TIMESTAMPTZ | append-only, no `updated_at`/`deleted_at` — an audit trail that can itself be edited or deleted defeats its purpose |
+
+Written by `AuditLogInterceptor`, registered globally (`APP_INTERCEPTOR`) but a no-op for any endpoint not decorated with `@Audit(action, entityType)` — read-only routes, auth, health checks, etc. produce no entry. A failed request (a thrown exception) never produces a log entry either; a failed *write* to `audit_logs` itself is logged and swallowed rather than failing the real request it was trying to record.
+
 ## Refinancing
 
 When a loan is refinanced:
@@ -314,11 +338,12 @@ npm run migration:revert
 
 ## Indexes
 
-- Every foreign key (`client_id`, `loan_id`, `installment_id`, `message_log_id`)
+- Every foreign key (`client_id`, `loan_id`, `installment_id`, `message_log_id`, `actor_user_id`)
 - `loans.promissory_note_number` — looked up constantly, must be fast and unique
 - `clients.document_number` — for search and duplicate prevention
 - `clients.phone_number` — for search and WhatsApp matching
 - `installments.due_date` and `installments.status` — the weekly CronJob queries heavily on both
+- `audit_logs (entity_type, entity_id)` and `audit_logs (actor_user_id, created_at)` — back "show me the history for this record" and "show me what this user did, most recent first", the two filters the audit log screen supports (see `docs/phasesClient/PHASE_11_AUDIT_LOG.md`)
 
 ## Open questions — confirm with client before finalizing
 
@@ -341,6 +366,15 @@ npm run migration:revert
 
 - **`message_templates` is no longer admin-editable.** Phase 9 (and Phase 5 before it) treated `content` as something an admin edits freely through the API. In practice, WhatsApp only allows a business to *initiate* a conversation (as opposed to replying within an open 24h window) through a template Meta has pre-approved — see `CONFIGURACION_WHATSAPP_META.md`. A freely-editable `content` column in our own database doesn't reflect that reality: changing it without a matching change to the Meta-approved template would just break sending. So `is_active` and the create/update/activate/delete endpoints were removed (including the soft-delete endpoint added right before this change — same reasoning: deleting one of the 4 fixed rows would leave a message type with nothing to render and no way to recreate it outside a migration) — `type` is now `UNIQUE` (exactly one row per type), and `MessageTemplatesController` only exposes `GET /message-templates`, for the admin to see what's currently being sent.
 - **Updating a template's content is a migration, not an API call** — the same controlled, reviewed process used for every other data change in this project (see "Migrations" above). `1784300000000-MakeMessageTemplatesStatic.ts` is both the migration that made this change and the one seeding the current canonical content per type; a future content change (e.g. after Meta approves new copy) follows the same pattern: a new migration.
+
+## Added in Phase 11
+
+- `audit_logs` — a generic, append-only trail of sensitive actions (client/loan/payment/user create/update/deactivate/reactivate/refinance/register), written automatically by a globally-registered interceptor rather than hand-added logging calls per service. See "`audit_logs`" above and `docs/phases/PHASE_11_AUDIT_LOG.md`.
+- `InstallmentsController.registerPayment` now captures `@CurrentUser()` — previously it didn't capture the authenticated user at all. No new column on `payments`: the audit log entry is the record of who registered a payment, not a denormalized field on the payment itself.
+
+## Added in Phase 12
+
+- `payments.image_url` — nullable URL of the deposit receipt photo, hosted externally (Cloudinary). The api never receives or stores the image itself, only this string. See `docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md`.
 
 ## Related documents
 

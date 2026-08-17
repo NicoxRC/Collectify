@@ -73,6 +73,12 @@ export class Installment {
   })
   status!: InstallmentStatus;
 
+  // A down payment made at/near disbursement — not a scheduled repayment
+  // the client can be "late" on, so it never accrues mora regardless of
+  // due_date. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
+  @Column({ default: false })
+  isInitial!: boolean;
+
   @CreateDateColumn()
   createdAt!: Date;
 

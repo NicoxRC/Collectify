@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { AuditLogModule } from './auditLog/auditLog.module';
 import { AuthModule } from './auth/auth.module';
 import { ClientsModule } from './clients/clients.module';
 import configuration, { Configuration } from './config/configuration';
@@ -31,6 +32,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     HealthModule,
     UsersModule,
     AuthModule,
+    AuditLogModule,
     ClientsModule,
     LoansModule,
     InterestConceptTypesModule,

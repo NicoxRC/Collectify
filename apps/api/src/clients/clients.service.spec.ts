@@ -6,7 +6,11 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
-import { Loan } from '../loans/entities/loan.entity';
+import {
+  Installment,
+  InstallmentStatus,
+} from '../loans/entities/installment.entity';
+import { Loan, LoanStatus } from '../loans/entities/loan.entity';
 
 import { parseClientsWorkbook } from './clientsImportParser';
 import { Client } from './entities/client.entity';
@@ -25,8 +29,10 @@ describe('ClientsService', () => {
     findOne: jest.Mock;
     softDelete: jest.Mock;
     find: jest.Mock;
+    restore: jest.Mock;
   };
-  let loansRepository: { count: jest.Mock };
+  let loansRepository: { count: jest.Mock; find: jest.Mock };
+  let installmentsRepository: { find: jest.Mock };
 
   const mockClient: Client = {
     id: 'client-1',
@@ -34,9 +40,24 @@ describe('ClientsService', () => {
     lastName: 'Pérez',
     documentNumber: '1234567890',
     phoneNumber: '+573001234567',
+    creditLimit: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
+  };
+
+  // enrichInstallment always compares against the real `new Date()` (it
+  // doesn't take a `today` param), so any test asserting an exact
+  // overdueDays value needs "now" pinned — otherwise a date built from the
+  // real clock is one flaky day away from crossing a day boundary mid-run.
+  // Fixed at noon UTC; dueDate strings below are always UTC midnight, so
+  // there's a comfortable 12h margin on both sides of every day-count
+  // assertion, including the >30-days boundary.
+  const FIXED_NOW = new Date('2026-06-15T12:00:00Z');
+  const daysAgo = (n: number): string => {
+    const date = new Date(FIXED_NOW);
+    date.setUTCDate(date.getUTCDate() - n);
+    return date.toISOString().slice(0, 10);
   };
 
   beforeEach(async () => {
@@ -47,18 +68,34 @@ describe('ClientsService', () => {
       findOne: jest.fn(),
       softDelete: jest.fn(),
       find: jest.fn(),
+      restore: jest.fn(),
     };
-    loansRepository = { count: jest.fn().mockResolvedValue(0) };
+    loansRepository = {
+      count: jest.fn().mockResolvedValue(0),
+      find: jest.fn(),
+    };
+    installmentsRepository = { find: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ClientsService,
         { provide: getRepositoryToken(Client), useValue: repository },
         { provide: getRepositoryToken(Loan), useValue: loansRepository },
+        {
+          provide: getRepositoryToken(Installment),
+          useValue: installmentsRepository,
+        },
       ],
     }).compile();
 
     service = module.get<ClientsService>(ClientsService);
+
+    jest.useFakeTimers();
+    jest.setSystemTime(FIXED_NOW);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
   describe('create', () => {
@@ -402,6 +439,273 @@ describe('ClientsService', () => {
         total: 12,
         totalPages: 3,
       });
+    });
+  });
+
+  // "Cupo usado" = capital + interés acumulado across still-pending
+  // installments on the client's active loans, per the confirmed rule in
+  // docs/phases/PHASE_10_CLIENT_CAPACITY.md / docs/DATABASE.md.
+  describe('getCreditUsage', () => {
+    it('returns zero used and full cupo available when the client has no active loans', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockClient,
+        creditLimit: 1000,
+      });
+      loansRepository.find.mockResolvedValue([]);
+
+      const result = await service.getCreditUsage(mockClient.id);
+
+      expect(result).toEqual({
+        creditLimit: 1000,
+        creditUsed: 0,
+        creditAvailable: 1000,
+      });
+      expect(installmentsRepository.find).not.toHaveBeenCalled();
+    });
+
+    it('sums amount (no accrued interest) for pending installments that are not yet due', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockClient,
+        creditLimit: 1000,
+      });
+      loansRepository.find.mockResolvedValue([
+        { id: 'loan-1', clientId: mockClient.id, interestRate: 2 },
+      ]);
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'inst-1',
+          loanId: 'loan-1',
+          amount: 300,
+          dueDate: daysAgo(-10), // still 10 days out
+          status: InstallmentStatus.Pending,
+        },
+      ]);
+
+      const result = await service.getCreditUsage(mockClient.id);
+
+      expect(result).toEqual({
+        creditLimit: 1000,
+        creditUsed: 300,
+        creditAvailable: 700,
+      });
+    });
+
+    it('adds accrued interest for overdue pending installments', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockClient,
+        creditLimit: 1000,
+      });
+      loansRepository.find.mockResolvedValue([
+        { id: 'loan-1', clientId: mockClient.id, interestRate: 3 },
+      ]);
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'inst-1',
+          loanId: 'loan-1',
+          amount: 300,
+          dueDate: daysAgo(10),
+          status: InstallmentStatus.Pending,
+        },
+      ]);
+
+      const result = await service.getCreditUsage(mockClient.id);
+
+      // 300 + (300 * 0.03 / 30) * 10 = 300 + 3 = 303
+      expect(result.creditUsed).toBeCloseTo(303);
+      expect(result.creditAvailable).toBeCloseTo(697);
+    });
+
+    it('ignores paid and cancelled installments', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockClient,
+        creditLimit: 1000,
+      });
+      loansRepository.find.mockResolvedValue([
+        { id: 'loan-1', clientId: mockClient.id, interestRate: 2 },
+      ]);
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'inst-1',
+          loanId: 'loan-1',
+          amount: 300,
+          dueDate: daysAgo(10),
+          status: InstallmentStatus.Paid,
+        },
+        {
+          id: 'inst-2',
+          loanId: 'loan-1',
+          amount: 300,
+          dueDate: daysAgo(10),
+          status: InstallmentStatus.Cancelled,
+        },
+      ]);
+
+      const result = await service.getCreditUsage(mockClient.id);
+
+      expect(result.creditUsed).toBe(0);
+    });
+
+    it('returns null creditAvailable when the client has no cupo set', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockClient,
+        creditLimit: null,
+      });
+      loansRepository.find.mockResolvedValue([]);
+
+      const result = await service.getCreditUsage(mockClient.id);
+
+      expect(result).toEqual({
+        creditLimit: null,
+        creditUsed: 0,
+        creditAvailable: null,
+      });
+    });
+
+    it('only counts loans that are Active, excluding refinanced/paid loans', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockClient,
+        creditLimit: 1000,
+      });
+      // The service filters by status: Active in its query — this asserts
+      // that filter is actually applied, not just documented.
+      loansRepository.find.mockResolvedValue([]);
+
+      await service.getCreditUsage(mockClient.id);
+
+      expect(loansRepository.find).toHaveBeenCalledWith({
+        where: { clientId: mockClient.id, status: LoanStatus.Active },
+      });
+    });
+  });
+
+  // Per-installment, not client-aggregate — confirmed with the human for
+  // Phase 10 (see docs/phases/PHASE_10_CLIENT_CAPACITY.md).
+  describe('hasMoraBlock', () => {
+    it('is false when the client has no active loans', async () => {
+      loansRepository.find.mockResolvedValue([]);
+
+      expect(await service.hasMoraBlock(mockClient.id)).toBe(false);
+    });
+
+    it('is false when every pending installment is 30 days overdue or less', async () => {
+      loansRepository.find.mockResolvedValue([
+        { id: 'loan-1', clientId: mockClient.id, interestRate: 2 },
+      ]);
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'inst-1',
+          loanId: 'loan-1',
+          amount: 300,
+          dueDate: daysAgo(30),
+          status: InstallmentStatus.Pending,
+        },
+      ]);
+
+      expect(await service.hasMoraBlock(mockClient.id)).toBe(false);
+    });
+
+    it('is true when any single pending installment is more than 30 days overdue', async () => {
+      loansRepository.find.mockResolvedValue([
+        { id: 'loan-1', clientId: mockClient.id, interestRate: 2 },
+        { id: 'loan-2', clientId: mockClient.id, interestRate: 2 },
+      ]);
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'inst-1',
+          loanId: 'loan-1',
+          amount: 300,
+          dueDate: daysAgo(5),
+          status: InstallmentStatus.Pending,
+        },
+        {
+          id: 'inst-2',
+          loanId: 'loan-2',
+          amount: 300,
+          dueDate: daysAgo(31),
+          status: InstallmentStatus.Pending,
+        },
+      ]);
+
+      expect(await service.hasMoraBlock(mockClient.id)).toBe(true);
+    });
+
+    it('ignores an overdue installment on a refinanced-away (non-Active) loan', async () => {
+      // The service only fetches loans with status: Active, so a refinanced
+      // loan's old overdue installments never reach this point.
+      loansRepository.find.mockResolvedValue([]);
+
+      expect(await service.hasMoraBlock(mockClient.id)).toBe(false);
+      expect(installmentsRepository.find).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('findOneDetail', () => {
+    it('includes creditUsed, creditAvailable and isMoraBlocked alongside the client fields', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockClient,
+        creditLimit: 1000,
+      });
+      loansRepository.find.mockResolvedValue([
+        { id: 'loan-1', clientId: mockClient.id, interestRate: 2 },
+      ]);
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'inst-1',
+          loanId: 'loan-1',
+          amount: 300,
+          dueDate: daysAgo(35),
+          status: InstallmentStatus.Pending,
+        },
+      ]);
+
+      const result = await service.findOneDetail(mockClient.id);
+
+      expect(result.id).toBe(mockClient.id);
+      expect(result.creditAvailable).toBeLessThan(1000);
+      expect(result.isMoraBlocked).toBe(true);
+    });
+
+    it('throws NotFoundException when the client does not exist', async () => {
+      repository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.findOneDetail('missing-id')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('reactivate', () => {
+    it('restores a soft-deleted client', async () => {
+      const deletedClient = { ...mockClient, deletedAt: new Date() };
+      repository.findOne.mockResolvedValue(deletedClient);
+      repository.findOneBy.mockResolvedValue(mockClient);
+
+      const result = await service.reactivate(mockClient.id);
+
+      expect(repository.findOne).toHaveBeenCalledWith({
+        where: { id: mockClient.id },
+        withDeleted: true,
+      });
+      expect(repository.restore).toHaveBeenCalledWith({ id: mockClient.id });
+      expect(result).toEqual(mockClient);
+    });
+
+    it('throws NotFoundException when the client does not exist at all', async () => {
+      repository.findOne.mockResolvedValue(null);
+
+      await expect(service.reactivate('missing-id')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(repository.restore).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException when the client is already active', async () => {
+      repository.findOne.mockResolvedValue(mockClient);
+
+      await expect(service.reactivate(mockClient.id)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(repository.restore).not.toHaveBeenCalled();
     });
   });
 });

@@ -33,6 +33,7 @@ export interface MessageLog {
 
 export interface MessageLogsQueryParams {
   clientId?: string;
+  type?: MessageType;
   status?: MessageLogStatus;
   dateFrom?: string;
   dateTo?: string;
@@ -76,14 +77,15 @@ export interface MessageLogItem {
 }
 
 export const messageLogsApi = {
-  // type is always forced to Overdue — this phase's scope. Not exposed as
-  // a filter in the UI.
+  // Fase 9: type is now an optional filter instead of always forced to
+  // Overdue — undefined means "all types", matching GET /message-logs's
+  // own optional `type` query param.
   getAll: async (
     params: MessageLogsQueryParams = {},
   ): Promise<PaginatedMessageLogs> => {
     const { data, meta } = await apiClient.get<MessageLog[]>('/message-logs', {
       clientId: params.clientId,
-      type: MessageType.Overdue,
+      type: params.type,
       status: params.status,
       dateFrom: params.dateFrom,
       dateTo: params.dateTo,

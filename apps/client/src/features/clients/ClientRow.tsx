@@ -14,20 +14,22 @@ interface ClientRowProps {
   isAdmin: boolean;
   onEdit: () => void;
   onDeactivate: () => void;
+  onReactivate: () => void;
 }
 
 // Active clients can be viewed/edited; inactive (soft-deleted) ones can't:
 // apps/api's ClientsService.findOne() excludes soft-deleted rows (no
 // `withDeleted`), so GET/PATCH /clients/:id 404 for them — only the list
-// endpoint shows them at all, via `isActive=false`. There's also no
-// "reactivate" endpoint. See apps/client/docs/DESIGN_TOKENS.md "Known
-// design/backend gaps".
+// endpoint shows them at all, via `isActive=false`. An inactive row's only
+// action is "Reactivar" (PATCH /clients/:id/reactivate, admin only — see
+// docs/phases/PHASE_10_CLIENT_CAPACITY.md), which restores it to active.
 export function ClientRow({
   client,
   rowNumber,
   isAdmin,
   onEdit,
   onDeactivate,
+  onReactivate,
 }: ClientRowProps) {
   const isActive = client.deletedAt === null;
 
@@ -61,6 +63,8 @@ export function ClientRow({
               </RowAction>
             )}
           </div>
+        ) : isAdmin ? (
+          <RowAction onClick={onReactivate}>Reactivar</RowAction>
         ) : (
           <span className="text-meta text-mid">Sin acciones disponibles</span>
         )}

@@ -6,6 +6,7 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import { ClientsService } from '../clients/clients.service';
 import {
   ConceptCalculationType,
   InterestConceptType,
@@ -43,6 +44,7 @@ describe('LoansService', () => {
   };
   let interestConceptTypesService: { findOneOrThrow: jest.Mock };
   let newLoanReminderService: { sendNewLoanMessage: jest.Mock };
+  let clientsService: { hasMoraBlock: jest.Mock; getCreditUsage: jest.Mock };
 
   const mockConceptType: InterestConceptType = {
     id: 'concept-type-1',
@@ -103,6 +105,18 @@ describe('LoansService', () => {
     newLoanReminderService = {
       sendNewLoanMessage: jest.fn().mockResolvedValue(undefined),
     };
+    // Default: no mora block, no cupo configured (creditAvailable: null
+    // means unrestricted — see ClientsService.getCreditUsage) — so every
+    // pre-existing test below, which doesn't care about Phase 10 at all,
+    // keeps passing unaffected. Tests that DO care override these.
+    clientsService = {
+      hasMoraBlock: jest.fn().mockResolvedValue(false),
+      getCreditUsage: jest.fn().mockResolvedValue({
+        creditLimit: null,
+        creditUsed: 0,
+        creditAvailable: null,
+      }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -128,6 +142,7 @@ describe('LoansService', () => {
           provide: NewLoanReminderService,
           useValue: newLoanReminderService,
         },
+        { provide: ClientsService, useValue: clientsService },
       ],
     }).compile();
 
@@ -295,6 +310,34 @@ describe('LoansService', () => {
       expect(loansRepository.save).not.toHaveBeenCalled();
     });
 
+    // Phase 13 — docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
+    it('flags only the chosen installment as isInitial, leaving the rest false', async () => {
+      await service.create({ ...createDto, initialInstallmentIndex: 0 });
+
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({ installmentNumber: 1, isInitial: true }),
+        expect.objectContaining({ installmentNumber: 2, isInitial: false }),
+        expect.objectContaining({ installmentNumber: 3, isInitial: false }),
+      ]);
+    });
+
+    it('flags every installment isInitial: false when no index is given', async () => {
+      await service.create(createDto);
+
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({ isInitial: false }),
+        expect.objectContaining({ isInitial: false }),
+        expect.objectContaining({ isInitial: false }),
+      ]);
+    });
+
+    it('rejects when initialInstallmentIndex is out of range for installmentAmounts', async () => {
+      await expect(
+        service.create({ ...createDto, initialInstallmentIndex: 3 }),
+      ).rejects.toThrow(BadRequestException);
+      expect(loansRepository.save).not.toHaveBeenCalled();
+    });
+
     it('sends the new-loan WhatsApp message for the created loan', async () => {
       await service.create(createDto);
 
@@ -311,6 +354,91 @@ describe('LoansService', () => {
       const result = await service.create(createDto);
 
       expect(result.id).toBe('loan-2');
+    });
+
+    // Phase 10 — docs/phases/PHASE_10_CLIENT_CAPACITY.md's cupo/mora-block
+    // guard. Mora-block is checked first and reported as a distinct reason
+    // from "over cupo" — both are asserted below.
+    it('rejects when the client is mora-blocked, even with cupo available', async () => {
+      clientsService.hasMoraBlock.mockResolvedValue(true);
+
+      await expect(service.create(createDto)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(loansRepository.save).not.toHaveBeenCalled();
+    });
+
+    it("rejects when the principal exceeds the client's available cupo", async () => {
+      clientsService.getCreditUsage.mockResolvedValue({
+        creditLimit: 500000,
+        creditUsed: 200000,
+        creditAvailable: 300000, // less than createDto's 900000 principal
+      });
+
+      await expect(service.create(createDto)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(loansRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('reports mora-block and over-cupo as distinct error messages', async () => {
+      clientsService.hasMoraBlock.mockResolvedValue(true);
+      let moraMessage = '';
+      try {
+        await service.create(createDto);
+      } catch (error) {
+        moraMessage = (error as BadRequestException).message;
+      }
+
+      clientsService.hasMoraBlock.mockResolvedValue(false);
+      clientsService.getCreditUsage.mockResolvedValue({
+        creditLimit: 500000,
+        creditUsed: 500000,
+        creditAvailable: 0,
+      });
+      let cupoMessage = '';
+      try {
+        await service.create(createDto);
+      } catch (error) {
+        cupoMessage = (error as BadRequestException).message;
+      }
+
+      expect(moraMessage).not.toBe('');
+      expect(cupoMessage).not.toBe('');
+      expect(moraMessage).not.toBe(cupoMessage);
+    });
+
+    it('allows the loan when within cupo and not mora-blocked', async () => {
+      clientsService.hasMoraBlock.mockResolvedValue(false);
+      clientsService.getCreditUsage.mockResolvedValue({
+        creditLimit: 2000000,
+        creditUsed: 0,
+        creditAvailable: 2000000,
+      });
+
+      const result = await service.create(createDto);
+
+      expect(result.id).toBe('loan-2');
+      expect(loansRepository.save).toHaveBeenCalled();
+    });
+
+    it('allows the loan regardless of principal when the client has no cupo configured', async () => {
+      clientsService.getCreditUsage.mockResolvedValue({
+        creditLimit: null,
+        creditUsed: 0,
+        creditAvailable: null,
+      });
+
+      const result = await service.create(createDto);
+
+      expect(result.id).toBe('loan-2');
+    });
+
+    it("checks mora-block and cupo for the loan's clientId", async () => {
+      await service.create(createDto);
+
+      expect(clientsService.hasMoraBlock).toHaveBeenCalledWith('client-1');
+      expect(clientsService.getCreditUsage).toHaveBeenCalledWith('client-1');
     });
   });
 
@@ -392,6 +520,19 @@ describe('LoansService', () => {
       );
     });
 
+    // Phase 13 — docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
+    it('flags only the chosen installment as isInitial on the new loan', async () => {
+      await service.refinance(mockLoan.id, {
+        ...refinanceDto,
+        initialInstallmentIndex: 1,
+      });
+
+      expect(installmentsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({ installmentNumber: 1, isInitial: false }),
+        expect.objectContaining({ installmentNumber: 2, isInitial: true }),
+      ]);
+    });
+
     it('rejects refinancing an already-paid loan', async () => {
       loansRepository.findOneBy.mockReset();
       loansRepository.findOneBy.mockResolvedValueOnce({
@@ -441,6 +582,7 @@ describe('LoansService', () => {
         principalPortion: null,
         dueDate: '2024-01-01', // far in the past — deterministic overdue
         status: InstallmentStatus.Pending,
+        isInitial: false,
         createdAt: new Date(),
         updatedAt: new Date(),
         deletedAt: null,
@@ -479,6 +621,7 @@ describe('LoansService', () => {
         principalPortion: 300000,
         dueDate: '2026-08-01',
         status: InstallmentStatus.Pending,
+        isInitial: false,
         createdAt: new Date(),
         updatedAt: new Date(),
         deletedAt: null,

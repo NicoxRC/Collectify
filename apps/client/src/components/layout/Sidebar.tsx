@@ -29,6 +29,10 @@ const NAV_ITEMS: NavItem[] = [
     to: '/conceptos-de-interes',
     roles: ['admin'],
   },
+  // Not in the original Figma nav (no frame exists for Phase 11) —
+  // admin-only, same treatment as Plantillas. See
+  // docs/phases/PHASE_11_AUDIT_LOG.md.
+  { label: 'Auditoría', to: '/auditoria', roles: ['admin'] },
 ];
 
 export function Sidebar() {

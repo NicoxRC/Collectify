@@ -18,11 +18,34 @@ The open questions this phase originally carried are now resolved. Recorded here
 - ~~Are concepts identical across every installment, or can they vary?~~ → **Confirmed: they can vary installment-to-installment**, the same way `installment_amounts` already could before this phase. In practice most loans will use the same concepts throughout, but the data model must not assume that.
 - ~~How do existing loans migrate?~~ → **Not applicable — nothing is in production yet**, confirmed directly by the human. No backward-compatibility or backfill work is needed; this phase can assume a clean slate.
 - ~~Can an admin edit/deactivate a concept type already used on existing loans — snapshot or live?~~ → **Confirmed: snapshot.** A loan's installments keep the concept name/value they were generated with, even if the catalog entry is later edited or deactivated. Deactivating a type only removes it from the picker for *new* loans.
+- ~~Does the client want a global, admin-editable catalog of reusable concept types, or pure per-loan free text?~~ → **Confirmed: a global catalog** (`InterestConceptType`) — the admin manages it centrally and each loan/installment selects from it, per-installment value always overridable. This is what shipped (see Scope below), superseding the earlier per-loan free-text sketch some drafts of this document carried.
+
+## Open question carried forward — not yet built
+
+**Quote/simulator persistence (client, "Amortizador de financiamiento" meeting follow-up):** should a generated quote (see "Quote / simulator tool" below) be persisted as its own record (for accountability — "we told this prospect X, here's proof"), or is it a pure live calculator with no database footprint? The client's phrasing ("no podemos cambiar la información más adelante") could mean either. **This entire quote/simulator tool is confirmed in scope but not yet implemented** — the amortization engine and catalog shipped first; do not build the quote endpoint without resolving this persistence question with the human first.
 
 ## Scope decisions — read before implementing
 
 - **Concept types are admin-managed and dynamic, not a fixed/hardcoded list.** The admin must be able to create new kinds of interest/fee concepts at any time (e.g. add a "Seguro" concept next year without a code change). Implemented as a small admin-managed catalog (`InterestConceptType`), not free text — a catalog keeps names consistent across loans (needed for future reporting like "total gastos de cobranza cobrados este mes") while still letting the admin add a brand-new type inline at loan-creation time.
 - **Principal is amortized in even installments (linear/"German"-style), not a level total payment ("French"-style).** This is an implementation judgment call, not something the human was asked directly — flagged here so it can be corrected if it doesn't match business reality. Reasoning: since concepts (and therefore the interest/fee portion of each installment) can vary installment-to-installment, a level *total* payment across the whole term isn't well-defined in general — solving for one would require assumptions this project has no basis for. Evenly dividing principal across installments keeps the calculation simple and deterministic regardless of how concepts vary, and each installment's total is still `principal_portion + that period's concept charges`, which is what "consultable por cuota" requires. **Revisit this specific mechanic with the human if the business actually needs level (equal) total payments** — that would require a different, iterative calculation.
+
+## Market research — completed (client requested, not a substitute for confirming the above)
+
+The client asked us to look at how Sistecrédito and Addi name these concepts, "para acuñar los mismos términos." Findings, informational only:
+
+- **Addi** (closest comparable — Colombian fintech, small/short-term consumer credit) publishes an actual rate sheet with three cost buckets: **"Tasa de interés"** (remuneratory, varies by risk profile), **"Respaldo (fianza)"** — a guarantee/backing fee paid to a third-party guarantee fund, charged as a percentage + IVA of the purchase amount, payable diluted across installments — and **"Gastos de cobranza"**, an explicit tiered percentage of overdue capital that increases with days overdue (10-30, 31-60, 61-90, 91-120 días), each tier with its own min/max peso caps, charged from day 10 of mora. Source: [Addi — Tasas y tarifas](https://co.addi.com/tasas-tarifas).
+- **Sistecrédito** charges a monthly interest rate plus an **"Aval"** (guarantee) fee plus IVA, both scaled to the client's risk profile — and is legally required to disclose, before the client accepts, the "tasa de interés remuneratoria," "tasa de interés moratoria," "tasa máxima legal vigente," "valores o cargos adicionales," "garantías, avales o servicios accesorios," and "gastos de cobranza" as distinct line items. Source: [Sistecrédito — Información para el consumidor](https://www.sistecredito.com/informacion-para-el-consumidor/).
+- Broader Colombian consumer-credit market terminology (credit cards, via Bold's educational content): **"cuota de manejo"** (recurring account/handling fee), **"seguros asociados"** (bundled insurance — life, unemployment, purchase protection), **"comisión por estudio de crédito"** (one-time application/underwriting fee). Source: [Bold — Costos de las tarjetas de crédito en Colombia](https://bold.co/academia/educacion-financiera/tarjetas-de-credito-en-colombia-costos-y-tarifas-asociadas).
+
+**Suggested initial catalog** (pending the client's actual go-ahead on which to use, and on the catalog question above) — mapping the client's own proposed concepts to closer market-standard naming where one exists:
+
+| Client's term | Closer market equivalent (optional swap) | Notes |
+|---|---|---|
+| Gastos de cobranza | Same term — this is already the standard name (Addi uses it verbatim, with an explicit tiered-by-mora-days structure worth mirroring) | Confirm if a flat % or Addi-style tiered-by-days structure is wanted — the latter is more work (ties into per-installment mora days) |
+| Uso de plataforma | "Cuota de manejo" is the closer market-recognized term for a recurring platform/account fee | Client's own phrasing may poll better with their specific customer base — this is a suggestion, not a requirement |
+| Comisión de pagos virtuales | Matches "comisión" terminology used broadly (e.g. comisión por estudio de crédito) | No direct market equivalent for this exact concept — client's phrasing is already clear |
+| Mensajería express personalizada de notificación | No market equivalent found — appears specific to this business | Keep as-is |
+| (not yet proposed by client) | "Respaldo" / "Aval" — a guarantee fee, used by both Addi and Sistecrédito | Worth asking the client if they want an equivalent concept, since it's standard in this exact market segment |
 
 ## Required reading before starting
 
@@ -31,12 +54,12 @@ The open questions this phase originally carried are now resolved. Recorded here
 ## Scope
 
 ### Entities and migrations
-- [ ] `InterestConceptType` entity (the admin-managed catalog): `id`, `name` (VARCHAR — e.g. "Interés remuneratorio", "Gastos de cobranza"), `default_calculation_type` (enum: `percentage` | `fixed_amount`), `default_value` (DECIMAL, nullable — a suggested starting value, always overridable per installment), timestamps + soft delete.
-- [ ] `LoanInstallmentConcept` entity (per installment, not per loan, since concepts can vary installment-to-installment): `id`, `installment_id` (FK → `installments`), `interest_concept_type_id` (FK → `interest_concept_types`), `name_snapshot` (VARCHAR, copied from the type at generation time), `calculation_type` (enum, snapshotted), `rate_or_fixed_value` (DECIMAL, snapshotted — the % or flat figure used), `computed_amount` (DECIMAL — the actual currency amount this concept contributed to this installment, calculated once at generation time against the balance at that point, then stored — installment schedules don't change with the passage of time the way mora does).
-- [ ] `Installment`: add `principal_portion` (DECIMAL — the capital-only part of this installment's total `amount`). This is what `docs/phases/PHASE_16_EARLY_PAYOFF.md` and `docs/phases/PHASE_17_REFINANCING_RECALC.md` need to compute "interest caused vs. principal remaining."
-- [ ] Migrations: `CreateInterestConceptTypesTable`, `CreateLoanInstallmentConceptsTable`, `AddPrincipalPortionToInstallments`.
-- [ ] `Loan.interest_rate` is no longer used for new loans created after this phase ships — new loans express their entire cost through concepts instead. It is not removed from the schema (existing behavior for anything still reading it is untouched, and moratory calculation below still needs a rate — see next item).
-- [ ] Decide, alongside `docs/phases/PHASE_15_USURY_RATE.md`, whether moratory interest (still calculated by `installmentCalculations.ts` on overdue installments) now uses one of the loan's own concepts as its base rate, or keeps its own independent mechanism — flag this explicitly when scoping Phase 15's implementation, don't silently duplicate a rate.
+- [x] `InterestConceptType` entity (the admin-managed catalog, built): `id`, `name` (VARCHAR — e.g. "Interés remuneratorio", "Gastos de cobranza"), `default_calculation_type` (enum: `percentage` | `fixed_amount`), `default_value` (DECIMAL, nullable — a suggested starting value, always overridable per installment), `is_active` (BOOLEAN), timestamps + soft delete. **Admin-managed catalog** — CRUD via `/interest-concept-types`, admin only, mirroring the CRUD-ability `MessageTemplatesController` used to have before Phase 9 made it static (this is the opposite case: these concepts must stay freely editable, since the client's explicit ask is to never need a code change to add/rename/reprice one).
+- [x] `LoanInstallmentConcept` entity (per installment, not per loan, since concepts can vary installment-to-installment — confirmed, see resolved question above): `id`, `installment_id` (FK → `installments`), `interest_concept_type_id` (FK → `interest_concept_types`, nullable via `SET NULL` so deleting a catalog entry never touches historical installments), `name_snapshot` (VARCHAR, copied from the type at generation time), `calculation_type` (enum, snapshotted), `value` (DECIMAL, snapshotted — the % or flat figure used), `computed_amount` (DECIMAL — the actual currency amount this concept contributed to this installment, calculated once at generation time against the balance at that point, then stored — installment schedules don't change with the passage of time the way mora does).
+- [x] `Installment`: added `principal_portion` (DECIMAL, nullable — the capital-only part of this installment's total `amount`). This is what `docs/phases/PHASE_16_EARLY_PAYOFF.md` and `docs/phases/PHASE_17_REFINANCING_RECALC.md` need to compute "interest caused vs. principal remaining."
+- [x] Migrations: `CreateInterestConceptTypesTable`, `CreateLoanInstallmentConceptsTable`, `AddPrincipalPortionToInstallments`.
+- [x] `Loan.interest_rate` is no longer used for new loans created after this phase — new loans express their entire cost through concepts instead. It was not removed from the schema; it is now moratory-only (kept as the base rate `installmentCalculations.ts` uses for overdue installments).
+- [ ] Still open, deferred to `docs/phases/PHASE_15_USURY_RATE.md` scoping: whether moratory interest keeps using `Loan.interest_rate` as its own independent mechanism (current behavior, unchanged by this phase) or should instead derive from one of the loan's own concepts — flag this explicitly when scoping Phase 15, don't silently duplicate a rate.
 
 ### Concept type management (admin catalog)
 - [ ] `InterestConceptTypesService`: `create()`, `findAll()` (active types, for the loan-creation picker), `update()`, `deactivate()` — admin only.
@@ -56,28 +79,44 @@ The open questions this phase originally carried are now resolved. Recorded here
 ### Reporting
 - [ ] `GET /api/v1/loans/:id` and `GET /api/v1/installments`: each installment response includes `principalPortion` and `conceptBreakdown: { name, amount }[]` (from the stored `LoanInstallmentConcept` rows — no need to recalculate, they were computed once at generation time).
 
+### Quote / simulator tool ("amortizador proyector" — confirmed in scope, client meeting follow-up)
+The client's actual use case, in their own words: a prospect walks into the office asking "how much would I pay if I borrowed $X over Y months," and the person helping them needs to turn the screen around and show a clear, large breakdown on the spot — **before** any `Loan` record exists.
+- [ ] `POST /api/v1/loans/quote` (or similar — not a persisted resource unless open question 7 resolves to "yes, persist it"): accepts the same shape as loan creation (`principalAmount`, `totalInstallments`, `installmentFrequency`, `interestConcepts`) minus `clientId`/`promissoryNoteNumber`, and returns the exact same per-installment breakdown shape `LoansService.create()` would produce — **must reuse the identical calculation code path** as real loan creation, not a parallel reimplementation, so a quote can never drift from what an actual loan would compute.
+- [ ] If open question 7 resolves to "persist it": a `LoanQuote` entity/table capturing what was shown and when, so the business has a record if a prospect later disputes what they were quoted. If it resolves to "pure calculator": no new table, this endpoint is stateless.
+
 ### Tests (mandatory)
-- [ ] `generateSchedule()`: single concept flat across all installments (balance declines correctly, sums to principal exactly); concepts that vary per installment; a mix of percentage and fixed-amount concepts; rounding remainder lands on the last installment; a single-installment loan.
-- [ ] `InterestConceptTypesService`: create/update/deactivate; a deactivated type no longer appears in `findAll()` but existing `LoanInstallmentConcept` rows referencing it are unaffected (snapshot behavior).
-- [ ] `LoansService.create()`/`refinance()`: generated installments' `principalPortion` values sum exactly to `principalAmount`.
+- [x] `generateSchedule()`: single concept flat across all installments (balance declines correctly, sums to principal exactly); concepts that vary per installment; a mix of percentage and fixed-amount concepts; rounding remainder lands on the last installment; a single-installment loan.
+- [x] `InterestConceptTypesService`: create/update/deactivate; a deactivated type no longer appears in `findAll()` but existing `LoanInstallmentConcept` rows referencing it are unaffected (snapshot behavior).
+- [x] `LoansService.create()`/`refinance()`: generated installments' `principalPortion` values sum exactly to `principalAmount`.
+- [x] `conceptBreakdown` sums correctly to the installment's total.
+- [x] Existing loans without concepts continue to work exactly as before (backward compatibility — `LoanInstallmentConcept` rows are optional per installment).
+- [x] A loan's stored concept values never change when the `InterestConceptType` catalog is edited afterward — confirms the snapshot behavior above is actually enforced, not just assumed.
+- [ ] Not yet applicable — deferred until the quote/simulator tool is built (see "Open question carried forward" above): the quote endpoint's output must be byte-for-byte identical to what `LoansService.create()` would produce for the same inputs, per the client's explicit "no podemos cambiar la información más adelante" requirement.
 
 ### Swagger
 - [ ] New entities, DTOs, catalog endpoints, and the updated loan-creation payload documented, including a clear explanation of the amortization algorithm in the description.
 
 ## Definition of done for this phase
 
-- An admin can create a new interest/fee concept type at any time, without a code change or deployment.
-- A loan can be created by specifying principal, term, and concepts — the system generates every installment's amount, with its capital/concept breakdown, automatically.
-- The exact breakdown of what a client owes, by concept, is retrievable per installment without recalculating anything.
+- [x] An admin can create a new interest/fee concept type at any time, without a code change or deployment.
+- [x] A loan can be created by specifying principal, term, and concepts — the system generates every installment's amount, with its capital/concept breakdown, automatically.
+- [x] The exact breakdown of what a client owes, by concept, is retrievable per installment without recalculating anything.
+- [x] **Confirmed (client, "Amortizador de financiamiento" note, part B):** once a loan is created, its concepts' names/types/values are frozen — editing the `InterestConceptType` catalog afterward never retroactively changes an already-created loan's numbers. This is the natural consequence of `LoanInstallmentConcept` storing its own snapshotted values rather than a live reference to the catalog row, and is covered by a dedicated test (see above).
+- [ ] **Not yet satisfied — tracked as the open follow-up above:** an admin can generate an on-the-spot quote for a prospective client ("Amortizador de financiamiento" note, part A) without creating a `Loan` record, with math guaranteed to exactly match what a real loan would produce. The amortization engine this quote tool would reuse is built; the quote endpoint itself is not.
+- [x] The confirmed answers to every "Before starting" question are implemented exactly as agreed — not guessed.
 - All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## After this phase
 
-Update `docs/DATABASE.md` (new `interest_concept_types`, `loan_installment_concepts` tables, `installments.principal_portion` column, and resolve the `interest_rate` open question — note it's superseded by concepts for loans created after this phase) and `docs/GLOSSARY.md` (add "Interest concept type / Tipo de concepto de interés" and "Interest concept / Concepto de interés"; update "Interest rate / Tasa de mora" to reflect that ordinary interest is now concept-based). Also update `docs/phases/PHASE_4_LOANS_INSTALLMENTS.md`'s own text to note its "no automatic even-split" decision was superseded here, so the two documents don't silently contradict each other.
+Update `docs/DATABASE.md` (new `interest_concept_types`, `loan_installment_concepts` tables, `installments.principal_portion` column, and resolve the `interest_rate` open question — note it's superseded by concepts for loans created after this phase, and now moratory-only) and `docs/GLOSSARY.md` (add "Interest concept type / Tipo de concepto de interés" and "Interest concept / Concepto de interés"; update "Interest rate / Tasa de mora" to reflect that ordinary interest is now concept-based). Also update `docs/phases/PHASE_4_LOANS_INSTALLMENTS.md`'s own text to note its "no automatic even-split" decision was superseded here, so the two documents don't silently contradict each other. **Still pending** (blocked on the quote/simulator persistence question above, not yet actioned): once that tool ships, revisit this section again for any further doc updates it needs.
+
+## Important cross-reference — Phase 15 must validate the total, not just "interés"
+
+The client's own stated reason for wanting configurable concepts is to avoid charging everything under the single label "interés," which would otherwise breach `docs/phases/PHASE_15_USURY_RATE.md`'s legal ceiling. This means Phase 15's open question #2 ("does the ceiling validate only the nominal interest concepts, or the effective total cost including moratory interest and any fixed fees?") is no longer a neutral toggle — if Phase 15 ends up validating only a field literally named "interés," the usury-ceiling check becomes meaningless by construction, since it would never see the concepts specifically designed to sit outside that label. Whoever confirms Phase 15's open questions with the client should confirm this explicitly, and be told this isn't a minor implementation detail — it determines whether the ceiling check does anything at all. Not legal advice; if there's any doubt about whether structuring charges this way is itself compliant, that's a question for the client's own legal/financial advisor, not something to infer from this codebase.
 
 ## Related documents
 
 - `docs/phases/PHASE_4_LOANS_INSTALLMENTS.md` — the installment-generation decision this phase supersedes
-- `docs/phases/PHASE_15_USURY_RATE.md` — the legal ceiling this phase's concepts must be validated against
+- `docs/phases/PHASE_15_USURY_RATE.md` — the legal ceiling this phase's concepts must be validated against (see cross-reference above)
 - `docs/phases/PHASE_16_EARLY_PAYOFF.md`, `docs/phases/PHASE_17_REFINANCING_RECALC.md` — both consume `principal_portion` introduced here
 - `docs/DATABASE.md` — open question on `interest_rate` this phase resolves

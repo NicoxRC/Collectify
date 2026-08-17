@@ -82,6 +82,16 @@ export class CreateLoanDto {
   installmentConceptOverrides?: InstallmentConceptOverrideDto[];
 
   @ApiPropertyOptional({
+    example: 0,
+    description:
+      '0-based index into installmentAmounts marking that installment as the initial payment ("cuota inicial") — exempt from mora regardless of due date. Omit if the loan has no initial installment. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  initialInstallmentIndex?: number;
+
+  @ApiPropertyOptional({
     example:
       'Compra de Apple MacBook Air M5 color silver blue, 512GB, 16GB de ram',
     description:

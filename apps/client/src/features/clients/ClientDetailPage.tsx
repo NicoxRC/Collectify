@@ -14,8 +14,14 @@ import {
   moraBadgeClasses,
 } from '@/features/loans/loanStatusDisplay';
 import { useLoans } from '@/features/loans/useLoans';
+import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogs } from '@/features/messageLogs/useMessageLogs';
-import { useSendReminder } from '@/features/whatsapp/useWhatsapp';
+import { MESSAGE_TYPE_LABELS } from '@/features/messageTemplates/messageTemplatesApi';
+import {
+  useSendAccountSummary,
+  useSendReminder,
+  useSendUpcomingDueReminder,
+} from '@/features/whatsapp/useWhatsapp';
 import { ApiError } from '@/lib/apiClient';
 import {
   formatCurrency,
@@ -55,8 +61,21 @@ export function ClientDetailPage() {
     isLoading: loansLoading,
     isError: loansError,
   } = useLoans({ clientId: id, limit: 100 });
+  // Two separate queries on purpose: `messages` (unfiltered) feeds the
+  // "Mensajes enviados" KPI card below, which must reflect the true total
+  // regardless of status. `failedMessages` feeds the history list itself —
+  // per the client's colleague, this tab should only ever surface
+  // failed/unsent messages (mirrors the same change made to
+  // MessageLogsPage.tsx), not a full sent+failed history.
   const { data: messages } = useMessageLogs({ clientId: id, limit: 5 });
+  const { data: failedMessages } = useMessageLogs({
+    clientId: id,
+    status: MessageLogStatus.Failed,
+    limit: 5,
+  });
   const sendReminder = useSendReminder();
+  const sendUpcomingDueReminder = useSendUpcomingDueReminder();
+  const sendAccountSummary = useSendAccountSummary();
   const [sendError, setSendError] = useState<string | null>(null);
 
   if (!id) {
@@ -141,6 +160,14 @@ export function ClientDetailPage() {
               <span className="rounded-[3px] border border-muted bg-border px-2 py-[3px] text-meta font-medium text-white">
                 Activo
               </span>
+              {client.isMoraBlocked && (
+                <span
+                  title="Este cliente tiene una cuota con más de 30 días de mora y no puede recibir un nuevo préstamo."
+                  className="rounded-[3px] border border-[#ef4444] bg-[#240a0a] px-2 py-[3px] text-meta font-medium text-[#ef4444]"
+                >
+                  Bloqueado por mora
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -165,7 +192,7 @@ export function ClientDetailPage() {
         )}
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <StatCard label="Préstamos totales" value={String(totalLoans)} />
         <StatCard
           label="Monto prestado"
@@ -173,6 +200,19 @@ export function ClientDetailPage() {
         />
         <StatCard label="En mora" value={formatCurrency(totalOverdueBalance)} />
         <StatCard label="Mensajes enviados" value={String(totalMessages)} />
+        {/* Computed on read by the backend (ClientsService.getCreditUsage),
+            not stored — see docs/phases/PHASE_10_CLIENT_CAPACITY.md. Shows
+            "Sin límite" instead of a dollar figure when the client has no
+            cupo configured (creditLimit null), matching how the backend
+            represents "no cupo enforced". */}
+        <StatCard
+          label="Cupo disponible"
+          value={
+            client.creditLimit === null
+              ? 'Sin límite'
+              : formatCurrency(client.creditAvailable ?? 0)
+          }
+        />
       </div>
 
       <div className="flex flex-col gap-2.5">
@@ -286,35 +326,84 @@ export function ClientDetailPage() {
         </div>
       </div>
 
-      {/* Fase 5 — only the overdue reminder is in scope this phase (client's
-          choice), so this only ever shows/sends that one message type. */}
+      {/* Fase 5 built this scoped to the overdue reminder only; Fase 9 added
+          manual triggers for the other two on-demand-capable types (Aviso
+          also has a cron, but its pause/resume lives on MessageLogsPage —
+          "the page about automatic sends" — not per-client). The new-loan
+          message has no manual trigger by design (sent automatically at
+          loan creation, see LoanDetailPage.tsx), so it never appears here
+          as a button, only in the history list below like any other type. */}
       <div className="flex flex-col gap-2.5">
         <div className="flex items-center justify-between">
           <span className="text-section-label font-medium tracking-[0.36px] text-muted">
             HISTORIAL DE MENSAJES
           </span>
           {isAdmin && (
-            <button
-              type="button"
-              disabled={sendReminder.isPending}
-              onClick={async () => {
-                setSendError(null);
-                try {
-                  await sendReminder.mutateAsync(client.id);
-                } catch (err) {
-                  setSendError(
-                    err instanceof ApiError
-                      ? err.message
-                      : 'No se pudo enviar el recordatorio.',
-                  );
-                }
-              }}
-              className="rounded-[3px] border border-border bg-input px-2.5 py-1 text-meta text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {sendReminder.isPending
-                ? 'Enviando…'
-                : 'Enviar recordatorio de mora'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={sendReminder.isPending}
+                onClick={async () => {
+                  setSendError(null);
+                  try {
+                    await sendReminder.mutateAsync(client.id);
+                  } catch (err) {
+                    setSendError(
+                      err instanceof ApiError
+                        ? err.message
+                        : 'No se pudo enviar el recordatorio.',
+                    );
+                  }
+                }}
+                className="rounded-[3px] border border-border bg-input px-2.5 py-1 text-meta text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {sendReminder.isPending
+                  ? 'Enviando…'
+                  : 'Enviar recordatorio de mora'}
+              </button>
+              <button
+                type="button"
+                disabled={sendUpcomingDueReminder.isPending}
+                onClick={async () => {
+                  setSendError(null);
+                  try {
+                    await sendUpcomingDueReminder.mutateAsync(client.id);
+                  } catch (err) {
+                    setSendError(
+                      err instanceof ApiError
+                        ? err.message
+                        : 'No se pudo enviar el aviso.',
+                    );
+                  }
+                }}
+                className="rounded-[3px] border border-border bg-input px-2.5 py-1 text-meta text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {sendUpcomingDueReminder.isPending
+                  ? 'Enviando…'
+                  : 'Enviar aviso'}
+              </button>
+              <button
+                type="button"
+                disabled={sendAccountSummary.isPending}
+                onClick={async () => {
+                  setSendError(null);
+                  try {
+                    await sendAccountSummary.mutateAsync(client.id);
+                  } catch (err) {
+                    setSendError(
+                      err instanceof ApiError
+                        ? err.message
+                        : 'No se pudo enviar el estado de cuenta.',
+                    );
+                  }
+                }}
+                className="rounded-[3px] border border-border bg-input px-2.5 py-1 text-meta text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {sendAccountSummary.isPending
+                  ? 'Enviando…'
+                  : 'Enviar resumen de cuenta'}
+              </button>
+            </div>
           )}
         </div>
 
@@ -325,13 +414,16 @@ export function ClientDetailPage() {
         )}
 
         <div className="overflow-hidden rounded bg-surface">
-          {messages && messages.items.length > 0 ? (
+          {failedMessages && failedMessages.items.length > 0 ? (
             <table className="w-full">
               <tbody>
-                {messages.items.map((message) => (
+                {failedMessages.items.map((message) => (
                   <tr key={message.id} className="border-t border-border">
                     <td className="h-11 px-3.5 text-small text-muted">
                       {new Date(message.sentAt).toLocaleDateString('es-CO')}
+                    </td>
+                    <td className="h-11 px-3.5 text-small text-muted">
+                      {MESSAGE_TYPE_LABELS[message.type]}
                     </td>
                     <td className="h-11 px-3.5 text-right">
                       <span
@@ -350,7 +442,7 @@ export function ClientDetailPage() {
             </table>
           ) : (
             <p className="border border-border p-4 text-small text-muted">
-              Todavía no se le han enviado recordatorios de mora a este cliente.
+              Este cliente no tiene mensajes fallidos pendientes de revisar.
             </p>
           )}
         </div>

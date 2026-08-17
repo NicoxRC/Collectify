@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { ClientsModule } from '../clients/clients.module';
 import { InterestConceptTypesModule } from '../interestConceptTypes/interestConceptTypes.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 
@@ -23,6 +24,7 @@ import { LoansService } from './loans.service';
     ]),
     WhatsappModule,
     InterestConceptTypesModule,
+    ClientsModule,
   ],
   controllers: [LoansController, InstallmentsController],
   providers: [LoansService, InstallmentsService],

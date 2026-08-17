@@ -125,6 +125,10 @@ export interface CreateLoanInput {
   totalInstallments: number;
   concepts: LoanConceptAssignment[];
   installmentConceptOverrides?: InstallmentConceptOverride[];
+  // 0-based index into the generated schedule marking the "cuota inicial" —
+  // exempt from mora regardless of due date. Undefined when the loan has
+  // no initial installment. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
+  initialInstallmentIndex?: number;
   description?: string;
 }
 
