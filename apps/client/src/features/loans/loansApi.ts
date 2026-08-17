@@ -174,6 +174,27 @@ export interface SchedulePreview {
   usuryWarning: UsuryWarning | null;
 }
 
+// Matches apps/api/src/loans/payoff/calculatePayoff.ts's PayoffQuote
+// exactly. See docs/phases/PHASE_16_EARLY_PAYOFF.md — a not-yet-due
+// installment contributes only principalApplied (its principalPortion),
+// at face value, with interestApplied 0; a matured (due/overdue)
+// installment's interestApplied includes both Phase 14 concept charges and
+// any moratory interest.
+export interface PayoffInstallmentBreakdown {
+  installmentId: string;
+  installmentNumber: number;
+  interestApplied: number;
+  principalApplied: number;
+  totalDue: number;
+}
+
+export interface PayoffQuote {
+  installments: PayoffInstallmentBreakdown[];
+  totalInterestOwed: number;
+  totalPrincipalOwed: number;
+  totalDue: number;
+}
+
 // Matches apps/api/src/loans/dto/updateLoan.dto.ts exactly — only these two
 // fields are editable post-creation. principalAmount/schedule are NOT
 // patchable (would cascade into already-generated installments, out of
@@ -264,6 +285,22 @@ export const loansApi = {
     const { data } = await apiClient.post<LoanDetail>(
       `/loans/${id}/mark-as-paid`,
     );
+    return data;
+  },
+
+  // Read-only, safe to call regardless of the loan's status — see
+  // docs/phases/PHASE_16_EARLY_PAYOFF.md.
+  getPayoffQuote: async (id: string): Promise<PayoffQuote> => {
+    const { data } = await apiClient.get<PayoffQuote>(
+      `/loans/${id}/payoff-quote`,
+    );
+    return data;
+  },
+
+  // Separate, explicit flow from registering an ordinary payment — always
+  // settles the FULL payoff quote, closing the loan out. Admin only.
+  payoff: async (id: string): Promise<LoanDetail> => {
+    const { data } = await apiClient.post<LoanDetail>(`/loans/${id}/payoff`);
     return data;
   },
 
