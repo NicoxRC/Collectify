@@ -1,9 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
-  ArrayMinSize,
   IsArray,
   IsDateString,
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -12,13 +13,20 @@ import {
   IsUUID,
   Max,
   Min,
+  ValidateNested,
 } from 'class-validator';
 
 import { InstallmentFrequency } from '../entities/loan.entity';
 
-// Installment amounts are always explicit, per human decision — see the
-// Phase 4 PR discussion. No automatic even-split; the caller provides one
-// amount per installment, and their sum must equal principalAmount.
+import {
+  InstallmentConceptOverrideDto,
+  LoanConceptAssignmentDto,
+} from './loanConceptAssignment.dto';
+
+// As of Phase 14, installments are no longer hand-entered totals — the
+// amortization schedule (loans/amortization/generateSchedule.ts) is
+// generated from principalAmount, totalInstallments, and concepts. See
+// docs/phases/PHASE_14_INTEREST_CONCEPTS.md.
 export class CreateLoanDto {
   @ApiProperty()
   @IsUUID()
@@ -35,7 +43,8 @@ export class CreateLoanDto {
 
   @ApiProperty({
     example: 6,
-    description: 'Percentage — set manually per loan, per docs/DATABASE.md',
+    description:
+      'Percentage used only for moratory interest on overdue installments (docs/GLOSSARY.md). Ordinary financing cost is expressed through concepts, not this field, as of Phase 14.',
   })
   @IsNumber()
   @Min(0)
@@ -50,15 +59,27 @@ export class CreateLoanDto {
   @IsEnum(InstallmentFrequency)
   installmentFrequency!: InstallmentFrequency;
 
+  @ApiProperty({ example: 12 })
+  @IsInt()
+  @Min(1)
+  totalInstallments!: number;
+
   @ApiProperty({
-    example: [300000, 300000, 300000],
+    type: [LoanConceptAssignmentDto],
     description:
-      'One amount per installment, in order. Must sum to principalAmount.',
+      'Baseline interest/fee concepts applied to every installment, unless overridden for a specific one via installmentConceptOverrides. Can be empty for an interest-free financing plan.',
   })
   @IsArray()
-  @ArrayMinSize(1)
-  @IsPositive({ each: true })
-  installmentAmounts!: number[];
+  @ValidateNested({ each: true })
+  @Type(() => LoanConceptAssignmentDto)
+  concepts!: LoanConceptAssignmentDto[];
+
+  @ApiPropertyOptional({ type: [InstallmentConceptOverrideDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InstallmentConceptOverrideDto)
+  installmentConceptOverrides?: InstallmentConceptOverrideDto[];
 
   @ApiPropertyOptional({
     example:

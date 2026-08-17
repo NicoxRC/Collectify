@@ -72,7 +72,7 @@ export class LoansController {
   @ApiOperation({
     summary: 'Create a loan and generate its installments (admin only)',
     description:
-      'installmentAmounts is required — one explicit amount per installment, must sum to principalAmount. Due dates are auto-generated from disbursedAt + installmentFrequency.',
+      'The installment schedule is generated automatically from principalAmount, totalInstallments, and concepts (interest/fee concepts picked from the InterestConceptTypes catalog) — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md. Concepts apply to every installment unless overridden per installment via installmentConceptOverrides. Due dates are auto-generated from disbursedAt + installmentFrequency. interestRate is used only for moratory interest on overdue installments.',
   })
   @ApiResponse({
     status: 201,
@@ -80,7 +80,12 @@ export class LoansController {
   })
   @ApiResponse({
     status: 400,
-    description: 'installmentAmounts does not sum to principalAmount.',
+    description:
+      "An installmentConceptOverrides entry references an installment number outside the loan's totalInstallments.",
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'A concept references an unknown concept type id.',
   })
   @ApiResponse({
     status: 409,
@@ -143,8 +148,8 @@ export class LoansController {
       "Sets the old loan's status to 'refinanced' and cancels whatever installments it still had " +
       "pending (marked 'cancelled' — excluded from active collection/reminders, kept as historical " +
       'record). Creates a new loan linked back via refinancedFromLoanId, with its own promissory ' +
-      'note number and installments generated the same way as loan creation (explicit ' +
-      'installmentAmounts, must sum to principalAmount).',
+      'note number and a schedule generated the same way as loan creation (principalAmount, ' +
+      'totalInstallments, and concepts — see POST /loans).',
   })
   @ApiResponse({
     status: 201,
@@ -153,7 +158,7 @@ export class LoansController {
   @ApiResponse({
     status: 400,
     description:
-      'The loan is not active (already paid or already refinanced), or installmentAmounts does not sum to principalAmount.',
+      "The loan is not active (already paid or already refinanced), or an installmentConceptOverrides entry references an installment number outside the loan's totalInstallments.",
   })
   @ApiResponse({ status: 404, description: 'Loan not found.' })
   @ApiResponse({

@@ -9,15 +9,22 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, ILike, In, Repository } from 'typeorm';
 
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
+import { InterestConceptTypesService } from '../interestConceptTypes/interestConceptTypes.service';
 import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 
+import {
+  ConceptAssignment,
+  generateAmortizationSchedule,
+} from './amortization/generateSchedule';
 import { CreateLoanDto } from './dto/createLoan.dto';
+import { LoanConceptAssignmentDto } from './dto/loanConceptAssignment.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
 import { QueryLoansDto } from './dto/queryLoans.dto';
 import { RefinanceLoanDto } from './dto/refinanceLoan.dto';
 import { addMonthsToDateString, addWeeksToDateString } from './dueDateSchedule';
 import { Installment, InstallmentStatus } from './entities/installment.entity';
 import { InstallmentFrequency, Loan, LoanStatus } from './entities/loan.entity';
+import { LoanInstallmentConcept } from './entities/loanInstallmentConcept.entity';
 import { Payment } from './entities/payment.entity';
 import {
   enrichInstallment,
@@ -27,7 +34,11 @@ import {
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const POSTGRES_UNIQUE_VIOLATION = '23505';
-const AMOUNT_SUM_TOLERANCE = 0.01;
+
+interface InstallmentConceptOverride {
+  installmentNumber: number;
+  concepts: LoanConceptAssignmentDto[];
+}
 
 export interface LoanDetail extends Loan {
   installments: InstallmentWithCalculated[];
@@ -88,7 +99,9 @@ interface PersistLoanParams {
   interestRate: number;
   disbursedAt: string;
   installmentFrequency: InstallmentFrequency;
-  installmentAmounts: number[];
+  totalInstallments: number;
+  concepts: LoanConceptAssignmentDto[];
+  installmentConceptOverrides?: InstallmentConceptOverride[];
   description?: string | null;
   refinancedFromLoanId?: string | null;
 }
@@ -104,6 +117,9 @@ export class LoansService {
     private readonly installmentsRepository: Repository<Installment>,
     @InjectRepository(Payment)
     private readonly paymentsRepository: Repository<Payment>,
+    @InjectRepository(LoanInstallmentConcept)
+    private readonly loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
+    private readonly interestConceptTypesService: InterestConceptTypesService,
     private readonly newLoanReminderService: NewLoanReminderService,
   ) {}
 
@@ -115,7 +131,9 @@ export class LoansService {
       interestRate: dto.interestRate,
       disbursedAt: dto.disbursedAt,
       installmentFrequency: dto.installmentFrequency,
-      installmentAmounts: dto.installmentAmounts,
+      totalInstallments: dto.totalInstallments,
+      concepts: dto.concepts,
+      installmentConceptOverrides: dto.installmentConceptOverrides,
       description: dto.description,
     });
 
@@ -151,7 +169,9 @@ export class LoansService {
       interestRate: dto.interestRate,
       disbursedAt: dto.disbursedAt,
       installmentFrequency: dto.installmentFrequency,
-      installmentAmounts: dto.installmentAmounts,
+      totalInstallments: dto.totalInstallments,
+      concepts: dto.concepts,
+      installmentConceptOverrides: dto.installmentConceptOverrides,
       description: dto.description,
       refinancedFromLoanId: id,
     });
@@ -362,15 +382,24 @@ export class LoansService {
   }
 
   // Shared by create() and refinance() — both need a loan row plus its
-  // generated installments, differing only in whether refinancedFromLoanId
-  // is set.
+  // generated installments (and each installment's concept breakdown),
+  // differing only in whether refinancedFromLoanId is set. As of Phase 14
+  // the schedule is generated, not hand-entered — see
+  // docs/phases/PHASE_14_INTEREST_CONCEPTS.md.
   private async persistLoanWithInstallments(
     params: PersistLoanParams,
   ): Promise<Loan> {
     await this.assertPromissoryNoteNumberIsUnique(params.promissoryNoteNumber);
-    this.assertInstallmentAmountsMatchPrincipal(
+
+    const conceptsByInstallment = await this.resolveConceptsByInstallment(
+      params.totalInstallments,
+      params.concepts,
+      params.installmentConceptOverrides ?? [],
+    );
+    const schedule = generateAmortizationSchedule(
       params.principalAmount,
-      params.installmentAmounts,
+      params.totalInstallments,
+      conceptsByInstallment,
     );
 
     const loan = this.loansRepository.create({
@@ -380,7 +409,7 @@ export class LoansService {
       interestRate: params.interestRate,
       disbursedAt: params.disbursedAt,
       installmentFrequency: params.installmentFrequency,
-      totalInstallments: params.installmentAmounts.length,
+      totalInstallments: params.totalInstallments,
       status: LoanStatus.Active,
       description: params.description ?? null,
       refinancedFromLoanId: params.refinancedFromLoanId ?? null,
@@ -393,22 +422,98 @@ export class LoansService {
       throw this.mapUniqueViolation(error);
     }
 
-    const installments = params.installmentAmounts.map((amount, index) =>
+    const installments = schedule.map((generated) =>
       this.installmentsRepository.create({
         loanId: savedLoan.id,
-        installmentNumber: index + 1,
-        amount,
+        installmentNumber: generated.installmentNumber,
+        amount: generated.amount,
+        principalPortion: generated.principalPortion,
         dueDate: this.calculateDueDate(
           params.disbursedAt,
           params.installmentFrequency,
-          index + 1,
+          generated.installmentNumber,
         ),
         status: InstallmentStatus.Pending,
       }),
     );
-    await this.installmentsRepository.save(installments);
+    const savedInstallments =
+      await this.installmentsRepository.save(installments);
+
+    const conceptRows = savedInstallments.flatMap((installment, index) =>
+      schedule[index].concepts.map((concept) =>
+        this.loanInstallmentConceptsRepository.create({
+          installmentId: installment.id,
+          interestConceptTypeId: concept.conceptTypeId,
+          nameSnapshot: concept.name,
+          calculationType: concept.calculationType,
+          value: concept.value,
+          computedAmount: concept.computedAmount,
+        }),
+      ),
+    );
+    if (conceptRows.length > 0) {
+      await this.loanInstallmentConceptsRepository.save(conceptRows);
+    }
 
     return savedLoan;
+  }
+
+  // Resolves each referenced concept type's current name from the catalog
+  // (snapshotted onto LoanInstallmentConcept — an edit to the catalog entry
+  // later must never change an already-generated schedule, confirmed with
+  // the human) and expands the baseline concepts across every installment,
+  // substituting any per-installment override on top.
+  private async resolveConceptsByInstallment(
+    totalInstallments: number,
+    baselineConcepts: LoanConceptAssignmentDto[],
+    overrides: InstallmentConceptOverride[],
+  ): Promise<ConceptAssignment[][]> {
+    const distinctConceptTypeIds = new Set<string>();
+    for (const concept of baselineConcepts) {
+      distinctConceptTypeIds.add(concept.conceptTypeId);
+    }
+    for (const override of overrides) {
+      for (const concept of override.concepts) {
+        distinctConceptTypeIds.add(concept.conceptTypeId);
+      }
+    }
+
+    const nameByConceptTypeId = new Map<string, string>();
+    for (const conceptTypeId of distinctConceptTypeIds) {
+      const conceptType =
+        await this.interestConceptTypesService.findOneOrThrow(conceptTypeId);
+      nameByConceptTypeId.set(conceptTypeId, conceptType.name);
+    }
+
+    const toAssignment = (
+      concept: LoanConceptAssignmentDto,
+    ): ConceptAssignment => ({
+      conceptTypeId: concept.conceptTypeId,
+      name: nameByConceptTypeId.get(concept.conceptTypeId) ?? '',
+      calculationType: concept.calculationType,
+      value: concept.value,
+    });
+
+    const baseline = baselineConcepts.map(toAssignment);
+    const conceptsByInstallment: ConceptAssignment[][] = Array.from(
+      { length: totalInstallments },
+      () => baseline,
+    );
+
+    for (const override of overrides) {
+      if (
+        override.installmentNumber < 1 ||
+        override.installmentNumber > totalInstallments
+      ) {
+        throw new BadRequestException(
+          `installmentConceptOverrides references installment ${override.installmentNumber}, but this loan only has ${totalInstallments} installments`,
+        );
+      }
+      conceptsByInstallment[override.installmentNumber - 1] =
+        override.concepts.map(toAssignment);
+    }
+
+    return conceptsByInstallment;
   }
 
   // A failed/skipped "new loan" WhatsApp message must never fail the loan
@@ -444,18 +549,6 @@ export class LoansService {
     if (existing) {
       throw new ConflictException(
         `A loan with promissory note number ${promissoryNoteNumber} already exists`,
-      );
-    }
-  }
-
-  private assertInstallmentAmountsMatchPrincipal(
-    principalAmount: number,
-    installmentAmounts: number[],
-  ): void {
-    const sum = installmentAmounts.reduce((total, amount) => total + amount, 0);
-    if (Math.abs(sum - principalAmount) > AMOUNT_SUM_TOLERANCE) {
-      throw new BadRequestException(
-        `The sum of installment amounts (${sum}) must equal the principal amount (${principalAmount})`,
       );
     }
   }
