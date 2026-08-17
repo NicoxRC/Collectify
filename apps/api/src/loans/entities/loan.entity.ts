@@ -74,6 +74,21 @@ export class Loan {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
+  // Snapshotted once at creation/refinance time — not recomputed on read
+  // (confirmed with the human: creation-time enforcement only, see
+  // docs/phases/PHASE_15_USURY_RATE.md "Resolved"). true when this loan's
+  // maximum per-installment effective rate exceeded the usury ceiling
+  // in effect at that moment; the loan is still created (warning, not a
+  // hard block), so this is purely informational for later review.
+  @Column({ default: false })
+  usuryCeilingExceededAtCreation!: boolean;
+
+  // Optional admin note explaining why the loan proceeded despite
+  // exceeding the usury ceiling — only meaningful when the flag above is
+  // true, but not enforced as required (confirmed: warning, not a block).
+  @Column({ type: 'text', nullable: true })
+  usuryJustification!: string | null;
+
   @ManyToOne(() => Loan, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'refinanced_from_loan_id' })
   refinancedFromLoan!: Loan | null;

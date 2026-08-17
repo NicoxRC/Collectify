@@ -71,6 +71,8 @@ describe('LoansService', () => {
     refinancedFromLoanId: null,
     refinancedFromLoan: null,
     description: null,
+    usuryCeilingExceededAtCreation: false,
+    usuryJustification: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
