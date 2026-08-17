@@ -172,6 +172,8 @@ Represents a *pagaré* — see `GLOSSARY.md`.
 | `status` | ENUM (`active`, `paid`, `refinanced`) | see `GLOSSARY.md` — **no `overdue` status at the loan level**, since overdue is an installment-level concept (see below) |
 | `refinanced_from_loan_id` | UUID, nullable | self-referencing FK → `loans.id`. Set when this loan was created to replace an older one. See "Refinancing" below. |
 | `description` | TEXT, nullable | free-text concept/reason for the loan (e.g. "Compra de Apple MacBook Air M5..."), used by the "new loan" WhatsApp message — see `docs/phases/PHASE_9_MESSAGE_TYPES.md`. Optional, same precedent as `payments.observation`. |
+| `usury_ceiling_exceeded_at_creation` | BOOLEAN, `NOT NULL DEFAULT false` | Added Phase 15 — a one-time snapshot of whether this loan's highest per-installment effective rate exceeded the usury ceiling in effect at creation/refinance time. Not recomputed on read (confirmed: creation-time enforcement only). A warning, not a rejection — the loan is still created either way. See `docs/phases/PHASE_15_USURY_RATE.md`. |
+| `usury_justification` | TEXT, nullable | Added Phase 15 — optional admin note explaining why the loan proceeded despite exceeding the ceiling. Only meaningful when the column above is `true`; never required. |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
 **On `interest_rate`:** confirmed from real data that the rate is **not** automatically tiered by amount, despite an informal rule mentioned by the client ("6% under 1 million, 5% over"). Actual historical data shows loans of the same amount range with rates of 4%, 5%, and 6%. The safest interpretation — **pending final confirmation with the client** — is that the rate is set manually per loan at creation time, defaulting to whatever the current standard rate is, but editable. Do not hardcode an automatic tiering rule based on this early analysis.
@@ -346,6 +348,20 @@ Added Phase 11 — a generic, append-only trail of sensitive actions across the 
 
 Written by `AuditLogInterceptor`, registered globally (`APP_INTERCEPTOR`) but a no-op for any endpoint not decorated with `@Audit(action, entityType)` — read-only routes, auth, health checks, etc. produce no entry. A failed request (a thrown exception) never produces a log entry either; a failed *write* to `audit_logs` itself is logged and swallowed rather than failing the real request it was trying to record.
 
+### `usury_rates`
+
+Added Phase 15 — Colombia's legal usury ceiling, certified monthly by the Superintendencia Financiera. See `docs/phases/PHASE_15_USURY_RATE.md`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `effective_month` | DATE, **UNIQUE** | first day of the certified month (e.g. `2026-08-01`). Unique because a month's rate is never edited — a correction is a new row for a different month, not an update. |
+| `rate_percentage` | DECIMAL(5,2) | the month's certified ceiling |
+| `created_by` | UUID, nullable | FK → `users.id`, `ON DELETE SET NULL` — same pattern as `audit_logs.actor_user_id` |
+| `created_at` | TIMESTAMPTZ | append-only, no `updated_at`/`deleted_at` — **historical rows, never mutated**, confirmed non-retroactive with the human (a new month's rate applies only to interest accruing from that point forward) |
+
+`UsuryRateService.getCurrentRate()` returns the most recent row plus a computed `isStale` flag (true when that row's `effective_month` isn't the current calendar month) — not stored, since the SFC's publication date isn't a fixed day (see the phase doc's domain research).
+
 ## Refinancing
 
 When a loan is refinanced:
@@ -369,7 +385,8 @@ npm run migration:revert
 
 ## Indexes
 
-- Every foreign key (`client_id`, `loan_id`, `installment_id`, `message_log_id`, `actor_user_id`, `interest_concept_type_id`)
+- Every foreign key (`client_id`, `loan_id`, `installment_id`, `message_log_id`, `actor_user_id`, `interest_concept_type_id`, `created_by` on `usury_rates`)
+- `usury_rates.effective_month` — unique, and looked up on every loan creation/refinance to enforce the ceiling
 - `loans.promissory_note_number` — looked up constantly, must be fast and unique
 - `clients.document_number` — for search and duplicate prevention
 - `clients.phone_number` — for search and WhatsApp matching
@@ -415,6 +432,12 @@ npm run migration:revert
 - `loans.interest_rate` is no longer used to price new loans — see the "Changed after Phase 14" note under `loans` above. It remains, unchanged in shape, as the base rate for moratory interest on overdue installments.
 - The amortization algorithm (declining balance, percentage concepts calculated against the balance before that installment's principal is subtracted, rounding remainder absorbed into the last installment) lives in `loans/amortization/generateSchedule.ts` — see `docs/phases/PHASE_14_INTEREST_CONCEPTS.md` for the full spec.
 - **Not yet built:** the quote/simulator tool ("amortizador proyector") — the catalog and amortization engine it would reuse shipped first; see `docs/phases/PHASE_14_INTEREST_CONCEPTS.md`'s "Open question carried forward" section.
+
+## Added in Phase 15
+
+- `usury_rates` — historical, admin-entered monthly usury ceiling. See "`usury_rates`" above.
+- `loans.usury_ceiling_exceeded_at_creation`, `loans.usury_justification` — see "`loans`" above.
+- Enforcement is creation-time only, a warning rather than a block, and non-retroactive (a rate change never alters a past month's already-caused interest) — all confirmed with the human, see `docs/phases/PHASE_15_USURY_RATE.md` "Resolved".
 
 ## Related documents
 

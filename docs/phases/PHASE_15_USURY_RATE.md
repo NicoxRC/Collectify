@@ -23,6 +23,8 @@ This research grounds the phase but does **not** replace the "Before starting" c
 
 These answers are final for this phase — do not revisit them without a new confirmation round with the human.
 
+6. **How a loan's effective rate is calculated for comparison against the ceiling:** the maximum per-installment rate implied by its concepts — percentage concepts contribute their value directly (already a periodic rate against the declining balance, same basis `generateAmortizationSchedule` uses); fixed-amount concepts are converted to an equivalent rate by dividing their computed currency amount by the balance before that installment. The max across all installments is compared against the stored monthly ceiling. Confirmed over annualizing the loan's total cost — simpler, and avoids introducing a mes-a-EA conversion formula with its own error surface. See `apps/api/src/usuryRates/calculateLoanEffectiveRate.ts`.
+
 ## Required reading before starting
 
 `docs/DATABASE.md` (interest rate / mora sections), `docs/phases/PHASE_14_INTEREST_CONCEPTS.md` (this phase validates against its concept model).
@@ -30,41 +32,42 @@ These answers are final for this phase — do not revisit them without a new con
 ## Scope (once the above is confirmed)
 
 ### Entities and migrations
-- [ ] `UsuryRate` entity: `id`, `effective_month` (DATE), `rate_percentage` (DECIMAL), `created_by` (FK → `users`), `created_at`. **Historical rows, not a single mutable value** — preserving past months' rates makes it possible to correctly answer whatever retroactivity rule gets confirmed, without having overwritten the evidence.
-- [ ] Migration `CreateUsuryRatesTable`.
+- [x] `UsuryRate` entity: `id`, `effective_month` (DATE, unique), `rate_percentage` (DECIMAL), `created_by` (FK → `users`, nullable + `SET NULL`, same pattern as `audit_logs.actor_user_id`), `created_at`. **Historical rows, not a single mutable value** — append-only, no `updated_at`/`deleted_at`.
+- [x] Migrations `CreateUsuryRatesTable`, `AddUsuryFieldsToLoans` (adds `loans.usury_ceiling_exceeded_at_creation` and `loans.usury_justification` — see Enforcement below).
 
 ### Service and API
-- [ ] `UsuryRateService.getCurrentRate()`, `.setRate(dto)` (admin only, creates a new month's entry rather than mutating an existing one), `.getRateForMonth(date)` for historical lookups.
-- [ ] `POST /api/v1/usury-rates` — admin only.
-- [ ] `GET /api/v1/usury-rates/current`, `GET /api/v1/usury-rates` (history, admin only).
+- [x] `UsuryRateService.getCurrentRate()` (+ computed `isStale`), `.setRate(dto, actorUserId)` (admin only, creates a new month's entry, rejects a duplicate month rather than overwriting it), `.getRateForMonth(date)` for non-retroactive historical lookups.
+- [x] `POST /api/v1/usury-rates` — admin only.
+- [x] `GET /api/v1/usury-rates/current`, `GET /api/v1/usury-rates` (history, admin only).
 
 ### Stale-rate alert (confirmed with the client — publication timing follow-up)
 Since the SFC doesn't publish on a fixed day (see domain research above), a day-based reminder isn't reliable. Instead:
-- [ ] `GET /api/v1/usury-rates/current`'s response includes `isStale: boolean` — true when the most recent row's `effective_month` is not the current calendar month (i.e. nobody has entered this month's certified rate yet, whether it's the 1st or the 20th). Computed on read by comparing `effective_month` to today's year-month, not stored.
-- [ ] No cron/scheduled job needed for this — it's a plain computed comparison, checked whenever the admin loads the relevant screen.
+- [x] `GET /api/v1/usury-rates/current`'s response includes `isStale: boolean` — true when the most recent row's `effective_month` is not the current calendar month (i.e. nobody has entered this month's certified rate yet, whether it's the 1st or the 20th). Computed on read by comparing `effective_month` to today's year-month, not stored.
+- [x] No cron/scheduled job needed for this — it's a plain computed comparison, checked whenever the admin loads the relevant screen.
 
 ### Enforcement
-- [ ] Validation hook into `LoansService.create()` (Phase 14's concept creation) and/or `enrichInstallment.ts`'s moratory calculation — exact hook point depends on the confirmed answers above.
+- [x] Validation hook into `LoansService.persistLoanWithInstallments()` (shared by `create()`/`refinance()`, Phase 14's concept creation): `calculateMaxEffectiveInstallmentRate()` (see resolved question 6 above) is compared against `UsuryRateService.getCurrentRate()`. Never throws — a warning, per the confirmed answer. `Loan.usuryCeilingExceededAtCreation` snapshots the result at creation/refinance time (not recomputed on read, per confirmed answer 4); `Loan.usuryJustification` carries the optional admin note. `LoansService.previewSchedule()` returns the same warning (`{ installments, usuryWarning }`) so the admin sees it before committing, not just after.
 
 ### Tests (mandatory)
-- [ ] `UsuryRateService`: setting a new month's rate does not alter previous months' stored values; `getRateForMonth()` returns the correct historical value.
-- [ ] Enforcement: a loan/concept exceeding the current ceiling is rejected or flagged per whatever was confirmed.
-- [ ] `isStale`: false when the latest row's `effective_month` matches the current month; true when it's from a prior month (e.g. it's now August and the latest entered rate is still July's).
+- [x] `UsuryRateService`: setting a new month's rate does not alter previous months' stored values; `getRateForMonth()` returns the correct historical value; a duplicate month is rejected.
+- [x] `calculateMaxEffectiveInstallmentRate()`: percentage concepts contribute their value directly; fixed-amount concepts convert correctly against the balance before that installment; the max (not first/last) installment wins; a loan with no concepts returns 0.
+- [x] Enforcement: a loan/concept exceeding the current ceiling is flagged (`usuryCeilingExceededAtCreation: true`) but still created, per the confirmed warning-only rule; `usuryJustification` is persisted when provided.
+- [x] `isStale`: false when the latest row's `effective_month` matches the current month; true when it's from a prior month (e.g. it's now August and the latest entered rate is still July's).
 
 ### Swagger
-- [ ] New endpoints documented.
+- [x] New endpoints documented; `POST /loans`/`POST /loans/:id/refinance`/`POST /loans/preview-schedule` descriptions updated to explain the warning-only usury check.
 
 ## Definition of done for this phase
 
-- The current usury ceiling is visible and admin-updatable on a monthly cadence.
-- Past months' rates remain intact and queryable after a new month's rate is entered.
-- **Confirmed (client, publication-timing follow-up):** at the start of a new calendar month, if nobody has entered that month's certified rate yet, the admin sees a clear alert — not a fixed-day reminder, since the SFC's own publication date moves around.
-- The confirmed enforcement rule (validation-time vs. read-time, retroactive vs. not) is implemented exactly as agreed — not guessed.
-- All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
+- [x] The current usury ceiling is visible and admin-updatable on a monthly cadence.
+- [x] Past months' rates remain intact and queryable after a new month's rate is entered.
+- [x] **Confirmed (client, publication-timing follow-up):** at the start of a new calendar month, if nobody has entered that month's certified rate yet, the admin sees a clear alert — not a fixed-day reminder, since the SFC's own publication date moves around.
+- [x] The confirmed enforcement rule (creation-time only, warning not a block, non-retroactive) is implemented exactly as agreed — not guessed.
+- [x] All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## After this phase
 
-Add a "Tasa de usura / Usury rate" entry to `docs/GLOSSARY.md` and a `usury_rates` table section to `docs/DATABASE.md`, including the confirmed retroactivity rule.
+Added a "Tasa de usura / Usury rate" entry to `docs/GLOSSARY.md` and a `usury_rates` table section (plus the `loans.usury_ceiling_exceeded_at_creation`/`usury_justification` columns) to `docs/DATABASE.md`, including the confirmed non-retroactivity rule — done as part of this phase's own PR rather than left as a follow-up.
 
 ## Related documents
 
