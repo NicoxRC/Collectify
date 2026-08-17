@@ -11,10 +11,13 @@ import { FindOptionsWhere, ILike, In, Repository } from 'typeorm';
 import { ClientsService } from '../clients/clients.service';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { InterestConceptTypesService } from '../interestConceptTypes/interestConceptTypes.service';
+import { calculateMaxEffectiveInstallmentRate } from '../usuryRates/calculateLoanEffectiveRate';
+import { UsuryRateService } from '../usuryRates/usuryRates.service';
 import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 
 import {
   ConceptAssignment,
+  GeneratedInstallment,
   generateAmortizationSchedule,
 } from './amortization/generateSchedule';
 import { CreateLoanDto } from './dto/createLoan.dto';
@@ -48,6 +51,20 @@ export interface PreviewedInstallment {
   principalPortion: number;
   amount: number;
   conceptBreakdown: { name: string; amount: number }[];
+}
+
+// Present only when the loan's highest per-installment effective rate
+// exceeds the usury ceiling on file — this is a warning the admin can
+// proceed past (with an optional usuryJustification note), not a block.
+// See docs/phases/PHASE_15_USURY_RATE.md "Resolved".
+export interface UsuryWarning {
+  maxEffectiveInstallmentRate: number;
+  currentCeilingRate: number;
+}
+
+export interface SchedulePreview {
+  installments: PreviewedInstallment[];
+  usuryWarning: UsuryWarning | null;
 }
 
 export interface LoanDetail extends Loan {
@@ -114,6 +131,7 @@ interface PersistLoanParams {
   installmentConceptOverrides?: InstallmentConceptOverride[];
   initialInstallmentIndex?: number;
   description?: string | null;
+  usuryJustification?: string | null;
   refinancedFromLoanId?: string | null;
 }
 
@@ -131,6 +149,7 @@ export class LoansService {
     @InjectRepository(LoanInstallmentConcept)
     private readonly loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
     private readonly interestConceptTypesService: InterestConceptTypesService,
+    private readonly usuryRateService: UsuryRateService,
     private readonly newLoanReminderService: NewLoanReminderService,
     private readonly clientsService: ClientsService,
   ) {}
@@ -150,6 +169,7 @@ export class LoansService {
       installmentConceptOverrides: dto.installmentConceptOverrides,
       initialInstallmentIndex: dto.initialInstallmentIndex,
       description: dto.description,
+      usuryJustification: dto.usuryJustification,
     });
 
     await this.sendNewLoanMessageSafely(savedLoan.id);
@@ -161,9 +181,7 @@ export class LoansService {
   // persisting anything — lets the client show the admin what a loan's
   // installments will look like before they commit. See
   // docs/phasesClient/PHASE_14_INTEREST_CONCEPTS.md.
-  async previewSchedule(
-    dto: PreviewScheduleDto,
-  ): Promise<PreviewedInstallment[]> {
+  async previewSchedule(dto: PreviewScheduleDto): Promise<SchedulePreview> {
     const conceptsByInstallment = await this.resolveConceptsByInstallment(
       dto.totalInstallments,
       dto.concepts,
@@ -175,7 +193,7 @@ export class LoansService {
       conceptsByInstallment,
     );
 
-    return schedule.map((generated) => ({
+    const installments = schedule.map((generated) => ({
       installmentNumber: generated.installmentNumber,
       dueDate: this.calculateDueDate(
         dto.disbursedAt,
@@ -189,6 +207,13 @@ export class LoansService {
         amount: concept.computedAmount,
       })),
     }));
+
+    const usuryWarning = await this.buildUsuryWarning(
+      schedule,
+      dto.principalAmount,
+    );
+
+    return { installments, usuryWarning };
   }
 
   // Closes out the old loan, cancels whatever installments it still had
@@ -223,6 +248,7 @@ export class LoansService {
       installmentConceptOverrides: dto.installmentConceptOverrides,
       initialInstallmentIndex: dto.initialInstallmentIndex,
       description: dto.description,
+      usuryJustification: dto.usuryJustification,
       refinancedFromLoanId: id,
     });
 
@@ -489,6 +515,30 @@ export class LoansService {
     }
   }
 
+  // Warning only, never throws (confirmed with the human — see
+  // docs/phases/PHASE_15_USURY_RATE.md "Resolved"). Returns null when the
+  // loan's highest per-installment effective rate is within the current
+  // ceiling, or when no ceiling has ever been entered (nothing to compare
+  // against yet).
+  private async buildUsuryWarning(
+    schedule: GeneratedInstallment[],
+    principalAmount: number,
+  ): Promise<UsuryWarning | null> {
+    const currentRate = await this.usuryRateService.getCurrentRate();
+    if (currentRate === null) return null;
+
+    const maxEffectiveInstallmentRate = calculateMaxEffectiveInstallmentRate(
+      schedule,
+      principalAmount,
+    );
+    if (maxEffectiveInstallmentRate <= currentRate.ratePercentage) return null;
+
+    return {
+      maxEffectiveInstallmentRate,
+      currentCeilingRate: currentRate.ratePercentage,
+    };
+  }
+
   // Shared by create() and refinance() — both need a loan row plus its
   // generated installments (and each installment's concept breakdown),
   // differing only in whether refinancedFromLoanId is set. As of Phase 14
@@ -514,6 +564,14 @@ export class LoansService {
       params.totalInstallments,
     );
 
+    // Creation-time only, not recomputed on read (confirmed with the
+    // human) — a warning, never a block. See
+    // docs/phases/PHASE_15_USURY_RATE.md "Resolved".
+    const usuryWarning = await this.buildUsuryWarning(
+      schedule,
+      params.principalAmount,
+    );
+
     const loan = this.loansRepository.create({
       clientId: params.clientId,
       promissoryNoteNumber: params.promissoryNoteNumber,
@@ -524,6 +582,8 @@ export class LoansService {
       totalInstallments: params.totalInstallments,
       status: LoanStatus.Active,
       description: params.description ?? null,
+      usuryCeilingExceededAtCreation: usuryWarning !== null,
+      usuryJustification: params.usuryJustification ?? null,
       refinancedFromLoanId: params.refinancedFromLoanId ?? null,
     });
 

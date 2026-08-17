@@ -12,6 +12,7 @@ import {
   InterestConceptType,
 } from '../interestConceptTypes/entities/interestConceptType.entity';
 import { InterestConceptTypesService } from '../interestConceptTypes/interestConceptTypes.service';
+import { UsuryRateService } from '../usuryRates/usuryRates.service';
 import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 
 import { Installment, InstallmentStatus } from './entities/installment.entity';
@@ -43,6 +44,7 @@ describe('LoansService', () => {
     find: jest.Mock;
   };
   let interestConceptTypesService: { findOneOrThrow: jest.Mock };
+  let usuryRateService: { getCurrentRate: jest.Mock };
   let newLoanReminderService: { sendNewLoanMessage: jest.Mock };
   let clientsService: { hasMoraBlock: jest.Mock; getCreditUsage: jest.Mock };
 
@@ -104,6 +106,13 @@ describe('LoansService', () => {
     interestConceptTypesService = {
       findOneOrThrow: jest.fn().mockResolvedValue(mockConceptType),
     };
+    // Default: no rate on file — every pre-existing test below, which
+    // doesn't care about Phase 15 at all, keeps passing unaffected (no
+    // ceiling to compare against means no warning). Tests that DO care
+    // override this.
+    usuryRateService = {
+      getCurrentRate: jest.fn().mockResolvedValue(null),
+    };
     newLoanReminderService = {
       sendNewLoanMessage: jest.fn().mockResolvedValue(undefined),
     };
@@ -139,6 +148,10 @@ describe('LoansService', () => {
         {
           provide: InterestConceptTypesService,
           useValue: interestConceptTypesService,
+        },
+        {
+          provide: UsuryRateService,
+          useValue: usuryRateService,
         },
         {
           provide: NewLoanReminderService,
@@ -235,6 +248,49 @@ describe('LoansService', () => {
         ConflictException,
       );
       expect(loansRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('creates the loan without a usury warning when no rate is on file', async () => {
+      await service.create(createDto);
+
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          usuryCeilingExceededAtCreation: false,
+          usuryJustification: null,
+        }),
+      );
+    });
+
+    it('creates the loan anyway when the schedule exceeds the current ceiling, flagging it rather than blocking', async () => {
+      usuryRateService.getCurrentRate.mockResolvedValue({
+        id: 'rate-1',
+        effectiveMonth: '2026-01-01',
+        ratePercentage: 1,
+        createdBy: null,
+        createdByUser: null,
+        createdAt: new Date(),
+        isStale: false,
+      });
+
+      await service.create({
+        ...createDto,
+        concepts: [
+          {
+            conceptTypeId: mockConceptType.id,
+            calculationType: ConceptCalculationType.Percentage,
+            value: 5,
+          },
+        ],
+        usuryJustification: 'Cliente antiguo, aprobado por el dueño.',
+      });
+
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          usuryCeilingExceededAtCreation: true,
+          usuryJustification: 'Cliente antiguo, aprobado por el dueño.',
+        }),
+      );
+      expect(loansRepository.save).toHaveBeenCalled();
     });
 
     it('propagates NotFoundException when a concept references an unknown concept type', async () => {
@@ -940,7 +996,7 @@ describe('LoansService', () => {
         ],
       });
 
-      expect(result).toEqual([
+      expect(result.installments).toEqual([
         expect.objectContaining({
           installmentNumber: 1,
           dueDate: '2026-02-01',
@@ -951,9 +1007,41 @@ describe('LoansService', () => {
         expect.objectContaining({ installmentNumber: 2, amount: 312000 }),
         expect.objectContaining({ installmentNumber: 3, amount: 306000 }),
       ]);
+      expect(result.usuryWarning).toBeNull();
       expect(loansRepository.save).not.toHaveBeenCalled();
       expect(installmentsRepository.save).not.toHaveBeenCalled();
       expect(loanInstallmentConceptsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('returns a usuryWarning when the schedule exceeds the current ceiling', async () => {
+      usuryRateService.getCurrentRate.mockResolvedValue({
+        id: 'rate-1',
+        effectiveMonth: '2026-01-01',
+        ratePercentage: 3,
+        createdBy: null,
+        createdByUser: null,
+        createdAt: new Date(),
+        isStale: false,
+      });
+
+      const result = await service.previewSchedule({
+        principalAmount: 900000,
+        disbursedAt: '2026-01-01',
+        installmentFrequency: InstallmentFrequency.Monthly,
+        totalInstallments: 1,
+        concepts: [
+          {
+            conceptTypeId: mockConceptType.id,
+            calculationType: ConceptCalculationType.Percentage,
+            value: 5,
+          },
+        ],
+      });
+
+      expect(result.usuryWarning).toEqual({
+        maxEffectiveInstallmentRate: 5,
+        currentCeilingRate: 3,
+      });
     });
 
     it('propagates NotFoundException when a concept references an unknown concept type', async () => {

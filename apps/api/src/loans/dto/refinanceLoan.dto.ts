@@ -87,7 +87,7 @@ export class RefinanceLoanDto {
   @ApiPropertyOptional({
     example: 0,
     description:
-      '0-based index into installmentAmounts marking that installment as the initial payment ("cuota inicial") — exempt from mora regardless of due date. Omit if the new loan has no initial installment. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.',
+      '0-based index into the generated schedule marking that installment as the initial payment ("cuota inicial") — exempt from mora regardless of due date. Omit if the new loan has no initial installment. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.',
   })
   @IsOptional()
   @IsInt()
@@ -102,4 +102,13 @@ export class RefinanceLoanDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiPropertyOptional({
+    example: 'Cliente antiguo, aprobado por el dueño.',
+    description:
+      'Optional note explaining why the new loan proceeds despite exceeding the current usury ceiling — see CreateLoanDto.',
+  })
+  @IsOptional()
+  @IsString()
+  usuryJustification?: string;
 }

@@ -30,7 +30,7 @@ import {
   LoansService,
   LoanDetail,
   LoanSummary,
-  PreviewedInstallment,
+  SchedulePreview,
 } from './loans.service';
 
 @ApiTags('loans')
@@ -83,7 +83,7 @@ export class LoansController {
   @ApiOperation({
     summary: 'Create a loan and generate its installments (admin only)',
     description:
-      'The installment schedule is generated automatically from principalAmount, totalInstallments, and concepts (interest/fee concepts picked from the InterestConceptTypes catalog) — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md. Concepts apply to every installment unless overridden per installment via installmentConceptOverrides. Due dates are auto-generated from disbursedAt + installmentFrequency. interestRate is used only for moratory interest on overdue installments.',
+      'The installment schedule is generated automatically from principalAmount, totalInstallments, and concepts (interest/fee concepts picked from the InterestConceptTypes catalog) — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md. Concepts apply to every installment unless overridden per installment via installmentConceptOverrides. Due dates are auto-generated from disbursedAt + installmentFrequency. interestRate is used only for moratory interest on overdue installments. If the schedule exceeds the current usury ceiling, the loan is still created (usuryCeilingExceededAtCreation is set true on the response) — this is a warning, not a block; usuryJustification records an optional admin note. See docs/phases/PHASE_15_USURY_RATE.md.',
   })
   @ApiResponse({
     status: 201,
@@ -115,16 +115,14 @@ export class LoansController {
     summary:
       'Preview the generated installment schedule without creating a loan (admin only)',
     description:
-      'Runs the same amortization generation as POST /loans, for the admin to review before committing.',
+      "Runs the same amortization generation as POST /loans, for the admin to review before committing. usuryWarning is present (and non-null) only when the schedule's highest per-installment effective rate exceeds the current usury ceiling — a warning, not a hard block, see docs/phases/PHASE_15_USURY_RATE.md.",
   })
   @ApiResponse({ status: 201, description: 'Returns the previewed schedule.' })
   @ApiResponse({
     status: 404,
     description: 'A concept references an unknown concept type id.',
   })
-  previewSchedule(
-    @Body() dto: PreviewScheduleDto,
-  ): Promise<PreviewedInstallment[]> {
+  previewSchedule(@Body() dto: PreviewScheduleDto): Promise<SchedulePreview> {
     return this.loansService.previewSchedule(dto);
   }
 
