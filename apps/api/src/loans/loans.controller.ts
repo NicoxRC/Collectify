@@ -20,11 +20,17 @@ import { UserRole } from '../users/entities/user.entity';
 
 import { CreateLoanDto } from './dto/createLoan.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
+import { PreviewScheduleDto } from './dto/previewSchedule.dto';
 import { QueryLoansDto } from './dto/queryLoans.dto';
 import { RefinanceLoanDto } from './dto/refinanceLoan.dto';
 import { Loan } from './entities/loan.entity';
 import { Payment } from './entities/payment.entity';
-import { LoansService, LoanDetail, LoanSummary } from './loans.service';
+import {
+  LoansService,
+  LoanDetail,
+  LoanSummary,
+  PreviewedInstallment,
+} from './loans.service';
 
 @ApiTags('loans')
 @ApiBearerAuth()
@@ -96,6 +102,25 @@ export class LoansController {
   })
   create(@Body() dto: CreateLoanDto): Promise<LoanDetail> {
     return this.loansService.create(dto);
+  }
+
+  @Post('preview-schedule')
+  @Roles(UserRole.Admin)
+  @ApiOperation({
+    summary:
+      'Preview the generated installment schedule without creating a loan (admin only)',
+    description:
+      'Runs the same amortization generation as POST /loans, for the admin to review before committing.',
+  })
+  @ApiResponse({ status: 201, description: 'Returns the previewed schedule.' })
+  @ApiResponse({
+    status: 404,
+    description: 'A concept references an unknown concept type id.',
+  })
+  previewSchedule(
+    @Body() dto: PreviewScheduleDto,
+  ): Promise<PreviewedInstallment[]> {
+    return this.loansService.previewSchedule(dto);
   }
 
   @Patch(':id')

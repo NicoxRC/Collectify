@@ -19,6 +19,7 @@ import {
 import { CreateLoanDto } from './dto/createLoan.dto';
 import { LoanConceptAssignmentDto } from './dto/loanConceptAssignment.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
+import { PreviewScheduleDto } from './dto/previewSchedule.dto';
 import { QueryLoansDto } from './dto/queryLoans.dto';
 import { RefinanceLoanDto } from './dto/refinanceLoan.dto';
 import { addMonthsToDateString, addWeeksToDateString } from './dueDateSchedule';
@@ -38,6 +39,14 @@ const POSTGRES_UNIQUE_VIOLATION = '23505';
 interface InstallmentConceptOverride {
   installmentNumber: number;
   concepts: LoanConceptAssignmentDto[];
+}
+
+export interface PreviewedInstallment {
+  installmentNumber: number;
+  dueDate: string;
+  principalPortion: number;
+  amount: number;
+  conceptBreakdown: { name: string; amount: number }[];
 }
 
 export interface LoanDetail extends Loan {
@@ -140,6 +149,40 @@ export class LoansService {
     await this.sendNewLoanMessageSafely(savedLoan.id);
 
     return this.findOne(savedLoan.id);
+  }
+
+  // Runs the same schedule generation as create()/refinance() without
+  // persisting anything — lets the client show the admin what a loan's
+  // installments will look like before they commit. See
+  // docs/phasesClient/PHASE_14_INTEREST_CONCEPTS.md.
+  async previewSchedule(
+    dto: PreviewScheduleDto,
+  ): Promise<PreviewedInstallment[]> {
+    const conceptsByInstallment = await this.resolveConceptsByInstallment(
+      dto.totalInstallments,
+      dto.concepts,
+      dto.installmentConceptOverrides ?? [],
+    );
+    const schedule = generateAmortizationSchedule(
+      dto.principalAmount,
+      dto.totalInstallments,
+      conceptsByInstallment,
+    );
+
+    return schedule.map((generated) => ({
+      installmentNumber: generated.installmentNumber,
+      dueDate: this.calculateDueDate(
+        dto.disbursedAt,
+        dto.installmentFrequency,
+        generated.installmentNumber,
+      ),
+      principalPortion: generated.principalPortion,
+      amount: generated.amount,
+      conceptBreakdown: generated.concepts.map((concept) => ({
+        name: concept.name,
+        amount: concept.computedAmount,
+      })),
+    }));
   }
 
   // Closes out the old loan, cancels whatever installments it still had

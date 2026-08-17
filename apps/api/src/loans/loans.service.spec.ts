@@ -779,6 +779,63 @@ describe('LoansService', () => {
     });
   });
 
+  describe('previewSchedule', () => {
+    it('returns the generated schedule without persisting anything', async () => {
+      const result = await service.previewSchedule({
+        principalAmount: 900000,
+        disbursedAt: '2026-01-01',
+        installmentFrequency: InstallmentFrequency.Monthly,
+        totalInstallments: 3,
+        concepts: [
+          {
+            conceptTypeId: mockConceptType.id,
+            calculationType: ConceptCalculationType.Percentage,
+            value: 2,
+          },
+        ],
+      });
+
+      expect(result).toEqual([
+        expect.objectContaining({
+          installmentNumber: 1,
+          dueDate: '2026-02-01',
+          principalPortion: 300000,
+          amount: 318000,
+          conceptBreakdown: [{ name: mockConceptType.name, amount: 18000 }],
+        }),
+        expect.objectContaining({ installmentNumber: 2, amount: 312000 }),
+        expect.objectContaining({ installmentNumber: 3, amount: 306000 }),
+      ]);
+      expect(loansRepository.save).not.toHaveBeenCalled();
+      expect(installmentsRepository.save).not.toHaveBeenCalled();
+      expect(loanInstallmentConceptsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('propagates NotFoundException when a concept references an unknown concept type', async () => {
+      interestConceptTypesService.findOneOrThrow.mockRejectedValue(
+        new NotFoundException(
+          'Interest concept type with id missing not found',
+        ),
+      );
+
+      await expect(
+        service.previewSchedule({
+          principalAmount: 900000,
+          disbursedAt: '2026-01-01',
+          installmentFrequency: InstallmentFrequency.Monthly,
+          totalInstallments: 3,
+          concepts: [
+            {
+              conceptTypeId: 'missing',
+              calculationType: ConceptCalculationType.Percentage,
+              value: 2,
+            },
+          ],
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('update', () => {
     it('updates the interest rate when the loan exists', async () => {
       loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
