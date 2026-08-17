@@ -14,6 +14,7 @@ import { HealthModule } from './health/health.module';
 import { InterestConceptTypesModule } from './interestConceptTypes/interestConceptTypes.module';
 import { LoansModule } from './loans/loans.module';
 import { UsersModule } from './users/users.module';
+import { UsuryRatesModule } from './usuryRates/usuryRates.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 
 @Module({
@@ -36,6 +37,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     ClientsModule,
     LoansModule,
     InterestConceptTypesModule,
+    UsuryRatesModule,
     WhatsappModule,
     DashboardModule,
   ],
