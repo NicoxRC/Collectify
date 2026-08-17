@@ -30,6 +30,10 @@ export interface Loan {
   status: LoanStatus;
   refinancedFromLoanId: string | null;
   description: string | null;
+  // Snapshotted once at creation/refinance time, not recomputed later — a
+  // warning, never a block. See docs/phases/PHASE_15_USURY_RATE.md.
+  usuryCeilingExceededAtCreation: boolean;
+  usuryJustification: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -130,13 +134,21 @@ export interface CreateLoanInput {
   // no initial installment. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
   initialInstallmentIndex?: number;
   description?: string;
+  // Optional note explaining why the loan proceeds despite exceeding the
+  // current usury ceiling — only meaningful when usuryWarning from
+  // previewSchedule() actually fired. See docs/phases/PHASE_15_USURY_RATE.md.
+  usuryJustification?: string;
 }
 
 // Matches apps/api/src/loans/dto/previewSchedule.dto.ts exactly — the
 // schedule-relevant subset of CreateLoanInput, for POST /loans/preview-schedule.
 export type PreviewScheduleInput = Omit<
   CreateLoanInput,
-  'clientId' | 'promissoryNoteNumber' | 'interestRate' | 'description'
+  | 'clientId'
+  | 'promissoryNoteNumber'
+  | 'interestRate'
+  | 'description'
+  | 'usuryJustification'
 >;
 
 // Matches apps/api/src/loans/loans.service.ts's PreviewedInstallment exactly.
@@ -146,6 +158,20 @@ export interface PreviewedInstallment {
   principalPortion: number;
   amount: number;
   conceptBreakdown: { name: string; amount: number }[];
+}
+
+// Matches apps/api/src/loans/loans.service.ts's UsuryWarning exactly —
+// present (non-null) only when the schedule's highest per-installment
+// effective rate exceeds the current usury ceiling. A warning the admin
+// can proceed past, never a hard block.
+export interface UsuryWarning {
+  maxEffectiveInstallmentRate: number;
+  currentCeilingRate: number;
+}
+
+export interface SchedulePreview {
+  installments: PreviewedInstallment[];
+  usuryWarning: UsuryWarning | null;
 }
 
 // Matches apps/api/src/loans/dto/updateLoan.dto.ts exactly — only these two
@@ -175,6 +201,8 @@ export interface RefinanceLoanInput {
   concepts: LoanConceptAssignment[];
   installmentConceptOverrides?: InstallmentConceptOverride[];
   description?: string;
+  // See CreateLoanInput.usuryJustification.
+  usuryJustification?: string;
 }
 
 export const loansApi = {
@@ -206,8 +234,8 @@ export const loansApi = {
   // admin what the installments will look like before they submit.
   previewSchedule: async (
     input: PreviewScheduleInput,
-  ): Promise<PreviewedInstallment[]> => {
-    const { data } = await apiClient.post<PreviewedInstallment[]>(
+  ): Promise<SchedulePreview> => {
+    const { data } = await apiClient.post<SchedulePreview>(
       '/loans/preview-schedule',
       input,
     );
