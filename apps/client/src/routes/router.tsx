@@ -8,6 +8,7 @@ import { RequireRole } from '@/features/auth/RequireRole';
 import { ClientDetailPage } from '@/features/clients/ClientDetailPage';
 import { ClientsListPage } from '@/features/clients/ClientsListPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
+import { InterestConceptTypesPage } from '@/features/interestConceptTypes/InterestConceptTypesPage';
 import { LoanDetailPage } from '@/features/loans/LoanDetailPage';
 import { LoansListPage } from '@/features/loans/LoansListPage';
 import { MessageLogsPage } from '@/features/messageLogs/MessageLogsPage';
@@ -73,6 +74,12 @@ export const router = createBrowserRouter([
               {
                 path: 'plantillas',
                 element: <MessageTemplatesPage />,
+              },
+              {
+                // InterestConceptTypesController is admin-only server-side
+                // (@Roles(UserRole.Admin)) — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md.
+                path: 'conceptos-de-interes',
+                element: <InterestConceptTypesPage />,
               },
             ],
           },

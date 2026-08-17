@@ -24,6 +24,11 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Préstamos', to: '/prestamos' },
   { label: 'Mensajes', to: '/mensajes' },
   { label: 'Plantillas', to: '/plantillas', roles: ['admin'] },
+  {
+    label: 'Conceptos de interés',
+    to: '/conceptos-de-interes',
+    roles: ['admin'],
+  },
 ];
 
 export function Sidebar() {
