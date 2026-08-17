@@ -7,6 +7,7 @@ import { LoanForm } from '@/features/loans/LoanForm';
 import { LoanRow } from '@/features/loans/LoanRow';
 import { LoanStatus } from '@/features/loans/loansApi';
 import { useCreateLoan, useLoans } from '@/features/loans/useLoans';
+import { StaleUsuryRateBanner } from '@/features/usuryRates/StaleUsuryRateBanner';
 
 import type { ReactNode } from 'react';
 
@@ -52,6 +53,8 @@ export function LoansListPage() {
   return (
     <div className="flex flex-col gap-5">
       <Header title="Préstamos" subtitle="Gestión de todos los préstamos" />
+
+      {isAdmin && <StaleUsuryRateBanner />}
 
       <div className="border-t border-border" />
 
