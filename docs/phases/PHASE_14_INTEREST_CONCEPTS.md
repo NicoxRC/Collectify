@@ -8,15 +8,20 @@ Today a loan has exactly one `interest_rate` field, used exclusively to calculat
 
 This is the largest, highest-uncertainty phase in this batch of ten. Read literally, "several concepts with an exact breakdown consultable per installment" edges very close to building a real amortization engine — something this system has never had. Today's `installmentAmounts` are hand-entered totals with no principal/interest split whatsoever (`docs/phases/PHASE_4_LOANS_INSTALLMENTS.md` deliberately chose "no automatic even-split; the caller provides one amount per installment" as its scope). If, once the "Before starting" questions below are answered, the real scope turns out to require automatic amortization calculation, **split this phase into two**: a first phase for the data model + manual concept entry at loan creation, and a second for automatic per-installment breakdown/amortization math. Do not silently absorb both into one PR because they're described in one document.
 
+## Scope decisions — read before implementing
+
+- **Concept types are admin-managed and dynamic, not a fixed/hardcoded list.** Confirmed directly by the human: the admin must be able to create new kinds of interest/fee concepts at any time (e.g. add a "Seguro" concept next year without a code change), not pick from a set of concepts baked into an enum. This is implemented as a small admin-managed catalog (`InterestConceptType`) rather than free-text-per-loan — a catalog means concept names stay consistent across loans (needed for any future reporting "total gastos de cobranza cobrados este mes"), while still letting the admin add a brand-new type inline at loan-creation time if needed.
+
 ## Before starting this phase — stop and confirm with the human
 
 None of these are guessable from the current code, and getting them wrong means rebuilding the data model:
 
-1. Is a "concepto" a percentage applied to some base (principal? per-installment amount? outstanding balance?), a fixed fee, or can both types coexist on the same loan?
+1. Is a "concepto" a percentage applied to some base (principal? per-installment amount? outstanding balance?), a fixed fee, or can both types coexist on the same loan? (Note: that a concept's *type/name* is admin-created is now confirmed — see "Scope decisions" above. What's still open is the calculation base for percentage-type concepts.)
 2. Does this introduce **ordinary/remuneratory interest on principal** — something the system has never charged, since today's only interest is moratory — or is it purely relabeling/splitting today's single `interest_rate` into named parts that still only apply to overdue amounts?
 3. If ordinary interest on principal is now in scope: are `installment_amounts` still hand-entered totals (the admin also tags a breakdown after the fact), or does the system need to *compute* an amortization schedule automatically? These are very different amounts of work — confirm explicitly, don't let "consultable por cuota" default to the bigger interpretation.
 4. Are concepts identical across every installment in a loan, or can they vary installment-to-installment the way `installment_amounts` already can?
 5. How do existing loans (single `interest_rate`, no concepts) render or migrate — backfilled into one "Interés" concept, or left in their current shape indefinitely?
+6. Can an admin edit or deactivate a concept *type* after it's already been used on existing loans (e.g. rename "Gastos de cobranza", or retire it)? If so, do loans that already reference it keep the value/name as it was at the time (snapshot), or reflect the live catalog definition?
 
 **Do not pick answers and build it — ask the human.** This is exactly the kind of ambiguous financial rule `apps/api/CLAUDE.local.md` says never to guess.
 
@@ -27,34 +32,41 @@ None of these are guessable from the current code, and getting them wrong means 
 ## Scope (once the above is confirmed)
 
 ### Entities and migrations
-- [ ] `LoanInterestConcept` entity: `id`, `loan_id` (FK → `loans`), `name` (VARCHAR — e.g. "Interés remuneratorio", "Gastos de cobranza"), `calculation_type` (enum: `percentage` | `fixed_amount`), `value` (DECIMAL), timestamps + soft delete, same conventions as `installments`. One loan has many concepts (1:N).
-- [ ] Migration `CreateLoanInterestConceptsTable`.
+- [ ] `InterestConceptType` entity (the admin-managed catalog): `id`, `name` (VARCHAR — e.g. "Interés remuneratorio", "Gastos de cobranza"), `default_calculation_type` (enum: `percentage` | `fixed_amount`), `default_value` (DECIMAL, nullable — a suggested starting value, always overridable per loan), timestamps + soft delete (deactivating a type removes it from future selection without touching loans that already reference it).
+- [ ] `LoanInterestConcept` entity: `id`, `loan_id` (FK → `loans`), `interest_concept_type_id` (FK → `interest_concept_types`), `name`/`calculation_type` snapshotted at creation time if question 6 above confirms snapshotting is needed (otherwise just `value` plus the FK), `value` (DECIMAL — the actual figure used on this specific loan, independent of the type's `default_value`), timestamps + soft delete, same conventions as `installments`. One loan has many concepts (1:N); one concept type can be used by many loans (1:N).
+- [ ] Migration `CreateInterestConceptTypesTable`, `CreateLoanInterestConceptsTable`.
 - [ ] Decide, per the confirmed answers above, whether `Loan.interest_rate` is kept as-is (untouched, moratory-only) with concepts additive on top, or whether concepts subsume it. This entirely determines whether `installmentCalculations.ts`/`enrichInstallment.ts` need any changes in this phase.
 
+### Concept type management (admin catalog)
+- [ ] `InterestConceptTypesService`: `create()`, `findAll()` (active types, for the loan-creation picker), `update()`, `deactivate()` — admin only.
+- [ ] `POST /api/v1/interest-concept-types`, `GET /api/v1/interest-concept-types`, `PATCH /api/v1/interest-concept-types/:id`, `PATCH /api/v1/interest-concept-types/:id/deactivate` — admin only.
+
 ### Loan creation and refinancing
-- [ ] `LoansService.create()` / `refinance()`: accept `interestConcepts: CreateInterestConceptDto[]` alongside existing loan fields.
+- [ ] `LoansService.create()` / `refinance()`: accept `interestConcepts: { conceptTypeId, value }[]` alongside existing loan fields — the admin picks from the active catalog (or creates a new type inline, which calls the catalog endpoint first) and sets the value to use for this specific loan.
 
 ### Reporting
 - [ ] New computed field per installment, `conceptBreakdown: { name, amount }[]`, exposed via `GET /api/v1/loans/:id` and `GET /api/v1/installments` — calculated on read, not persisted, same pattern as existing mora fields.
 
 ### Tests (mandatory)
-- [ ] Concept creation validated against whatever base/type rules were confirmed.
+- [ ] `InterestConceptTypesService`: create/update/deactivate; a deactivated type no longer appears in `findAll()` but existing `LoanInterestConcept` rows referencing it are unaffected.
+- [ ] Concept creation on a loan validated against whatever base/type rules were confirmed.
 - [ ] `conceptBreakdown` sums correctly to the installment's total.
 - [ ] Existing loans without concepts continue to work exactly as before (backward compatibility per the migration decision above).
 
 ### Swagger
-- [ ] New entity, DTOs, and computed fields documented.
+- [ ] New entities, DTOs, catalog endpoints, and computed fields documented.
 
 ## Definition of done for this phase
 
-- A loan can be created with multiple named interest/fee concepts instead of a single flat rate.
+- An admin can create a new interest/fee concept type at any time, without a code change or deployment.
+- A loan can be created with multiple concepts picked from that catalog instead of a single flat rate.
 - The exact breakdown of what a client owes, by concept, is retrievable per installment.
 - The confirmed answers to every "Before starting" question are implemented exactly as agreed — not guessed.
 - All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## After this phase
 
-Update `docs/DATABASE.md` (new `loan_interest_concepts` table, and the resolved/reshaped `interest_rate` open question) and `docs/GLOSSARY.md` (add "Interest concept / Concepto de interés", update "Interest rate / Tasa de mora" if its meaning changed).
+Update `docs/DATABASE.md` (new `interest_concept_types` and `loan_interest_concepts` tables, and the resolved/reshaped `interest_rate` open question) and `docs/GLOSSARY.md` (add "Interest concept type / Tipo de concepto de interés" and "Interest concept / Concepto de interés", update "Interest rate / Tasa de mora" if its meaning changed).
 
 ## Related documents
 

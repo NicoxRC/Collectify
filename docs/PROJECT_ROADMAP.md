@@ -118,7 +118,7 @@ Phase 5 only covered the weekly overdue reminder. Real usage requires three more
 
 ## Phase 14 — Configurable interest concepts (amortizador)
 
-- Replace the single flat interest rate with several named, configurable interest/fee concepts per loan
+- Replace the single flat interest rate with several interest/fee concepts per loan, picked from an admin-managed catalog of concept types the admin can extend at any time (not a fixed/hardcoded list)
 - Exact per-installment breakdown available on demand
 - See `docs/phases/PHASE_14_INTEREST_CONCEPTS.md` for the size/scope warning — this is the largest phase in this batch and may need to be split once its open questions are resolved
 
