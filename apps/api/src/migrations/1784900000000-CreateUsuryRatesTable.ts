@@ -9,9 +9,7 @@ import {
 // Historical rows, never mutated — see docs/phases/PHASE_15_USURY_RATE.md
 // "Resolved". Append-only, same convention as audit_logs/message_logs — no
 // updated_at/deleted_at.
-export class CreateUsuryRatesTable1784900000000
-  implements MigrationInterface
-{
+export class CreateUsuryRatesTable1784900000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.createTable(
       new Table({
@@ -70,7 +68,10 @@ export class CreateUsuryRatesTable1784900000000
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.dropForeignKey('usury_rates', 'FK_usury_rates_created_by');
+    await queryRunner.dropForeignKey(
+      'usury_rates',
+      'FK_usury_rates_created_by',
+    );
     await queryRunner.dropIndex(
       'usury_rates',
       'IDX_usury_rates_effective_month',
