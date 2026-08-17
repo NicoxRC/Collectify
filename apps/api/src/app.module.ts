@@ -10,6 +10,7 @@ import { envValidationSchema } from './config/env.validation';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { buildDataSourceOptions } from './database/typeOrmConfig';
 import { HealthModule } from './health/health.module';
+import { InterestConceptTypesModule } from './interestConceptTypes/interestConceptTypes.module';
 import { LoansModule } from './loans/loans.module';
 import { UsersModule } from './users/users.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
@@ -32,6 +33,7 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     AuthModule,
     ClientsModule,
     LoansModule,
+    InterestConceptTypesModule,
     WhatsappModule,
     DashboardModule,
   ],
