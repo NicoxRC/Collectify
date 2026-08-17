@@ -25,28 +25,28 @@ These answers are final for this phase — do not revisit them without a new con
 ## Scope (once the above is confirmed)
 
 ### Calculation module
-- [ ] `loans/payoff/calculatePayoff.ts` — pure function implementing the confirmed allocation rule, sibling to `installmentCalculations.ts`, unit-tested the same way as `installmentCalculations.spec.ts`.
+- [x] `loans/payoff/calculatePayoff.ts` — pure function implementing the confirmed allocation rule, sibling to `installmentCalculations.ts`, unit-tested the same way as `installmentCalculations.spec.ts`.
 
 ### Endpoint
-- [ ] `GET /api/v1/loans/:id/payoff-quote` — returns the amount due today to close out the loan, with a breakdown per installment (interest applied, principal applied).
-- [ ] `POST /api/v1/loans/:id/payoff` — per the confirmed answer to question 5, a new endpoint (not a `registerPayment` generalization) that registers one `Payment` row per still-pending installment for the full quoted amount, marks every installment `paid`, and the loan `paid`, in one transaction. No partial-amount payoff.
+- [x] `GET /api/v1/loans/:id/payoff-quote` — returns the amount due today to close out the loan, with a breakdown per installment (interest applied, principal applied).
+- [x] `POST /api/v1/loans/:id/payoff` — per the confirmed answer to question 5, a new endpoint (not a `registerPayment` generalization) that registers one `Payment` row per still-pending installment for the full quoted amount, marks every installment `paid`, and the loan `paid`, in one transaction. No partial-amount payoff.
 
 ### Tests (mandatory)
-- [ ] `calculatePayoff()`: single overdue installment, multiple overdue installments, mix of overdue and not-yet-due, presence of an initial installment.
-- [ ] The chosen endpoint correctly registers the resulting split payments and updates installment/loan status accordingly.
+- [x] `calculatePayoff()`: single overdue installment, multiple overdue installments, mix of overdue and not-yet-due, presence of an initial installment, an installment due exactly today, the `principalPortion: null` legacy fallback, an empty installment list.
+- [x] The chosen endpoint correctly registers the resulting split payments and updates installment/loan status accordingly — plus rejects a non-active loan, matching `markAsPaid()`'s guard.
 
 ### Swagger
-- [ ] New endpoint(s) documented, including a clear explanation of the allocation rule in the description.
+- [x] New endpoint(s) documented, including a clear explanation of the allocation rule in the description.
 
 ## Definition of done for this phase
 
-- A loan's payoff quote reflects interest owed to date, not blindly summing remaining installment totals.
-- The confirmed allocation and scope-of-change answers are implemented exactly as agreed — not guessed.
-- All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
+- [x] A loan's payoff quote reflects interest owed to date, not blindly summing remaining installment totals.
+- [x] The confirmed allocation and scope-of-change answers are implemented exactly as agreed — not guessed.
+- [x] All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## After this phase
 
-Update `docs/GLOSSARY.md` with "Liquidación anticipada / Early payoff" and "Imputación del pago", and `docs/DATABASE.md` if `Payment`'s relationship to `Installment` changed.
+Added "Liquidación anticipada / Early payoff" and "Imputación del pago" to `docs/GLOSSARY.md`. `docs/DATABASE.md` did not need updating — `Payment`'s relationship to `Installment` is unchanged (confirmed answer 5: a separate flow, not a `registerPayment` generalization), `payoff()` just creates ordinary `Payment` rows the same way `registerPayment` always has.
 
 ## Related documents
 

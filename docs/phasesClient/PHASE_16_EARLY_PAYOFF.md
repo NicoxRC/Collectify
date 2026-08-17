@@ -11,13 +11,13 @@ Give the collector a way to quote and register an early payoff, showing the clie
 ## Scope
 
 ### Loan detail page
-- [ ] New "Liquidar anticipadamente" action on `LoanDetailPage.tsx`, near the existing "Registrar pago" entry point.
-- [ ] Opens a summary dialog showing the payoff quote and its breakdown (interest applied vs. principal applied, per installment) before the admin confirms — similar shape to `RegisterPaymentDialog.tsx` but read-only summary plus a single confirm action, not a data-entry form.
+- [x] New "Liquidar anticipadamente" action on `LoanDetailPage.tsx`, next to "Registrar pago" — admin only, disabled unless the loan is `active` (mirrors "Cambiar estado"/"Refinanciar").
+- [x] `PayoffDialog.tsx` opens a summary dialog: fetches `GET /loans/:id/payoff-quote` on open, shows the breakdown (interest applied vs. principal applied, per installment) and the total, then a single confirm action that calls `POST /loans/:id/payoff` — read-only summary, not a data-entry form, per the confirmed full-payoff-only scope (no amount field, unlike `RegisterPaymentDialog.tsx`).
 
 ## Definition of done for this phase
 
-- An admin can quote and confirm an early payoff from a loan's detail page, seeing the interest/principal breakdown before committing.
-- All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
+- [x] An admin can quote and confirm an early payoff from a loan's detail page, seeing the interest/principal breakdown before committing.
+- [x] All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## Related documents
 
