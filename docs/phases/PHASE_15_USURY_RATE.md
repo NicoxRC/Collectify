@@ -13,15 +13,15 @@ Track Colombia's legal usury ceiling as a global, month-to-month value, and appl
 
 This research grounds the phase but does **not** replace the "Before starting" confirmation below — the exact enforcement mechanics are a real legal/business decision, not something to infer from general research.
 
-## Before starting this phase — stop and confirm with the human
+## Resolved — confirmed directly with the human
 
-1. Is this a single global value, or does it need to vary by credit modality (Colombian usury certification sometimes differentiates by type of credit)?
-2. Does the ceiling validate only the nominal interest concepts from Phase 14, or the effective total cost including moratory interest and any fixed fees? **This is not a neutral choice** — see `docs/phases/PHASE_14_INTEREST_CONCEPTS.md`'s "Important cross-reference" note: the client's stated reason for wanting configurable concepts is to charge part of the loan's real cost under labels other than "interés" specifically to stay under this ceiling nominally. If this question resolves to "only the field named interés," this phase's validation would never see the concepts it most needs to catch.
-3. On violation: hard block at loan-creation time, or a warning an admin can override with justification?
-4. Should moratory interest be automatically capped at the current usury rate on every read (so an overdue calculation never legally exceeds it even against a stale per-loan rate), or is this purely a creation-time validation gate?
-5. If the monthly rate changes, does it apply retroactively to interest already accrued on existing overdue installments, or only to interest accruing from that point forward?
+1. **Scope of the ceiling:** a single global value. It does not vary by credit modality.
+2. **What the ceiling validates:** the effective total cost — every Phase 14 concept plus moratory interest and any fixed fees, not just a field literally named "interés." This is what makes the check meaningful given the client's own stated reason for wanting configurable concepts (see `docs/phases/PHASE_14_INTEREST_CONCEPTS.md`'s "Important cross-reference" note).
+3. **On violation:** a warning, not a hard block — the admin sees the loan/concept exceeds the current ceiling and can continue anyway, optionally with a justification note.
+4. **When enforcement runs:** creation-time only, for now. Moratory interest is not automatically re-capped against the current usury rate on every read; this may be revisited later if the warning-only approach proves insufficient.
+5. **Retroactivity:** not retroactive. A new month's rate only applies to interest accruing from that point forward — interest already caused under a prior month's rate is untouched. This confirms the historical `UsuryRate` table (dated rows, never mutated) below is the right shape, since past months' rates must remain queryable exactly as they were when they applied.
 
-**Do not pick answers and build it — ask the human.** Question 5 in particular determines whether a single mutable value or a dated history table is the right shape — see below for why a history table is recommended regardless, but the exact retroactivity rule still needs confirmation.
+These answers are final for this phase — do not revisit them without a new confirmation round with the human.
 
 ## Required reading before starting
 
