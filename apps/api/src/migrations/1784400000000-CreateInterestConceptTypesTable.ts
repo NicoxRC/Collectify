@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner, Table } from 'typeorm';
 
-export class CreateInterestConceptTypesTable1784400000000
-  implements MigrationInterface
-{
+export class CreateInterestConceptTypesTable1784400000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
       `CREATE TYPE "interest_concept_types_default_calculation_type_enum" AS ENUM('percentage', 'fixed_amount')`,

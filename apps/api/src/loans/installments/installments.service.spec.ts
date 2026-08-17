@@ -29,6 +29,7 @@ describe('InstallmentsService', () => {
     loan: undefined as never,
     installmentNumber: 1,
     amount: 200000,
+    principalPortion: null,
     dueDate: '2026-01-01',
     status: InstallmentStatus.Pending,
     createdAt: new Date(),

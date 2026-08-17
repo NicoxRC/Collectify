@@ -68,6 +68,7 @@ describe('AccountSummaryService', () => {
       loan: mockLoan,
       installmentNumber: 1,
       amount: 300000,
+      principalPortion: null,
       dueDate: '2099-01-01', // far future by default — not overdue
       status: InstallmentStatus.Pending,
       createdAt: new Date(),

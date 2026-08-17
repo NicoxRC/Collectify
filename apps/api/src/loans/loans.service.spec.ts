@@ -307,6 +307,7 @@ describe('LoansService', () => {
         loan: undefined as never,
         installmentNumber: 1,
         amount: 210000,
+        principalPortion: null,
         dueDate: '2024-01-01', // far in the past — deterministic overdue
         status: InstallmentStatus.Pending,
         createdAt: new Date(),

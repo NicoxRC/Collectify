@@ -66,6 +66,7 @@ describe('NewLoanReminderService', () => {
       loan: mockLoan,
       installmentNumber: 1,
       amount: 359000,
+      principalPortion: null,
       dueDate: '2026-06-20',
       status: InstallmentStatus.Pending,
       createdAt: new Date(),
