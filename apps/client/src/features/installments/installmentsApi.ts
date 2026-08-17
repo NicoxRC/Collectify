@@ -13,11 +13,16 @@ export enum InstallmentStatus {
 // rule (docs/phasesClient/PHASE_4_LOANS_INSTALLMENTS.md). They come back as
 // 0 for any non-pending installment (paid or cancelled), per the API's own
 // enrichInstallment logic — not a special case to handle here.
+// principalPortion/conceptBreakdown were added in Phase 14 — both were
+// computed once at schedule-generation time and are read back as stored,
+// unlike overdueDays/interest/totalDue. principalPortion is null for
+// installments generated before Phase 14 shipped.
 export interface Installment {
   id: string;
   loanId: string;
   installmentNumber: number;
   amount: number;
+  principalPortion: number | null;
   dueDate: string;
   status: InstallmentStatus;
   createdAt: string;
@@ -26,6 +31,7 @@ export interface Installment {
   overdueDays: number;
   interest: number;
   totalDue: number;
+  conceptBreakdown: { name: string; amount: number }[];
 }
 
 export interface InstallmentsQueryParams {

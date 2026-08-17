@@ -3,16 +3,28 @@ import { useState } from 'react';
 import { CloseButton } from '@/components/ui/CloseButton';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { DatePicker } from '@/components/ui/DatePicker';
+import { Select } from '@/components/ui/Select';
+import { InterestConceptTypeForm } from '@/features/interestConceptTypes/InterestConceptTypeForm';
+import { ConceptCalculationType } from '@/features/interestConceptTypes/interestConceptTypesApi';
+import {
+  useCreateInterestConceptType,
+  useInterestConceptTypes,
+} from '@/features/interestConceptTypes/useInterestConceptTypes';
 import {
   subtractDaysFromDateString,
   subtractMonthsFromDateString,
 } from '@/features/loans/dueDateMath';
 import { InstallmentFrequency } from '@/features/loans/loansApi';
+import { usePreviewSchedule } from '@/features/loans/useLoans';
 import { ApiError } from '@/lib/apiClient';
-import { formatCurrency } from '@/lib/format';
+import { formatCurrency, formatDateOnly } from '@/lib/format';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
-import type { RefinanceLoanInput } from '@/features/loans/loansApi';
+import type {
+  LoanConceptAssignment,
+  PreviewedInstallment,
+  RefinanceLoanInput,
+} from '@/features/loans/loansApi';
 import type { FormEvent } from 'react';
 
 interface RefinanceLoanFormProps {
@@ -20,11 +32,14 @@ interface RefinanceLoanFormProps {
   // Shown as a reference only — apps/api/src/loans/dto/refinanceLoan.dto.ts
   // is explicit that principalAmount is NOT auto-calculated from this; the
   // admin types the exact renegotiated figure by hand (business decision,
-  // not a formula). Same reasoning as RegisterPaymentDialog's pre-filled
-  // (but editable) default.
+  // not a formula) until docs/phases/PHASE_17_REFINANCING_RECALC.md ships.
   oldLoanOutstandingBalance: number;
   onSubmit: (input: RefinanceLoanInput) => Promise<unknown>;
   onClose: () => void;
+}
+
+interface ConceptRow extends LoanConceptAssignment {
+  rowId: string;
 }
 
 type FieldName =
@@ -33,33 +48,21 @@ type FieldName =
   | 'interestRate'
   | 'firstDueDate'
   | 'totalInstallments'
-  | 'installmentAmounts';
+  | 'concepts';
 type FieldErrors = Partial<Record<FieldName, string>>;
 
-const AMOUNT_SUM_TOLERANCE = 0.01;
-
-// Same even-split helper as LoanForm.tsx — duplicated rather than shared
-// since it's a single small pure function and the two forms otherwise
-// don't share a base (this one has no client selector).
-function splitEvenly(total: number, count: number): number[] {
-  if (count <= 0) {
-    return [];
-  }
-  const base = Math.floor(total / count);
-  const remainder = Math.round(total - base * count);
-  return Array.from({ length: count }, (_, index) =>
-    index < remainder ? base + 1 : base,
-  );
+let nextRowId = 0;
+function makeRowId(): string {
+  nextRowId += 1;
+  return `refi-row-${nextRowId}`;
 }
 
-// No Figma frame exists for this screen (confirmed with the client) — built
-// from scratch, matching LoanForm.tsx's fields/layout/validation exactly
-// (same "first installment due date" UX, derived disbursedAt client-side;
-// same per-installment breakdown with auto-split) since this is
-// structurally the same operation: create a new loan. The only real
-// difference is there's no client selector — POST /loans/:id/refinance
-// always attaches the new loan to the same client as the one being
-// refinanced, enforced server-side.
+// Mirrors LoanForm.tsx's Phase 14 rewrite exactly (schedule generated from
+// principalAmount/totalInstallments/concepts, no more hand-entered
+// installmentAmounts) — this is structurally the same operation: create a
+// new loan. The only real difference is there's no client selector —
+// POST /loans/:id/refinance always attaches the new loan to the same
+// client as the one being refinanced, enforced server-side.
 export function RefinanceLoanForm({
   oldLoanLabel,
   oldLoanOutstandingBalance,
@@ -74,50 +77,54 @@ export function RefinanceLoanForm({
     InstallmentFrequency.Monthly,
   );
   const [totalInstallments, setTotalInstallments] = useState('');
-  const [installmentAmounts, setInstallmentAmounts] = useState<number[]>([]);
-  const [amountsManuallyEdited, setAmountsManuallyEdited] = useState(false);
+  const [concepts, setConcepts] = useState<ConceptRow[]>([]);
   const [description, setDescription] = useState('');
 
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showNewConceptTypeForm, setShowNewConceptTypeForm] = useState(false);
+  const [preview, setPreview] = useState<PreviewedInstallment[] | null>(null);
 
   useEscapeKey(onClose);
 
+  const { data: conceptTypes } = useInterestConceptTypes({ isActive: true });
+  const createConceptType = useCreateInterestConceptType();
+  const previewSchedule = usePreviewSchedule();
+
   const principal = principalAmount;
   const count = parseInt(totalInstallments, 10) || 0;
-  const amountsSum = installmentAmounts.reduce(
-    (sum, amount) => sum + amount,
-    0,
-  );
-  const amountsMatchPrincipal =
-    Math.abs(amountsSum - principal) <= AMOUNT_SUM_TOLERANCE;
 
-  const resplit = (nextPrincipal: number, nextCount: number) => {
-    setInstallmentAmounts(splitEvenly(nextPrincipal, nextCount));
+  const conceptTypeOptions = (conceptTypes ?? []).map((conceptType) => ({
+    value: conceptType.id,
+    label: conceptType.name,
+  }));
+
+  const addConceptRow = () => {
+    const firstType = conceptTypes?.[0];
+    setConcepts((prev) => [
+      ...prev,
+      {
+        rowId: makeRowId(),
+        conceptTypeId: firstType?.id ?? '',
+        calculationType:
+          firstType?.defaultCalculationType ??
+          ConceptCalculationType.Percentage,
+        value: firstType?.defaultValue ?? 0,
+      },
+    ]);
+    setFieldErrors((prev) => ({ ...prev, concepts: undefined }));
   };
 
-  const handlePrincipalChange = (value: number) => {
-    setPrincipalAmount(value);
-    setFieldErrors((prev) => ({ ...prev, principalAmount: undefined }));
-    if (!amountsManuallyEdited) {
-      resplit(value, count);
-    }
+  const removeConceptRow = (rowId: string) => {
+    setConcepts((prev) => prev.filter((row) => row.rowId !== rowId));
   };
 
-  const handleCountChange = (value: string) => {
-    setTotalInstallments(value);
-    setFieldErrors((prev) => ({ ...prev, totalInstallments: undefined }));
-    resplit(principal, parseInt(value, 10) || 0);
-    setAmountsManuallyEdited(false);
-  };
-
-  const handleAmountChange = (index: number, value: number) => {
-    setAmountsManuallyEdited(true);
-    setInstallmentAmounts((prev) =>
-      prev.map((amount, i) => (i === index ? value : amount)),
+  const updateConceptRow = (rowId: string, changes: Partial<ConceptRow>) => {
+    setConcepts((prev) =>
+      prev.map((row) => (row.rowId === rowId ? { ...row, ...changes } : row)),
     );
-    setFieldErrors((prev) => ({ ...prev, installmentAmounts: undefined }));
+    setFieldErrors((prev) => ({ ...prev, concepts: undefined }));
   };
 
   const validate = (): FieldErrors => {
@@ -142,10 +149,46 @@ export function RefinanceLoanForm({
     }
     if (!(count > 0)) {
       errors.totalInstallments = 'El número de cuotas debe ser mayor a 0.';
-    } else if (!amountsMatchPrincipal) {
-      errors.installmentAmounts = `La suma de las cuotas (${formatCurrency(amountsSum)}) debe ser igual al monto (${formatCurrency(principal)}).`;
+    }
+    if (concepts.some((row) => !row.conceptTypeId)) {
+      errors.concepts = 'Selecciona un tipo para cada concepto agregado.';
     }
     return errors;
+  };
+
+  const computeDisbursedAt = (): string =>
+    installmentFrequency === InstallmentFrequency.Monthly
+      ? subtractMonthsFromDateString(firstDueDate, 1)
+      : subtractDaysFromDateString(firstDueDate, 14);
+
+  const toConceptAssignments = (): LoanConceptAssignment[] =>
+    concepts.map(({ conceptTypeId, calculationType, value }) => ({
+      conceptTypeId,
+      calculationType,
+      value,
+    }));
+
+  const handlePreview = async () => {
+    const errors = validate();
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
+    setFieldErrors({});
+    setFormError(null);
+
+    try {
+      const result = await previewSchedule.mutateAsync({
+        principalAmount: principal,
+        disbursedAt: computeDisbursedAt(),
+        installmentFrequency,
+        totalInstallments: count,
+        concepts: toConceptAssignments(),
+      });
+      setPreview(result);
+    } catch {
+      setFormError('No se pudo generar la previsualización. Intenta de nuevo.');
+    }
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -160,19 +203,15 @@ export function RefinanceLoanForm({
     setFieldErrors({});
     setIsSubmitting(true);
 
-    const disbursedAt =
-      installmentFrequency === InstallmentFrequency.Monthly
-        ? subtractMonthsFromDateString(firstDueDate, 1)
-        : subtractDaysFromDateString(firstDueDate, 14);
-
     try {
       await onSubmit({
         promissoryNoteNumber,
         principalAmount: principal,
         interestRate: parseFloat(interestRate),
-        disbursedAt,
+        disbursedAt: computeDisbursedAt(),
         installmentFrequency,
-        installmentAmounts,
+        totalInstallments: count,
+        concepts: toConceptAssignments(),
         description: description.trim() || undefined,
       });
       onClose();
@@ -195,7 +234,7 @@ export function RefinanceLoanForm({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-[520px] overflow-y-auto rounded-lg border border-border bg-surface px-8 py-7">
+      <div className="max-h-[90vh] w-full max-w-[560px] overflow-y-auto rounded-lg border border-border bg-surface px-8 py-7">
         <div className="flex items-center justify-between">
           <h2 className="text-[16px] font-medium text-white">
             Refinanciar préstamo
@@ -236,7 +275,10 @@ export function RefinanceLoanForm({
                 )}
               />
             </Field>
-            <Field label="Tasa de interés (%)" error={fieldErrors.interestRate}>
+            <Field
+              label="Tasa de interés moratorio (%)"
+              error={fieldErrors.interestRate}
+            >
               <input
                 type="number"
                 min={0}
@@ -263,7 +305,14 @@ export function RefinanceLoanForm({
             >
               <CurrencyInput
                 value={principalAmount}
-                onChange={handlePrincipalChange}
+                onChange={(value) => {
+                  setPrincipalAmount(value);
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    principalAmount: undefined,
+                  }));
+                  setPreview(null);
+                }}
                 placeholder="Ej: $950.000"
                 className={inputClassName(Boolean(fieldErrors.principalAmount))}
               />
@@ -273,7 +322,14 @@ export function RefinanceLoanForm({
                 type="number"
                 min={1}
                 value={totalInstallments}
-                onChange={(event) => handleCountChange(event.target.value)}
+                onChange={(event) => {
+                  setTotalInstallments(event.target.value);
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    totalInstallments: undefined,
+                  }));
+                  setPreview(null);
+                }}
                 placeholder="Ej: 12"
                 className={inputClassName(
                   Boolean(fieldErrors.totalInstallments),
@@ -295,6 +351,7 @@ export function RefinanceLoanForm({
                     ...prev,
                     firstDueDate: undefined,
                   }));
+                  setPreview(null);
                 }}
                 className={inputClassName(Boolean(fieldErrors.firstDueDate))}
               />
@@ -302,11 +359,12 @@ export function RefinanceLoanForm({
             <Field label="Periodicidad de cuotas">
               <select
                 value={installmentFrequency}
-                onChange={(event) =>
+                onChange={(event) => {
                   setInstallmentFrequency(
                     event.target.value as InstallmentFrequency,
-                  )
-                }
+                  );
+                  setPreview(null);
+                }}
                 className={inputClassName(false)}
               >
                 <option value={InstallmentFrequency.Monthly}>Mensual</option>
@@ -315,44 +373,130 @@ export function RefinanceLoanForm({
             </Field>
           </div>
 
-          {count > 0 && (
-            <Field
-              label={`Desglose por cuota (${installmentAmounts.length})`}
-              error={fieldErrors.installmentAmounts}
-            >
-              <div className="flex max-h-[160px] flex-col gap-2 overflow-y-auto rounded border border-border bg-input p-2.5">
-                {installmentAmounts.map((amount, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <span className="w-14 shrink-0 text-meta text-muted">
-                      Cuota {index + 1}
-                    </span>
-                    <CurrencyInput
-                      value={amount}
-                      onChange={(next) => handleAmountChange(index, next)}
-                      className="h-8 w-full rounded border border-border bg-background px-2.5 text-small text-white focus:border-subtle focus:outline-none"
-                    />
-                  </div>
-                ))}
-              </div>
-              <div className="mt-1.5 flex items-center justify-between">
-                <span
-                  className={`text-meta ${amountsMatchPrincipal ? 'text-muted' : 'text-red-400'}`}
-                >
-                  Suma: {formatCurrency(amountsSum)} /{' '}
-                  {formatCurrency(principal)}
-                </span>
+          <Field
+            label="Conceptos de interés / cargos"
+            error={fieldErrors.concepts}
+          >
+            <div className="flex flex-col gap-2">
+              {concepts.length === 0 && (
+                <p className="text-meta text-muted">
+                  Sin conceptos — el préstamo se financiará solo con capital
+                  (sin intereses ni cargos).
+                </p>
+              )}
+              {concepts.map((row) => (
+                <div key={row.rowId} className="flex items-center gap-2">
+                  <Select
+                    value={row.conceptTypeId}
+                    onChange={(conceptTypeId) => {
+                      const type = conceptTypes?.find(
+                        (c) => c.id === conceptTypeId,
+                      );
+                      updateConceptRow(row.rowId, {
+                        conceptTypeId,
+                        calculationType:
+                          type?.defaultCalculationType ?? row.calculationType,
+                        value: type?.defaultValue ?? row.value,
+                      });
+                    }}
+                    options={conceptTypeOptions}
+                    className="flex-1"
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={row.value}
+                    onChange={(event) =>
+                      updateConceptRow(row.rowId, {
+                        value: parseFloat(event.target.value) || 0,
+                      })
+                    }
+                    placeholder={
+                      row.calculationType === ConceptCalculationType.Percentage
+                        ? '%'
+                        : '$'
+                    }
+                    className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeConceptRow(row.rowId)}
+                    className="text-meta text-muted hover:text-red-400"
+                  >
+                    Quitar
+                  </button>
+                </div>
+              ))}
+              <div className="mt-1 flex items-center gap-4">
                 <button
                   type="button"
-                  onClick={() => {
-                    setAmountsManuallyEdited(false);
-                    resplit(principal, count);
-                  }}
+                  onClick={addConceptRow}
                   className="text-meta text-muted hover:text-white"
                 >
-                  Repartir en partes iguales
+                  + Agregar concepto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowNewConceptTypeForm(true)}
+                  className="text-meta text-muted hover:text-white"
+                >
+                  + Crear nuevo tipo
                 </button>
               </div>
-            </Field>
+            </div>
+          </Field>
+
+          {count > 0 && (
+            <div className="rounded border border-border bg-input p-3">
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={handlePreview}
+                  disabled={previewSchedule.isPending}
+                  className="text-meta font-medium text-white hover:text-mid"
+                >
+                  {previewSchedule.isPending
+                    ? 'Calculando…'
+                    : 'Previsualizar cronograma de cuotas'}
+                </button>
+              </div>
+              {preview && (
+                <div className="mt-2.5 max-h-[180px] overflow-y-auto">
+                  <table className="w-full text-meta">
+                    <thead>
+                      <tr className="text-muted">
+                        <th className="pb-1 text-left font-normal">Cuota</th>
+                        <th className="pb-1 text-left font-normal">Vence</th>
+                        <th className="pb-1 text-right font-normal">Capital</th>
+                        <th className="pb-1 text-right font-normal">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.map((installment) => (
+                        <tr
+                          key={installment.installmentNumber}
+                          className="text-white"
+                        >
+                          <td className="py-0.5">
+                            {installment.installmentNumber}
+                          </td>
+                          <td className="py-0.5">
+                            {formatDateOnly(installment.dueDate)}
+                          </td>
+                          <td className="py-0.5 text-right">
+                            {formatCurrency(installment.principalPortion)}
+                          </td>
+                          <td className="py-0.5 text-right font-medium">
+                            {formatCurrency(installment.amount)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           )}
 
           <Field label="Descripción (opcional)">
@@ -391,6 +535,24 @@ export function RefinanceLoanForm({
           </div>
         </form>
       </div>
+
+      {showNewConceptTypeForm && (
+        <InterestConceptTypeForm
+          onSubmit={async (input) => {
+            const created = await createConceptType.mutateAsync(input);
+            setConcepts((prev) => [
+              ...prev,
+              {
+                rowId: makeRowId(),
+                conceptTypeId: created.id,
+                calculationType: created.defaultCalculationType,
+                value: created.defaultValue ?? 0,
+              },
+            ]);
+          }}
+          onClose={() => setShowNewConceptTypeForm(false)}
+        />
+      )}
     </div>
   );
 }

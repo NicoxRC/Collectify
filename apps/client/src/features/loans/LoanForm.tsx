@@ -3,23 +3,43 @@ import { useState } from 'react';
 import { CloseButton } from '@/components/ui/CloseButton';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { DatePicker } from '@/components/ui/DatePicker';
+import { Select } from '@/components/ui/Select';
 import { useClients } from '@/features/clients/useClients';
+import { InterestConceptTypeForm } from '@/features/interestConceptTypes/InterestConceptTypeForm';
+import { ConceptCalculationType } from '@/features/interestConceptTypes/interestConceptTypesApi';
+import {
+  useCreateInterestConceptType,
+  useInterestConceptTypes,
+} from '@/features/interestConceptTypes/useInterestConceptTypes';
 import {
   subtractDaysFromDateString,
   subtractMonthsFromDateString,
 } from '@/features/loans/dueDateMath';
 import { InstallmentFrequency } from '@/features/loans/loansApi';
+import { usePreviewSchedule } from '@/features/loans/useLoans';
 import { ApiError } from '@/lib/apiClient';
-import { formatCurrency } from '@/lib/format';
+import { formatCurrency, formatDateOnly } from '@/lib/format';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type { Client } from '@/features/clients/clientsApi';
-import type { CreateLoanInput } from '@/features/loans/loansApi';
+import type {
+  CreateLoanInput,
+  LoanConceptAssignment,
+  PreviewedInstallment,
+} from '@/features/loans/loansApi';
 import type { FormEvent } from 'react';
 
 interface LoanFormProps {
   onSubmit: (input: CreateLoanInput) => Promise<unknown>;
   onClose: () => void;
+}
+
+// One row of the "Conceptos" repeater — a LoanConceptAssignment plus a
+// client-only id (for React keys / stable row identity as rows are
+// added/removed, since two rows could otherwise share the same
+// conceptTypeId+value and be indistinguishable to React).
+interface ConceptRow extends LoanConceptAssignment {
+  rowId: string;
 }
 
 type FieldName =
@@ -29,48 +49,26 @@ type FieldName =
   | 'interestRate'
   | 'firstDueDate'
   | 'totalInstallments'
-  | 'installmentAmounts';
+  | 'concepts';
 type FieldErrors = Partial<Record<FieldName, string>>;
 
-const AMOUNT_SUM_TOLERANCE = 0.01;
-
-// Splits `total` into `count` whole-peso installments as evenly as
-// possible, handing the leftover pesos to the first few installments so
-// the sum is always exact — matches the tolerance the backend checks
-// (assertInstallmentAmountsMatchPrincipal, apps/api/src/loans/loans.service.ts).
-function splitEvenly(total: number, count: number): number[] {
-  if (count <= 0) {
-    return [];
-  }
-  const base = Math.floor(total / count);
-  const remainder = Math.round(total - base * count);
-  return Array.from({ length: count }, (_, index) =>
-    index < remainder ? base + 1 : base,
-  );
+let nextRowId = 0;
+function makeRowId(): string {
+  nextRowId += 1;
+  return `row-${nextRowId}`;
 }
 
-// CreateLoanDto's fields: clientId, promissoryNoteNumber, principalAmount,
-// interestRate, disbursedAt, installmentFrequency, installmentAmounts,
-// description. The Figma modal (F-18) shows Cliente/Monto/N° cuotas/Fecha
-// de inicio/Fecha de vencimiento/Periodicidad — missing promissoryNoteNumber
-// and interestRate entirely (both required), and offering no way to enter
-// per-installment amounts (installments can be unequal — confirmed in
-// docs/DATABASE.md — so the API requires the explicit array, not just a
-// count). This form adds the two missing required fields and the editable
-// per-installment breakdown (auto-splits evenly by default).
+// As of Phase 14 (docs/phases/PHASE_14_INTEREST_CONCEPTS.md), the API
+// generates the installment schedule from principalAmount,
+// totalInstallments, and concepts — this form no longer collects or splits
+// installmentAmounts by hand. interestRate is kept (still required by the
+// API) but now only drives moratory interest on overdue installments, not
+// the cost of the loan itself — see the relabeled field below.
 //
-// "Fecha de vencimiento" — asks for the FIRST INSTALLMENT'S due date, not
-// disbursedAt, per the client's explicit request: the physical pagaré
-// already has each installment's due date written on it, so typing the
-// first one directly (instead of reverse-computing "what disbursement date
-// gives that due date") matches how the admin actually works from the
-// paper. `disbursedAt` — still required by POST /loans — is derived from it
-// at submit time (see handleSubmit): one period earlier, using the same
-// UTC-safe month/day arithmetic as the backend's own schedule generator
-// (dueDateMath.ts). The API itself is unchanged; it still computes every
-// installment's due date from disbursedAt + installmentFrequency exactly as
-// before — only this form's input field changed.
-// See apps/client/docs/DESIGN_TOKENS.md "Known design/backend gaps".
+// Per-installment concept overrides (InstallmentConceptOverrideDto) are not
+// exposed here — expected to be a rare case, and the API accepts the same
+// baseline concepts for every installment when no override is sent. Revisit
+// if the business needs it.
 export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [clientSearch, setClientSearch] = useState('');
@@ -87,56 +85,54 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     InstallmentFrequency.Monthly,
   );
   const [totalInstallments, setTotalInstallments] = useState('');
-  const [installmentAmounts, setInstallmentAmounts] = useState<number[]>([]);
-  const [amountsManuallyEdited, setAmountsManuallyEdited] = useState(false);
+  const [concepts, setConcepts] = useState<ConceptRow[]>([]);
   const [description, setDescription] = useState('');
 
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showNewConceptTypeForm, setShowNewConceptTypeForm] = useState(false);
+  const [preview, setPreview] = useState<PreviewedInstallment[] | null>(null);
 
   useEscapeKey(onClose);
 
+  const { data: conceptTypes } = useInterestConceptTypes({ isActive: true });
+  const createConceptType = useCreateInterestConceptType();
+  const previewSchedule = usePreviewSchedule();
+
   const principal = principalAmount;
   const count = parseInt(totalInstallments, 10) || 0;
-  const amountsSum = installmentAmounts.reduce(
-    (sum, amount) => sum + amount,
-    0,
-  );
-  const amountsMatchPrincipal =
-    Math.abs(amountsSum - principal) <= AMOUNT_SUM_TOLERANCE;
 
-  // Re-splits automatically whenever Monto or N° cuotas change, as long as
-  // the admin hasn't started manually editing individual amounts — once
-  // they have, we stop overwriting their edits (see "Repartir en partes
-  // iguales" below to reset).
-  const resplit = (nextPrincipal: number, nextCount: number) => {
-    setInstallmentAmounts(splitEvenly(nextPrincipal, nextCount));
+  const conceptTypeOptions = (conceptTypes ?? []).map((conceptType) => ({
+    value: conceptType.id,
+    label: conceptType.name,
+  }));
+
+  const addConceptRow = () => {
+    const firstType = conceptTypes?.[0];
+    setConcepts((prev) => [
+      ...prev,
+      {
+        rowId: makeRowId(),
+        conceptTypeId: firstType?.id ?? '',
+        calculationType:
+          firstType?.defaultCalculationType ??
+          ConceptCalculationType.Percentage,
+        value: firstType?.defaultValue ?? 0,
+      },
+    ]);
+    setFieldErrors((prev) => ({ ...prev, concepts: undefined }));
   };
 
-  const handlePrincipalChange = (value: number) => {
-    setPrincipalAmount(value);
-    setFieldErrors((prev) => ({ ...prev, principalAmount: undefined }));
-    if (!amountsManuallyEdited) {
-      resplit(value, count);
-    }
+  const removeConceptRow = (rowId: string) => {
+    setConcepts((prev) => prev.filter((row) => row.rowId !== rowId));
   };
 
-  const handleCountChange = (value: string) => {
-    setTotalInstallments(value);
-    setFieldErrors((prev) => ({ ...prev, totalInstallments: undefined }));
-    // A resize always regenerates — there's no sensible way to preserve
-    // manual edits across a different number of installments.
-    resplit(principal, parseInt(value, 10) || 0);
-    setAmountsManuallyEdited(false);
-  };
-
-  const handleAmountChange = (index: number, value: number) => {
-    setAmountsManuallyEdited(true);
-    setInstallmentAmounts((prev) =>
-      prev.map((amount, i) => (i === index ? value : amount)),
+  const updateConceptRow = (rowId: string, changes: Partial<ConceptRow>) => {
+    setConcepts((prev) =>
+      prev.map((row) => (row.rowId === rowId ? { ...row, ...changes } : row)),
     );
-    setFieldErrors((prev) => ({ ...prev, installmentAmounts: undefined }));
+    setFieldErrors((prev) => ({ ...prev, concepts: undefined }));
   };
 
   const validate = (): FieldErrors => {
@@ -164,10 +160,46 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     }
     if (!(count > 0)) {
       errors.totalInstallments = 'El número de cuotas debe ser mayor a 0.';
-    } else if (!amountsMatchPrincipal) {
-      errors.installmentAmounts = `La suma de las cuotas (${formatCurrency(amountsSum)}) debe ser igual al monto (${formatCurrency(principal)}).`;
+    }
+    if (concepts.some((row) => !row.conceptTypeId)) {
+      errors.concepts = 'Selecciona un tipo para cada concepto agregado.';
     }
     return errors;
+  };
+
+  const computeDisbursedAt = (): string =>
+    installmentFrequency === InstallmentFrequency.Monthly
+      ? subtractMonthsFromDateString(firstDueDate, 1)
+      : subtractDaysFromDateString(firstDueDate, 14);
+
+  const toConceptAssignments = (): LoanConceptAssignment[] =>
+    concepts.map(({ conceptTypeId, calculationType, value }) => ({
+      conceptTypeId,
+      calculationType,
+      value,
+    }));
+
+  const handlePreview = async () => {
+    const errors = validate();
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
+    setFieldErrors({});
+    setFormError(null);
+
+    try {
+      const result = await previewSchedule.mutateAsync({
+        principalAmount: principal,
+        disbursedAt: computeDisbursedAt(),
+        installmentFrequency,
+        totalInstallments: count,
+        concepts: toConceptAssignments(),
+      });
+      setPreview(result);
+    } catch {
+      setFormError('No se pudo generar la previsualización. Intenta de nuevo.');
+    }
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -182,24 +214,16 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     setFieldErrors({});
     setIsSubmitting(true);
 
-    // disbursedAt isn't collected directly anymore — see the top-of-file
-    // comment. Derived here, one period before the first installment's due
-    // date, using the same rule the backend uses to go the other way
-    // (calculateDueDate in loans.service.ts).
-    const disbursedAt =
-      installmentFrequency === InstallmentFrequency.Monthly
-        ? subtractMonthsFromDateString(firstDueDate, 1)
-        : subtractDaysFromDateString(firstDueDate, 14);
-
     try {
       await onSubmit({
         clientId: selectedClient!.id,
         promissoryNoteNumber,
         principalAmount: principal,
         interestRate: parseFloat(interestRate),
-        disbursedAt,
+        disbursedAt: computeDisbursedAt(),
         installmentFrequency,
-        installmentAmounts,
+        totalInstallments: count,
+        concepts: toConceptAssignments(),
         description: description.trim() || undefined,
       });
       onClose();
@@ -222,7 +246,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-[520px] overflow-y-auto rounded-lg border border-border bg-surface px-8 py-7">
+      <div className="max-h-[90vh] w-full max-w-[560px] overflow-y-auto rounded-lg border border-border bg-surface px-8 py-7">
         <div className="flex items-center justify-between">
           <h2 className="text-[16px] font-medium text-white">Nuevo préstamo</h2>
           <CloseButton onClick={onClose} />
@@ -313,7 +337,10 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                 )}
               />
             </Field>
-            <Field label="Tasa de interés (%)" error={fieldErrors.interestRate}>
+            <Field
+              label="Tasa de interés moratorio (%)"
+              error={fieldErrors.interestRate}
+            >
               <input
                 type="number"
                 min={0}
@@ -337,7 +364,14 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
             <Field label="Monto" error={fieldErrors.principalAmount}>
               <CurrencyInput
                 value={principalAmount}
-                onChange={handlePrincipalChange}
+                onChange={(value) => {
+                  setPrincipalAmount(value);
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    principalAmount: undefined,
+                  }));
+                  setPreview(null);
+                }}
                 placeholder="Ej: $1.500.000"
                 className={inputClassName(Boolean(fieldErrors.principalAmount))}
               />
@@ -347,7 +381,14 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                 type="number"
                 min={1}
                 value={totalInstallments}
-                onChange={(event) => handleCountChange(event.target.value)}
+                onChange={(event) => {
+                  setTotalInstallments(event.target.value);
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    totalInstallments: undefined,
+                  }));
+                  setPreview(null);
+                }}
                 placeholder="Ej: 12"
                 className={inputClassName(
                   Boolean(fieldErrors.totalInstallments),
@@ -369,6 +410,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                     ...prev,
                     firstDueDate: undefined,
                   }));
+                  setPreview(null);
                 }}
                 className={inputClassName(Boolean(fieldErrors.firstDueDate))}
               />
@@ -376,11 +418,12 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
             <Field label="Periodicidad de cuotas">
               <select
                 value={installmentFrequency}
-                onChange={(event) =>
+                onChange={(event) => {
                   setInstallmentFrequency(
                     event.target.value as InstallmentFrequency,
-                  )
-                }
+                  );
+                  setPreview(null);
+                }}
                 className={inputClassName(false)}
               >
                 <option value={InstallmentFrequency.Monthly}>Mensual</option>
@@ -389,44 +432,130 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
             </Field>
           </div>
 
-          {count > 0 && (
-            <Field
-              label={`Desglose por cuota (${installmentAmounts.length})`}
-              error={fieldErrors.installmentAmounts}
-            >
-              <div className="flex max-h-[160px] flex-col gap-2 overflow-y-auto rounded border border-border bg-input p-2.5">
-                {installmentAmounts.map((amount, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <span className="w-14 shrink-0 text-meta text-muted">
-                      Cuota {index + 1}
-                    </span>
-                    <CurrencyInput
-                      value={amount}
-                      onChange={(next) => handleAmountChange(index, next)}
-                      className="h-8 w-full rounded border border-border bg-background px-2.5 text-small text-white focus:border-subtle focus:outline-none"
-                    />
-                  </div>
-                ))}
-              </div>
-              <div className="mt-1.5 flex items-center justify-between">
-                <span
-                  className={`text-meta ${amountsMatchPrincipal ? 'text-muted' : 'text-red-400'}`}
-                >
-                  Suma: {formatCurrency(amountsSum)} /{' '}
-                  {formatCurrency(principal)}
-                </span>
+          <Field
+            label="Conceptos de interés / cargos"
+            error={fieldErrors.concepts}
+          >
+            <div className="flex flex-col gap-2">
+              {concepts.length === 0 && (
+                <p className="text-meta text-muted">
+                  Sin conceptos — el préstamo se financiará solo con capital
+                  (sin intereses ni cargos).
+                </p>
+              )}
+              {concepts.map((row) => (
+                <div key={row.rowId} className="flex items-center gap-2">
+                  <Select
+                    value={row.conceptTypeId}
+                    onChange={(conceptTypeId) => {
+                      const type = conceptTypes?.find(
+                        (c) => c.id === conceptTypeId,
+                      );
+                      updateConceptRow(row.rowId, {
+                        conceptTypeId,
+                        calculationType:
+                          type?.defaultCalculationType ?? row.calculationType,
+                        value: type?.defaultValue ?? row.value,
+                      });
+                    }}
+                    options={conceptTypeOptions}
+                    className="flex-1"
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={row.value}
+                    onChange={(event) =>
+                      updateConceptRow(row.rowId, {
+                        value: parseFloat(event.target.value) || 0,
+                      })
+                    }
+                    placeholder={
+                      row.calculationType === ConceptCalculationType.Percentage
+                        ? '%'
+                        : '$'
+                    }
+                    className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeConceptRow(row.rowId)}
+                    className="text-meta text-muted hover:text-red-400"
+                  >
+                    Quitar
+                  </button>
+                </div>
+              ))}
+              <div className="mt-1 flex items-center gap-4">
                 <button
                   type="button"
-                  onClick={() => {
-                    setAmountsManuallyEdited(false);
-                    resplit(principal, count);
-                  }}
+                  onClick={addConceptRow}
                   className="text-meta text-muted hover:text-white"
                 >
-                  Repartir en partes iguales
+                  + Agregar concepto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowNewConceptTypeForm(true)}
+                  className="text-meta text-muted hover:text-white"
+                >
+                  + Crear nuevo tipo
                 </button>
               </div>
-            </Field>
+            </div>
+          </Field>
+
+          {count > 0 && (
+            <div className="rounded border border-border bg-input p-3">
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={handlePreview}
+                  disabled={previewSchedule.isPending}
+                  className="text-meta font-medium text-white hover:text-mid"
+                >
+                  {previewSchedule.isPending
+                    ? 'Calculando…'
+                    : 'Previsualizar cronograma de cuotas'}
+                </button>
+              </div>
+              {preview && (
+                <div className="mt-2.5 max-h-[180px] overflow-y-auto">
+                  <table className="w-full text-meta">
+                    <thead>
+                      <tr className="text-muted">
+                        <th className="pb-1 text-left font-normal">Cuota</th>
+                        <th className="pb-1 text-left font-normal">Vence</th>
+                        <th className="pb-1 text-right font-normal">Capital</th>
+                        <th className="pb-1 text-right font-normal">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.map((installment) => (
+                        <tr
+                          key={installment.installmentNumber}
+                          className="text-white"
+                        >
+                          <td className="py-0.5">
+                            {installment.installmentNumber}
+                          </td>
+                          <td className="py-0.5">
+                            {formatDateOnly(installment.dueDate)}
+                          </td>
+                          <td className="py-0.5 text-right">
+                            {formatCurrency(installment.principalPortion)}
+                          </td>
+                          <td className="py-0.5 text-right font-medium">
+                            {formatCurrency(installment.amount)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           )}
 
           <Field label="Descripción (opcional)">
@@ -435,11 +564,6 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
               onChange={(event) => setDescription(event.target.value)}
               placeholder="Ej: Compra de electrodoméstico…"
               rows={2}
-              // Not inputClassName(false) — that has a fixed h-[42px] meant
-              // for single-line inputs, which fights with rows={2} and
-              // squeezes the placeholder text with no vertical padding.
-              // py-2.5 instead lets the textarea size itself naturally,
-              // matching MessageTemplateForm.tsx's textarea.
               className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
             />
           </Field>
@@ -470,6 +594,24 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
           </div>
         </form>
       </div>
+
+      {showNewConceptTypeForm && (
+        <InterestConceptTypeForm
+          onSubmit={async (input) => {
+            const created = await createConceptType.mutateAsync(input);
+            setConcepts((prev) => [
+              ...prev,
+              {
+                rowId: makeRowId(),
+                conceptTypeId: created.id,
+                calculationType: created.defaultCalculationType,
+                value: created.defaultValue ?? 0,
+              },
+            ]);
+          }}
+          onClose={() => setShowNewConceptTypeForm(false)}
+        />
+      )}
     </div>
   );
 }
