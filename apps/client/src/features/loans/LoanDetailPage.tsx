@@ -297,7 +297,30 @@ export function LoanDetailPage() {
                   >
                     <Td>{installment.installmentNumber}</Td>
                     <Td>{formatDateOnly(installment.dueDate)}</Td>
-                    <Td>{formatCurrency(installment.amount)}</Td>
+                    {/* Phase 14: capital/concept breakdown shown inline
+                        under the total — this is the "so a client can be
+                        told exactly what they owe and why" requirement
+                        from docs/phases/PHASE_14_INTEREST_CONCEPTS.md.
+                        Empty for installments generated before that phase
+                        (conceptBreakdown is []). */}
+                    <Td>
+                      {formatCurrency(installment.amount)}
+                      {installment.conceptBreakdown.length > 0 && (
+                        <div className="mt-0.5 flex flex-col text-meta text-mid">
+                          {installment.principalPortion != null && (
+                            <span>
+                              Capital:{' '}
+                              {formatCurrency(installment.principalPortion)}
+                            </span>
+                          )}
+                          {installment.conceptBreakdown.map((concept) => (
+                            <span key={concept.name}>
+                              {concept.name}: {formatCurrency(concept.amount)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </Td>
                     <Td>
                       {installment.status === InstallmentStatus.Pending &&
                       installment.overdueDays > 0 ? (
