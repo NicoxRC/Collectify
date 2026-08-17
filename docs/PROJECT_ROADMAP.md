@@ -118,9 +118,9 @@ Phase 5 only covered the weekly overdue reminder. Real usage requires three more
 
 ## Phase 14 — Configurable interest concepts (amortizador)
 
-- Replace the single flat interest rate with several interest/fee concepts per loan, picked from an admin-managed catalog of concept types the admin can extend at any time (not a fixed/hardcoded list)
-- Exact per-installment breakdown available on demand
-- See `docs/phases/PHASE_14_INTEREST_CONCEPTS.md` for the size/scope warning — this is the largest phase in this batch and may need to be split once its open questions are resolved
+- Replace the single flat interest rate and manually-entered installment amounts with an automatically generated amortization schedule, built from several interest/fee concepts per loan (on a declining balance), picked from an admin-managed catalog of concept types the admin can extend at any time
+- Exact capital/concept breakdown available per installment on demand
+- See `docs/phases/PHASE_14_INTEREST_CONCEPTS.md` — this is the largest phase in this batch; consider splitting the implementation into two PRs (catalog/data model, then the generation algorithm)
 
 **Exit criteria:** a loan can be created with multiple named concepts, and the exact breakdown of what a client owes is retrievable per installment.
 

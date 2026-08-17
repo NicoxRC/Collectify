@@ -81,3 +81,7 @@ When a loan is created, its installments must be generated automatically based o
 ## Do not proceed to Phase 5 or 6 until
 
 The installment amount-equality question above is resolved with the human, and the interest formula test fixtures pass exactly.
+
+## Superseded after this phase
+
+`docs/phases/PHASE_14_INTEREST_CONCEPTS.md` reopens the installment-generation approach built here: instead of the caller providing a manually-entered amount per installment, that phase generates the schedule automatically from principal, term, and configurable interest/fee concepts. This phase's entities and mora/overdue calculation are otherwise unchanged and remain the foundation Phase 14 builds on.
