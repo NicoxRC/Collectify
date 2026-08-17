@@ -9,6 +9,7 @@ describe('enrichInstallment', () => {
     loan: undefined as never,
     installmentNumber: 1,
     amount: 210000,
+    principalPortion: null,
     dueDate: '2026-01-01',
     status: InstallmentStatus.Pending,
     isInitial: false,

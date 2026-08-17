@@ -7,10 +7,16 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { ClientsService } from '../clients/clients.service';
+import {
+  ConceptCalculationType,
+  InterestConceptType,
+} from '../interestConceptTypes/entities/interestConceptType.entity';
+import { InterestConceptTypesService } from '../interestConceptTypes/interestConceptTypes.service';
 import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 
 import { Installment, InstallmentStatus } from './entities/installment.entity';
 import { InstallmentFrequency, Loan, LoanStatus } from './entities/loan.entity';
+import { LoanInstallmentConcept } from './entities/loanInstallmentConcept.entity';
 import { Payment } from './entities/payment.entity';
 import { LoansService } from './loans.service';
 
@@ -31,8 +37,25 @@ describe('LoansService', () => {
     update: jest.Mock;
   };
   let paymentsRepository: { find: jest.Mock };
+  let loanInstallmentConceptsRepository: {
+    create: jest.Mock;
+    save: jest.Mock;
+    find: jest.Mock;
+  };
+  let interestConceptTypesService: { findOneOrThrow: jest.Mock };
   let newLoanReminderService: { sendNewLoanMessage: jest.Mock };
   let clientsService: { hasMoraBlock: jest.Mock; getCreditUsage: jest.Mock };
+
+  const mockConceptType: InterestConceptType = {
+    id: 'concept-type-1',
+    name: 'Interés remuneratorio',
+    defaultCalculationType: ConceptCalculationType.Percentage,
+    defaultValue: 2,
+    isActive: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    deletedAt: null,
+  };
 
   const mockLoan: Loan = {
     id: 'loan-1',
@@ -71,6 +94,14 @@ describe('LoansService', () => {
     paymentsRepository = {
       find: jest.fn(),
     };
+    loanInstallmentConceptsRepository = {
+      create: jest.fn((dto: Partial<LoanInstallmentConcept>) => dto),
+      save: jest.fn().mockResolvedValue([]),
+      find: jest.fn().mockResolvedValue([]),
+    };
+    interestConceptTypesService = {
+      findOneOrThrow: jest.fn().mockResolvedValue(mockConceptType),
+    };
     newLoanReminderService = {
       sendNewLoanMessage: jest.fn().mockResolvedValue(undefined),
     };
@@ -100,6 +131,14 @@ describe('LoansService', () => {
           useValue: paymentsRepository,
         },
         {
+          provide: getRepositoryToken(LoanInstallmentConcept),
+          useValue: loanInstallmentConceptsRepository,
+        },
+        {
+          provide: InterestConceptTypesService,
+          useValue: interestConceptTypesService,
+        },
+        {
           provide: NewLoanReminderService,
           useValue: newLoanReminderService,
         },
@@ -118,7 +157,8 @@ describe('LoansService', () => {
       interestRate: 6,
       disbursedAt: '2026-01-01',
       installmentFrequency: InstallmentFrequency.Monthly,
-      installmentAmounts: [300000, 300000, 300000],
+      totalInstallments: 3,
+      concepts: [],
     };
 
     beforeEach(() => {
@@ -129,6 +169,15 @@ describe('LoansService', () => {
         id: 'loan-2',
       });
       installmentsRepository.find.mockResolvedValue([]);
+      installmentsRepository.save.mockImplementation(
+        (installments: Partial<Installment>[]) =>
+          Promise.resolve(
+            installments.map((installment, index) => ({
+              ...installment,
+              id: `installment-${index + 1}`,
+            })),
+          ),
+      );
     });
 
     it('generates one installment per amount with sequential numbers and monthly due dates', async () => {
@@ -138,16 +187,19 @@ describe('LoansService', () => {
         expect.objectContaining({
           installmentNumber: 1,
           amount: 300000,
+          principalPortion: 300000,
           dueDate: '2026-02-01',
         }),
         expect.objectContaining({
           installmentNumber: 2,
           amount: 300000,
+          principalPortion: 300000,
           dueDate: '2026-03-01',
         }),
         expect.objectContaining({
           installmentNumber: 3,
           amount: 300000,
+          principalPortion: 300000,
           dueDate: '2026-04-01',
         }),
       ]);
@@ -166,7 +218,7 @@ describe('LoansService', () => {
       ]);
     });
 
-    it('sets totalInstallments from the installmentAmounts array length', async () => {
+    it('persists totalInstallments from the request', async () => {
       await service.create(createDto);
 
       expect(loansRepository.create).toHaveBeenCalledWith(
@@ -183,9 +235,77 @@ describe('LoansService', () => {
       expect(loansRepository.save).not.toHaveBeenCalled();
     });
 
-    it('rejects when installment amounts do not sum to the principal amount', async () => {
+    it('propagates NotFoundException when a concept references an unknown concept type', async () => {
+      interestConceptTypesService.findOneOrThrow.mockRejectedValue(
+        new NotFoundException(
+          'Interest concept type with id missing not found',
+        ),
+      );
+
       await expect(
-        service.create({ ...createDto, installmentAmounts: [100000, 100000] }),
+        service.create({
+          ...createDto,
+          concepts: [
+            {
+              conceptTypeId: 'missing',
+              calculationType: ConceptCalculationType.Percentage,
+              value: 2,
+            },
+          ],
+        }),
+      ).rejects.toThrow(NotFoundException);
+      expect(loansRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('persists a LoanInstallmentConcept row per concept, with its snapshotted name and computed amount', async () => {
+      await service.create({
+        ...createDto,
+        concepts: [
+          {
+            conceptTypeId: mockConceptType.id,
+            calculationType: ConceptCalculationType.Percentage,
+            value: 2,
+          },
+        ],
+      });
+
+      expect(loanInstallmentConceptsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({
+          installmentId: 'installment-1',
+          interestConceptTypeId: mockConceptType.id,
+          nameSnapshot: mockConceptType.name,
+          calculationType: ConceptCalculationType.Percentage,
+          value: 2,
+          computedAmount: 18000, // 900000 * 2%
+        }),
+        expect.objectContaining({
+          installmentId: 'installment-2',
+          computedAmount: 12000, // 600000 * 2%
+        }),
+        expect.objectContaining({
+          installmentId: 'installment-3',
+          computedAmount: 6000, // 300000 * 2%
+        }),
+      ]);
+    });
+
+    it('rejects an installmentConceptOverride referencing an out-of-range installment number', async () => {
+      await expect(
+        service.create({
+          ...createDto,
+          installmentConceptOverrides: [
+            {
+              installmentNumber: 99,
+              concepts: [
+                {
+                  conceptTypeId: mockConceptType.id,
+                  calculationType: ConceptCalculationType.Percentage,
+                  value: 2,
+                },
+              ],
+            },
+          ],
+        }),
       ).rejects.toThrow(BadRequestException);
       expect(loansRepository.save).not.toHaveBeenCalled();
     });
@@ -329,7 +449,8 @@ describe('LoansService', () => {
       interestRate: 5,
       disbursedAt: '2026-07-10',
       installmentFrequency: InstallmentFrequency.Monthly,
-      installmentAmounts: [300000, 300000],
+      totalInstallments: 2,
+      concepts: [],
     };
 
     const newLoanRecord: Loan = {
@@ -351,6 +472,15 @@ describe('LoansService', () => {
         .mockImplementationOnce((loan: Loan) => Promise.resolve(loan)) // old loan status update
         .mockResolvedValueOnce(newLoanRecord); // new loan save
       installmentsRepository.find.mockResolvedValue([]);
+      installmentsRepository.save.mockImplementation(
+        (installments: Partial<Installment>[]) =>
+          Promise.resolve(
+            installments.map((installment, index) => ({
+              ...installment,
+              id: `installment-${index + 1}`,
+            })),
+          ),
+      );
     });
 
     it('marks the old loan as refinanced and cancels its remaining pending installments', async () => {
@@ -449,6 +579,7 @@ describe('LoansService', () => {
         loan: undefined as never,
         installmentNumber: 1,
         amount: 210000,
+        principalPortion: null,
         dueDate: '2024-01-01', // far in the past — deterministic overdue
         status: InstallmentStatus.Pending,
         isInitial: false,
@@ -476,6 +607,40 @@ describe('LoansService', () => {
         interest: 0,
         totalDue: 0,
       });
+    });
+
+    it('attaches each installment its concept breakdown from LoanInstallmentConcept', async () => {
+      loansRepository.findOneBy.mockResolvedValue(mockLoan);
+      loansRepository.findOne.mockResolvedValue(null);
+      const installment: Installment = {
+        id: 'inst-1',
+        loanId: mockLoan.id,
+        loan: undefined as never,
+        installmentNumber: 1,
+        amount: 306000,
+        principalPortion: 300000,
+        dueDate: '2026-08-01',
+        status: InstallmentStatus.Pending,
+        isInitial: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+      };
+      installmentsRepository.find.mockResolvedValue([installment]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([
+        {
+          installmentId: 'inst-1',
+          nameSnapshot: 'Interés remuneratorio',
+          computedAmount: 6000,
+        },
+      ]);
+
+      const result = await service.findOne(mockLoan.id);
+
+      expect(result.installments[0].conceptBreakdown).toEqual([
+        { name: 'Interés remuneratorio', amount: 6000 },
+      ]);
+      expect(result.installments[0].principalPortion).toBe(300000);
     });
 
     it('returns null refinancedToLoanId when no loan points back to this one', async () => {
@@ -754,6 +919,63 @@ describe('LoansService', () => {
       const [summary] = (await service.findAll({})).items;
 
       expect(summary.overdueBalance).toBe(0);
+    });
+  });
+
+  describe('previewSchedule', () => {
+    it('returns the generated schedule without persisting anything', async () => {
+      const result = await service.previewSchedule({
+        principalAmount: 900000,
+        disbursedAt: '2026-01-01',
+        installmentFrequency: InstallmentFrequency.Monthly,
+        totalInstallments: 3,
+        concepts: [
+          {
+            conceptTypeId: mockConceptType.id,
+            calculationType: ConceptCalculationType.Percentage,
+            value: 2,
+          },
+        ],
+      });
+
+      expect(result).toEqual([
+        expect.objectContaining({
+          installmentNumber: 1,
+          dueDate: '2026-02-01',
+          principalPortion: 300000,
+          amount: 318000,
+          conceptBreakdown: [{ name: mockConceptType.name, amount: 18000 }],
+        }),
+        expect.objectContaining({ installmentNumber: 2, amount: 312000 }),
+        expect.objectContaining({ installmentNumber: 3, amount: 306000 }),
+      ]);
+      expect(loansRepository.save).not.toHaveBeenCalled();
+      expect(installmentsRepository.save).not.toHaveBeenCalled();
+      expect(loanInstallmentConceptsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('propagates NotFoundException when a concept references an unknown concept type', async () => {
+      interestConceptTypesService.findOneOrThrow.mockRejectedValue(
+        new NotFoundException(
+          'Interest concept type with id missing not found',
+        ),
+      );
+
+      await expect(
+        service.previewSchedule({
+          principalAmount: 900000,
+          disbursedAt: '2026-01-01',
+          installmentFrequency: InstallmentFrequency.Monthly,
+          totalInstallments: 3,
+          concepts: [
+            {
+              conceptTypeId: 'missing',
+              calculationType: ConceptCalculationType.Percentage,
+              value: 2,
+            },
+          ],
+        }),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 

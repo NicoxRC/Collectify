@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
-  ArrayMinSize,
   IsArray,
   IsDateString,
   IsEnum,
@@ -12,14 +12,21 @@ import {
   IsString,
   Max,
   Min,
+  ValidateNested,
 } from 'class-validator';
 
 import { InstallmentFrequency } from '../entities/loan.entity';
 
+import {
+  InstallmentConceptOverrideDto,
+  LoanConceptAssignmentDto,
+} from './loanConceptAssignment.dto';
+
 // The new loan created by a refinance is built the same way any other loan
-// is (see CreateLoanDto) — explicit per-installment amounts, no auto-split.
-// clientId isn't accepted here: the new loan always belongs to the same
-// client as the loan being refinanced.
+// is (see CreateLoanDto) — its schedule is generated from principalAmount,
+// totalInstallments, and concepts, as of Phase 14. clientId isn't accepted
+// here: the new loan always belongs to the same client as the loan being
+// refinanced.
 export class RefinanceLoanDto {
   @ApiProperty({
     example: '#1000',
@@ -32,14 +39,15 @@ export class RefinanceLoanDto {
   @ApiProperty({
     example: 950000,
     description:
-      'The exact renegotiated amount, entered by the admin — typically the old balance plus accrued interest, but not auto-calculated (this is a business decision).',
+      'The exact renegotiated amount, entered by the admin — typically the old balance plus accrued interest, but not auto-calculated (this is a business decision — see docs/phases/PHASE_6_REFINANCING.md; docs/phases/PHASE_17_REFINANCING_RECALC.md may change this).',
   })
   @IsPositive()
   principalAmount!: number;
 
   @ApiProperty({
     example: 5,
-    description: "The new loan's own interest rate, percentage.",
+    description:
+      "The new loan's own rate, used only for moratory interest on overdue installments — see CreateLoanDto.",
   })
   @IsNumber()
   @Min(0)
@@ -54,15 +62,27 @@ export class RefinanceLoanDto {
   @IsEnum(InstallmentFrequency)
   installmentFrequency!: InstallmentFrequency;
 
+  @ApiProperty({ example: 2 })
+  @IsInt()
+  @Min(1)
+  totalInstallments!: number;
+
   @ApiProperty({
-    example: [317000, 317000, 316000],
+    type: [LoanConceptAssignmentDto],
     description:
-      'One amount per installment, in order. Must sum to principalAmount.',
+      'Baseline interest/fee concepts applied to every installment of the new loan, unless overridden — see CreateLoanDto.',
   })
   @IsArray()
-  @ArrayMinSize(1)
-  @IsPositive({ each: true })
-  installmentAmounts!: number[];
+  @ValidateNested({ each: true })
+  @Type(() => LoanConceptAssignmentDto)
+  concepts!: LoanConceptAssignmentDto[];
+
+  @ApiPropertyOptional({ type: [InstallmentConceptOverrideDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InstallmentConceptOverrideDto)
+  installmentConceptOverrides?: InstallmentConceptOverrideDto[];
 
   @ApiPropertyOptional({
     example: 0,

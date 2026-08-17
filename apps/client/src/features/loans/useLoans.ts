@@ -8,6 +8,13 @@ import type {
   UpdateLoanInput,
 } from '@/features/loans/loansApi';
 
+// Not a useQuery — the admin triggers this on demand (a "Previsualizar
+// cronograma" button), not automatically on every keystroke, so a mutation
+// (imperative .mutateAsync call) fits better than a cached, key-driven query.
+export function usePreviewSchedule() {
+  return useMutation({ mutationFn: loansApi.previewSchedule });
+}
+
 export function useLoans(params: LoansQueryParams) {
   return useQuery({
     queryKey: ['loans', params],

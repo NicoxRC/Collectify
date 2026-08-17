@@ -118,10 +118,10 @@ Phase 5 only covered the weekly overdue reminder. Real usage requires three more
 
 ## Phase 14 — Configurable interest concepts (amortizador)
 
-- Replace the single flat interest rate with several named, configurable interest/fee concepts per loan, managed through an admin-editable catalog (not a code change per new concept)
-- Exact per-installment breakdown available on demand
-- An on-the-spot quote/simulator tool ("amortizador proyector") so an admin can show a prospective client what they'd pay before any loan is created — guaranteed to match real loan math exactly
-- See `docs/phases/PHASE_14_INTEREST_CONCEPTS.md` for the size/scope warning — this is the largest phase in this batch and may need to be split once its open questions are resolved
+- Replace the single flat interest rate and manually-entered installment amounts with an automatically generated amortization schedule, built from several interest/fee concepts per loan (on a declining balance), picked from an admin-managed catalog of concept types the admin can extend at any time
+- Exact capital/concept breakdown available per installment on demand
+- An on-the-spot quote/simulator tool ("amortizador proyector") so an admin can show a prospective client what they'd pay before any loan is created — guaranteed to match real loan math exactly (not yet built as of the initial amortizador implementation — see `docs/phases/PHASE_14_INTEREST_CONCEPTS.md`)
+- See `docs/phases/PHASE_14_INTEREST_CONCEPTS.md` — this is the largest phase in this batch; the core amortization engine and catalog shipped first, the quote/simulator tool is a tracked follow-up
 
 **Exit criteria:** a loan can be created with multiple named concepts, the exact breakdown of what a client owes is retrievable per installment, and an admin can generate a same-session quote for a prospect without creating a loan record.
 

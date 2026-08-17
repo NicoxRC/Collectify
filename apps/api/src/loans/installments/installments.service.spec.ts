@@ -4,6 +4,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { Installment, InstallmentStatus } from '../entities/installment.entity';
 import { Loan, LoanStatus } from '../entities/loan.entity';
+import { LoanInstallmentConcept } from '../entities/loanInstallmentConcept.entity';
 import { Payment } from '../entities/payment.entity';
 
 import { InstallmentsService } from './installments.service';
@@ -22,6 +23,7 @@ describe('InstallmentsService', () => {
     find: jest.Mock;
   };
   let loansRepository: { update: jest.Mock };
+  let loanInstallmentConceptsRepository: { find: jest.Mock };
 
   const mockInstallment: Installment = {
     id: 'inst-1',
@@ -29,6 +31,7 @@ describe('InstallmentsService', () => {
     loan: undefined as never,
     installmentNumber: 1,
     amount: 200000,
+    principalPortion: null,
     dueDate: '2026-01-01',
     status: InstallmentStatus.Pending,
     isInitial: false,
@@ -52,6 +55,9 @@ describe('InstallmentsService', () => {
       find: jest.fn(),
     };
     loansRepository = { update: jest.fn() };
+    loanInstallmentConceptsRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -62,10 +68,63 @@ describe('InstallmentsService', () => {
         },
         { provide: getRepositoryToken(Payment), useValue: paymentsRepository },
         { provide: getRepositoryToken(Loan), useValue: loansRepository },
+        {
+          provide: getRepositoryToken(LoanInstallmentConcept),
+          useValue: loanInstallmentConceptsRepository,
+        },
       ],
     }).compile();
 
     service = module.get<InstallmentsService>(InstallmentsService);
+  });
+
+  describe('findAll', () => {
+    const installmentWithLoan: Installment = {
+      ...mockInstallment,
+      loan: { interestRate: 6 } as never,
+    };
+
+    it('attaches each installment its concept breakdown from LoanInstallmentConcept', async () => {
+      installmentsRepository.findAndCount.mockResolvedValue([
+        [installmentWithLoan],
+        1,
+      ]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([
+        {
+          installmentId: installmentWithLoan.id,
+          nameSnapshot: 'Interés remuneratorio',
+          computedAmount: 4000,
+        },
+      ]);
+
+      const result = await service.findAll({});
+
+      expect(result.items[0].conceptBreakdown).toEqual([
+        { name: 'Interés remuneratorio', amount: 4000 },
+      ]);
+    });
+
+    it('returns an empty conceptBreakdown when the installment has no concepts', async () => {
+      installmentsRepository.findAndCount.mockResolvedValue([
+        [installmentWithLoan],
+        1,
+      ]);
+      loanInstallmentConceptsRepository.find.mockResolvedValue([]);
+
+      const result = await service.findAll({});
+
+      expect(result.items[0].conceptBreakdown).toEqual([]);
+      expect(loanInstallmentConceptsRepository.find).toHaveBeenCalled();
+    });
+
+    it('skips the concepts query entirely when the page is empty', async () => {
+      installmentsRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      const result = await service.findAll({});
+
+      expect(result.items).toEqual([]);
+      expect(loanInstallmentConceptsRepository.find).not.toHaveBeenCalled();
+    });
   });
 
   describe('registerPayment', () => {

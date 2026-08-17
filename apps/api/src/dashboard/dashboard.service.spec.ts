@@ -31,6 +31,7 @@ describe('DashboardService', () => {
       lastName: 'Pérez',
       documentNumber: '1234567890',
       phoneNumber: '+573001234567',
+      creditLimit: null,
       createdAt: new Date(),
       updatedAt: new Date(),
       deletedAt: null,
@@ -70,6 +71,7 @@ describe('DashboardService', () => {
       loan,
       installmentNumber: 1,
       amount: 210000,
+      principalPortion: null,
       dueDate: '2024-01-01', // far in the past — deterministic overdue
       status: InstallmentStatus.Pending,
       isInitial: false,

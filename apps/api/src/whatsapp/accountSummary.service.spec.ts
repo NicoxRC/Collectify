@@ -35,6 +35,7 @@ describe('AccountSummaryService', () => {
     lastName: 'Pérez',
     documentNumber: '1234567890',
     phoneNumber: '+573001234567',
+    creditLimit: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -68,6 +69,7 @@ describe('AccountSummaryService', () => {
       loan: mockLoan,
       installmentNumber: 1,
       amount: 300000,
+      principalPortion: null,
       dueDate: '2099-01-01', // far future by default — not overdue
       status: InstallmentStatus.Pending,
       isInitial: false,
