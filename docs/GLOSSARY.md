@@ -53,6 +53,14 @@ Confirmed by cross-checking multiple real examples in `LIBRO_PARA_COBRAR.xlsx` �
 ### Interest rate / Tasa de mora
 The percentage used in the interest formula above. **Confirmed to vary per loan** in real data (values of 4%, 5%, and 6% found across loans, not cleanly tied to loan amount despite an informal rule the client mentioned). Current working assumption: this is a fixed value set manually per loan, editable, defaulting to a system-configured standard rate. **The exact business rule for how this rate is chosen or whether it changes over time is still pending confirmation with the client** — see the open questions in `DATABASE.md`.
 
+**Changed after Phase 14:** this is now moratory-only — a loan's ordinary cost is priced entirely through interest concepts (see "Interest concept type" / "Interest concept" below) instead of this single rate. `interest_rate` still drives the mora formula above on overdue installments, unchanged in that role.
+
+### Interest concept type / Tipo de concepto de interés
+Added Phase 14 — an admin-managed, reusable definition of a kind of charge a loan can carry (e.g. "Interés remuneratorio", "Gastos de cobranza", "Uso de plataforma"): a name, a default calculation type (percentage or fixed amount), and an optional default value. The admin can create, edit, or deactivate these at any time — confirmed with the client this must never require a code change to add or reprice a concept. In code: `InterestConceptType` entity, `interest_concept_types` table. See `docs/phases/PHASE_14_INTEREST_CONCEPTS.md`.
+
+### Interest concept / Concepto de interés
+Added Phase 14 — one instance of an interest/fee concept applied to a specific installment, snapshotted from an `InterestConceptType` at the moment the loan's amortization schedule was generated (name, calculation type, value, and the resulting currency amount all copied at that point). Concepts can vary installment-to-installment within the same loan. Editing or deactivating the catalog type afterward never changes an already-created loan's numbers — this snapshot behavior is deliberate and confirmed with the client. In code: `LoanInstallmentConcept` entity, `loan_installment_concepts` table.
+
 ## Loan status
 
 ### Active
@@ -112,6 +120,9 @@ The act of giving the loan amount to the client. `disbursed_at` on the `Loan` en
 ### Installment frequency / Periodicidad
 How often installments occur. Source data consistently shows `MENSUAL` (monthly); the system supports this as an enum in case other frequencies come up later.
 
+### Tasa de usura / Usury rate
+Added Phase 15 — Colombia's legal ceiling on lending cost, certified monthly by the Superintendencia Financiera de Colombia (calculated as 1.5× the "Interés Bancario Corriente"). A single global value in this system (does not vary by credit modality), admin-entered each month since there's no free official API for it. Enforced as a warning, not a hard block, at loan creation/refinance time only — comparing the loan's maximum per-installment effective rate (see "Interest concept" above) against the current ceiling. Non-retroactive: a new month's rate never changes interest already caused under a prior month's rate. In code: `UsuryRate` entity, `usury_rates` table (historical, append-only), `UsuryRateService`. See `docs/phases/PHASE_15_USURY_RATE.md` and `DATABASE.md`'s `usury_rates` section.
+
 ## Roles
 
 ### Owner (Admin)
@@ -145,6 +156,19 @@ The following were open questions in an earlier version of this glossary, now re
 
 - ~~What counts toward "cupo usado" (credit used)~~ → Confirmed: capital + interest accrued to date, same basis as `outstandingBalance`. See "Cupo (credit limit)" above.
 - ~~Whether the mora &gt; 30 days block is per-installment or client-aggregate~~ → Confirmed: per-installment — any single overdue installment blocks new loans for that client.
+
+## Resolved from Phase 14
+
+- ~~Whether concept types are a fixed/hardcoded list or an admin-managed catalog~~ → Confirmed: admin-managed catalog, extendable without a code change. See "Interest concept type" above.
+- ~~Whether a loan's concepts must be identical across every installment~~ → Confirmed: concepts can vary installment-to-installment within the same loan.
+- ~~Whether editing the concept-type catalog retroactively changes existing loans~~ → Confirmed: no — concepts are snapshotted per installment at generation time. See "Interest concept" above.
+
+## Resolved from Phase 15
+
+- ~~Whether the usury ceiling is a single global value or varies by credit modality~~ → Confirmed: single global value.
+- ~~Whether the ceiling validates only nominal "interés" or the effective total cost~~ → Confirmed: the effective total cost — every Phase 14 concept plus moratory interest and fixed fees, not just a field literally named "interés." See "Tasa de usura" above.
+- ~~On violation: hard block or warning~~ → Confirmed: a warning the admin can proceed past, optionally with a justification note.
+- ~~Whether a rate change applies retroactively to interest already caused~~ → Confirmed: no, only forward from that point.
 
 ## Related documents
 

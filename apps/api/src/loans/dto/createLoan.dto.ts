@@ -84,7 +84,7 @@ export class CreateLoanDto {
   @ApiPropertyOptional({
     example: 0,
     description:
-      '0-based index into installmentAmounts marking that installment as the initial payment ("cuota inicial") — exempt from mora regardless of due date. Omit if the loan has no initial installment. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.',
+      '0-based index into the generated schedule marking that installment as the initial payment ("cuota inicial") — exempt from mora regardless of due date. Omit if the loan has no initial installment. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.',
   })
   @IsOptional()
   @IsInt()
@@ -100,4 +100,13 @@ export class CreateLoanDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @ApiPropertyOptional({
+    example: 'Cliente antiguo, aprobado por el dueño.',
+    description:
+      "Optional note explaining why the loan proceeds despite exceeding the current usury ceiling. Only meaningful when the check (see POST /loans response's usuryCeilingExceededAtCreation) actually fires — this is a warning, not a hard block, see docs/phases/PHASE_15_USURY_RATE.md.",
+  })
+  @IsOptional()
+  @IsString()
+  usuryJustification?: string;
 }

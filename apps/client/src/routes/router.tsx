@@ -14,6 +14,7 @@ import { LoanDetailPage } from '@/features/loans/LoanDetailPage';
 import { LoansListPage } from '@/features/loans/LoansListPage';
 import { MessageLogsPage } from '@/features/messageLogs/MessageLogsPage';
 import { MessageTemplatesPage } from '@/features/messageTemplates/MessageTemplatesPage';
+import { UsuryRatesPage } from '@/features/usuryRates/UsuryRatesPage';
 
 // Grows with each phase: Phase 4+ add one route block per feature, nesting
 // RequireRole where a route is admin-only. See docs/phasesClient.
@@ -85,6 +86,13 @@ export const router = createBrowserRouter([
               {
                 path: 'auditoria',
                 element: <AuditLogsPage />,
+              },
+              {
+                // UsuryRatesController is admin-only server-side
+                // (@Roles(UserRole.Admin)) — see
+                // docs/phases/PHASE_15_USURY_RATE.md.
+                path: 'tasa-de-usura',
+                element: <UsuryRatesPage />,
               },
             ],
           },

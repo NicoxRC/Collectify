@@ -33,6 +33,9 @@ const NAV_ITEMS: NavItem[] = [
   // admin-only, same treatment as Plantillas. See
   // docs/phases/PHASE_11_AUDIT_LOG.md.
   { label: 'Auditoría', to: '/auditoria', roles: ['admin'] },
+  // Not in the original Figma nav (no frame exists for Phase 15) —
+  // admin-only. See docs/phases/PHASE_15_USURY_RATE.md.
+  { label: 'Tasa de usura', to: '/tasa-de-usura', roles: ['admin'] },
 ];
 
 export function Sidebar() {

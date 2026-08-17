@@ -22,8 +22,8 @@ import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type {
   LoanConceptAssignment,
-  PreviewedInstallment,
   RefinanceLoanInput,
+  SchedulePreview,
 } from '@/features/loans/loansApi';
 import type { FormEvent } from 'react';
 
@@ -79,12 +79,15 @@ export function RefinanceLoanForm({
   const [totalInstallments, setTotalInstallments] = useState('');
   const [concepts, setConcepts] = useState<ConceptRow[]>([]);
   const [description, setDescription] = useState('');
+  // Only meaningful when preview?.usuryWarning fired — see
+  // docs/phases/PHASE_15_USURY_RATE.md ("warning, not a hard block").
+  const [usuryJustification, setUsuryJustification] = useState('');
 
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showNewConceptTypeForm, setShowNewConceptTypeForm] = useState(false);
-  const [preview, setPreview] = useState<PreviewedInstallment[] | null>(null);
+  const [preview, setPreview] = useState<SchedulePreview | null>(null);
 
   useEscapeKey(onClose);
 
@@ -213,6 +216,9 @@ export function RefinanceLoanForm({
         totalInstallments: count,
         concepts: toConceptAssignments(),
         description: description.trim() || undefined,
+        usuryJustification: preview?.usuryWarning
+          ? usuryJustification.trim() || undefined
+          : undefined,
       });
       onClose();
     } catch (err) {
@@ -473,7 +479,7 @@ export function RefinanceLoanForm({
                       </tr>
                     </thead>
                     <tbody>
-                      {preview.map((installment) => (
+                      {preview.installments.map((installment) => (
                         <tr
                           key={installment.installmentNumber}
                           className="text-white"
@@ -496,7 +502,28 @@ export function RefinanceLoanForm({
                   </table>
                 </div>
               )}
+              {preview?.usuryWarning && (
+                <p className="mt-2.5 text-meta text-amber-400" role="alert">
+                  Este cronograma supera la tasa de usura vigente (
+                  {preview.usuryWarning.maxEffectiveInstallmentRate}% vs.{' '}
+                  {preview.usuryWarning.currentCeilingRate}% permitido). El
+                  préstamo puede crearse igual, pero considera dejar una
+                  justificación abajo.
+                </p>
+              )}
             </div>
+          )}
+
+          {preview?.usuryWarning && (
+            <Field label="Justificación de la tasa de usura (opcional)">
+              <textarea
+                value={usuryJustification}
+                onChange={(event) => setUsuryJustification(event.target.value)}
+                placeholder="Ej: Cliente antiguo, aprobado por el dueño."
+                rows={2}
+                className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
+              />
+            </Field>
           )}
 
           <Field label="Descripción (opcional)">
