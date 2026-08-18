@@ -23,9 +23,12 @@ import {
   RowError,
 } from './clientsImportParser';
 import { CreateClientDto } from './dto/createClient.dto';
+import { CreateClientReferenceDto } from './dto/createClientReference.dto';
 import { QueryClientsDto } from './dto/queryClients.dto';
 import { UpdateClientDto } from './dto/updateClient.dto';
+import { UpdateClientReferenceDto } from './dto/updateClientReference.dto';
 import { Client } from './entities/client.entity';
+import { ClientReference } from './entities/clientReference.entity';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
@@ -37,6 +40,14 @@ export interface ImportClientsResult {
   skipped: RowError[];
 }
 
+// Distinguishes the two paths that build a Client from a CreateClientDto:
+// the interactive ClientForm (consent required — see ClientsService.create)
+// and Excel bulk import (consent deliberately not enforced — see
+// importFromExcel and docs/phases/PHASE_21_CLIENT_PROFILE.md decision 6).
+interface CreateClientOptions {
+  requireConsent?: boolean;
+}
+
 // "Cupo usado" = capital + interés acumulado across the client's active
 // loans' still-pending installments — the same totalDue-based math as
 // LoansService.summarize()'s outstandingBalance, just aggregated across
@@ -46,6 +57,7 @@ export interface ClientDetail extends Client {
   creditUsed: number;
   creditAvailable: number | null;
   isMoraBlocked: boolean;
+  references: ClientReference[];
 }
 
 interface EnrichedInstallment {
@@ -63,12 +75,35 @@ export class ClientsService {
     private readonly loansRepository: Repository<Loan>,
     @InjectRepository(Installment)
     private readonly installmentsRepository: Repository<Installment>,
+    @InjectRepository(ClientReference)
+    private readonly clientReferencesRepository: Repository<ClientReference>,
   ) {}
 
-  async create(dto: CreateClientDto): Promise<Client> {
+  // requireConsent defaults to true (the interactive ClientsController.create
+  // path) — importFromExcel is the one caller that explicitly opts out,
+  // since bulk-onboarded clients never had a chance to sign anything through
+  // this software and get the consent recorded later from their profile.
+  // See docs/phases/PHASE_21_CLIENT_PROFILE.md decision 6, and the legal
+  // summary shared with the business owner for why this can't simply be a
+  // DTO-level validator (it would then also reject every imported row).
+  async create(
+    dto: CreateClientDto,
+    options: CreateClientOptions = { requireConsent: true },
+  ): Promise<Client> {
+    if (options.requireConsent && dto.dataProcessingConsent !== true) {
+      throw new BadRequestException(
+        'El cliente debe autorizar el tratamiento de datos personales antes de guardarlo.',
+      );
+    }
     await this.assertDocumentNumberIsUnique(dto.documentNumber);
 
-    const client = this.clientsRepository.create(dto);
+    const client = this.clientsRepository.create({
+      ...dto,
+      // Server-set, not client-supplied — trustworthy evidence of *when*
+      // consent was recorded needs to come from the server clock, not a
+      // timestamp the caller could send arbitrarily.
+      consentGivenAt: dto.dataProcessingConsent ? new Date() : null,
+    });
     try {
       return await this.clientsRepository.save(client);
     } catch (error) {
@@ -157,6 +192,10 @@ export class ClientsService {
   async findOneDetail(id: string): Promise<ClientDetail> {
     const client = await this.findOne(id);
     const enriched = await this.enrichActiveInstallments(id);
+    const references = await this.clientReferencesRepository.find({
+      where: { clientId: id },
+      order: { createdAt: 'ASC' },
+    });
 
     const creditUsed = sumTotalDue(enriched);
     const creditAvailable =
@@ -165,7 +204,7 @@ export class ClientsService {
       (installment) => installment.overdueDays > 30,
     );
 
-    return { ...client, creditUsed, creditAvailable, isMoraBlocked };
+    return { ...client, creditUsed, creditAvailable, isMoraBlocked, references };
   }
 
   // { creditLimit, creditUsed, creditAvailable } on its own, for callers
@@ -231,7 +270,17 @@ export class ClientsService {
       await this.assertDocumentNumberIsUnique(dto.documentNumber);
     }
 
+    // Same "server clock, not caller-supplied" reasoning as create(): only
+    // stamp consentGivenAt when consent is actually transitioning to true,
+    // don't overwrite an existing timestamp on an unrelated update.
+    const consentNewlyGiven =
+      dto.dataProcessingConsent === true && !client.dataProcessingConsent;
+
     Object.assign(client, dto);
+    if (consentNewlyGiven) {
+      client.consentGivenAt = new Date();
+    }
+
     try {
       return await this.clientsRepository.save(client);
     } catch (error) {
@@ -282,7 +331,8 @@ export class ClientsService {
   // (invalid data or a duplicate document number) is skipped and reported,
   // not aborted — one bad row shouldn't sink the rest of a real spreadsheet.
   // Reuses create()'s validation and uniqueness logic per row, same as a
-  // manual create would.
+  // manual create would — except consent, deliberately not required here.
+  // See docs/phases/PHASE_21_CLIENT_PROFILE.md decision 6.
   async importFromExcel(buffer: Buffer): Promise<ImportClientsResult> {
     let parsed: { rows: ParsedClientRow[]; errors: RowError[] };
     try {
@@ -318,7 +368,7 @@ export class ClientsService {
       }
 
       try {
-        await this.create(dto);
+        await this.create(dto, { requireConsent: false });
         created += 1;
       } catch (error) {
         if (error instanceof ConflictException) {
@@ -337,6 +387,54 @@ export class ClientsService {
       created,
       skipped,
     };
+  }
+
+  // --- Client references (Phase 21) — a dynamic add/remove list, not a
+  // fixed set of fields; see docs/phases/PHASE_21_CLIENT_PROFILE.md. No
+  // min/max enforced here, matching the confirmed "let them add as many as
+  // they want" decision. ---
+
+  async addReference(
+    clientId: string,
+    dto: CreateClientReferenceDto,
+  ): Promise<ClientReference> {
+    await this.findOne(clientId);
+    const reference = this.clientReferencesRepository.create({
+      ...dto,
+      clientId,
+    });
+    return this.clientReferencesRepository.save(reference);
+  }
+
+  async updateReference(
+    clientId: string,
+    referenceId: string,
+    dto: UpdateClientReferenceDto,
+  ): Promise<ClientReference> {
+    const reference = await this.findReferenceOrThrow(clientId, referenceId);
+    Object.assign(reference, dto);
+    return this.clientReferencesRepository.save(reference);
+  }
+
+  async removeReference(clientId: string, referenceId: string): Promise<void> {
+    const reference = await this.findReferenceOrThrow(clientId, referenceId);
+    await this.clientReferencesRepository.remove(reference);
+  }
+
+  private async findReferenceOrThrow(
+    clientId: string,
+    referenceId: string,
+  ): Promise<ClientReference> {
+    const reference = await this.clientReferencesRepository.findOneBy({
+      id: referenceId,
+      clientId,
+    });
+    if (!reference) {
+      throw new NotFoundException(
+        `Reference with id ${referenceId} not found for client ${clientId}`,
+      );
+    }
+    return reference;
   }
 
   private async assertDocumentNumberIsUnique(
