@@ -28,6 +28,12 @@ export interface MessageLog {
   messageContent: string;
   status: MessageLogStatus;
   sentAt: string;
+  // Phase 18 manual retry tracking — retriedAt is set on the ORIGINAL
+  // (failed) row once it's retried; retryOfMessageLogId is set on the NEW
+  // row created for that retry, pointing back at the original. Both null
+  // on rows never retried.
+  retriedAt: string | null;
+  retryOfMessageLogId: string | null;
   createdAt: string;
 }
 
@@ -99,6 +105,14 @@ export const messageLogsApi = {
   getItems: async (id: string): Promise<MessageLogItem[]> => {
     const { data } = await apiClient.get<MessageLogItem[]>(
       `/message-logs/${id}/items`,
+    );
+    return data;
+  },
+
+  // Phase 18 — admin-only server-side. 400 if the log isn't Failed.
+  retry: async (id: string): Promise<MessageLog> => {
+    const { data } = await apiClient.post<MessageLog>(
+      `/message-logs/${id}/retry`,
     );
     return data;
   },
