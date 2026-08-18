@@ -6,7 +6,9 @@ import {
   useSearchParams,
 } from 'react-router-dom';
 
+import { ImageLightbox } from '@/components/ui/ImageLightbox';
 import { useAuth } from '@/features/auth/useAuth';
+import { DOCUMENT_TYPE_LABELS } from '@/features/clients/clientsApi';
 import { useClient } from '@/features/clients/useClients';
 import { InstallmentStatus } from '@/features/installments/installmentsApi';
 import { RegisterPaymentDialog } from '@/features/installments/RegisterPaymentDialog';
@@ -31,8 +33,7 @@ import {
 import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogs } from '@/features/messageLogs/useMessageLogs';
 import { MessageType } from '@/features/messageTemplates/messageTemplatesApi';
-import { formatCurrency, formatDateOnly } from '@/lib/format';
-import { useEscapeKey } from '@/lib/useEscapeKey';
+import { formatCurrency, formatDateOnly, isPdfUrl } from '@/lib/format';
 
 import type { Installment } from '@/features/installments/installmentsApi';
 import type { ReactNode } from 'react';
@@ -103,8 +104,13 @@ export function LoanDetailPage() {
   const [isPayingOff, setIsPayingOff] = useState(false);
   // Phase 12 — click-to-enlarge for a payment's receipt photo. No Figma
   // frame exists for this (see DESIGN_TOKENS.md); just the payment's own
-  // imageUrl, no extra fetch needed.
-  const [enlargedImageUrl, setEnlargedImageUrl] = useState<string | null>(null);
+  // imageUrl, no extra fetch needed. Phase 21 reuses this same state for
+  // the co-debtor's ID document photo below — `alt` travels with the url
+  // since the two sources need different alt text.
+  const [enlargedImage, setEnlargedImage] = useState<{
+    url: string;
+    alt: string;
+  } | null>(null);
 
   const pendingInstallments =
     loan?.installments.filter(
@@ -327,6 +333,63 @@ export function LoanDetailPage() {
         </p>
       )}
 
+      {/* Phase 21 — optional per loan, not per client (a client can have
+          one loan with a codeudor and another without). Nothing shown at
+          all when the loan has none. See
+          docs/phasesClient/PHASE_21_CLIENT_PROFILE.md. */}
+      {loan.coDebtorFullName && (
+        <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+          <span className="text-section-label font-medium tracking-[0.36px] text-muted">
+            CODEUDOR
+          </span>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-small">
+            <DetailField label="Nombre" value={loan.coDebtorFullName} />
+            <DetailField
+              label="Documento"
+              value={
+                loan.coDebtorDocumentType
+                  ? `${DOCUMENT_TYPE_LABELS[loan.coDebtorDocumentType]}${
+                      loan.coDebtorDocumentNumber
+                        ? ` · ${loan.coDebtorDocumentNumber}`
+                        : ''
+                    }`
+                  : loan.coDebtorDocumentNumber
+              }
+            />
+            <DetailField label="Teléfono" value={loan.coDebtorPhoneNumber} />
+            <DetailField
+              label="Relación con el deudor"
+              value={loan.coDebtorRelationship}
+            />
+            <DetailField label="Dirección" value={loan.coDebtorAddress} />
+          </div>
+          {loan.coDebtorIdDocumentUrl &&
+            (isPdfUrl(loan.coDebtorIdDocumentUrl) ? (
+              <a
+                href={loan.coDebtorIdDocumentUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 self-start text-meta text-muted hover:text-white hover:underline"
+              >
+                Ver documento de identidad (PDF)
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={() =>
+                  setEnlargedImage({
+                    url: loan.coDebtorIdDocumentUrl!,
+                    alt: `Documento de identidad del codeudor de ${clientFullName}`,
+                  })
+                }
+                className="mt-1 self-start text-meta text-muted hover:text-white hover:underline"
+              >
+                Ver documento de identidad
+              </button>
+            ))}
+        </div>
+      )}
+
       <div className="flex flex-col gap-2.5">
         <span className="text-section-label font-medium tracking-[0.36px] text-muted">
           CUOTAS
@@ -485,7 +548,12 @@ export function LoanDetailPage() {
                     {payment.imageUrl ? (
                       <button
                         type="button"
-                        onClick={() => setEnlargedImageUrl(payment.imageUrl)}
+                        onClick={() =>
+                          setEnlargedImage({
+                            url: payment.imageUrl!,
+                            alt: `Comprobante del pago del ${formatDateOnly(payment.paidAt)}`,
+                          })
+                        }
                         className="block"
                       >
                         <img
@@ -522,10 +590,11 @@ export function LoanDetailPage() {
         .
       </div>
 
-      {enlargedImageUrl && (
+      {enlargedImage && (
         <ImageLightbox
-          imageUrl={enlargedImageUrl}
-          onClose={() => setEnlargedImageUrl(null)}
+          imageUrl={enlargedImage.url}
+          alt={enlargedImage.alt}
+          onClose={() => setEnlargedImage(null)}
         />
       )}
 
@@ -575,6 +644,15 @@ export function LoanDetailPage() {
           oldLoanId={loan.id}
           oldLoanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
           oldLoanOutstandingBalance={outstandingBalance}
+          oldLoanCoDebtor={{
+            coDebtorFullName: loan.coDebtorFullName,
+            coDebtorDocumentType: loan.coDebtorDocumentType,
+            coDebtorDocumentNumber: loan.coDebtorDocumentNumber,
+            coDebtorPhoneNumber: loan.coDebtorPhoneNumber,
+            coDebtorAddress: loan.coDebtorAddress,
+            coDebtorRelationship: loan.coDebtorRelationship,
+            coDebtorIdDocumentUrl: loan.coDebtorIdDocumentUrl,
+          }}
           onClose={() => setIsRefinancing(false)}
           onSubmit={async (input) => {
             const newLoan = await refinanceLoan.mutateAsync({
@@ -607,6 +685,28 @@ function KpiCard({ label, value }: { label: string; value: string }) {
     <div className="flex flex-col gap-1.5 rounded border border-border bg-surface p-4">
       <span className="text-label text-muted">{label}</span>
       <span className="text-kpi font-light text-white">{value}</span>
+    </div>
+  );
+}
+
+// Phase 21 — a single label/value line for the co-debtor section below.
+// Skips rendering entirely when the value is empty, so an optional
+// sub-field left blank (e.g. no coDebtorAddress) doesn't leave a dangling
+// "Dirección: —" line.
+function DetailField({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null | undefined;
+}) {
+  if (!value) {
+    return null;
+  }
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-meta text-muted">{label}</span>
+      <span className="text-white">{value}</span>
     </div>
   );
 }
@@ -646,36 +746,5 @@ function Td({
     >
       {children}
     </td>
-  );
-}
-
-// Phase 12 — click-to-enlarge view for a payment's receipt photo. Its own
-// component (not inline JSX) so useEscapeKey only attaches its listener
-// while the lightbox is actually mounted, same pattern as every other
-// dialog in this file (RegisterPaymentDialog, MarkAsPaidDialog, etc.).
-function ImageLightbox({
-  imageUrl,
-  onClose,
-}: {
-  imageUrl: string;
-  onClose: () => void;
-}) {
-  useEscapeKey(onClose);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <img
-        src={imageUrl}
-        alt="Comprobante de pago ampliado"
-        className="max-h-[85vh] max-w-[85vw] rounded border border-border object-contain"
-        // Prevents a click on the image itself from bubbling up to the
-        // backdrop's onClose — otherwise there'd be no way to right-click
-        // or select the image without immediately closing the lightbox.
-        onClick={(event) => event.stopPropagation()}
-      />
-    </div>
   );
 }
