@@ -16,6 +16,7 @@ import { UsuryRateService } from '../usuryRates/usuryRates.service';
 import { MessageLogStatus } from '../whatsapp/entities/messageLog.entity';
 import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 
+import { DocumentType } from '../clients/entities/client.entity';
 import {
   ConceptAssignment,
   GeneratedInstallment,
@@ -147,6 +148,13 @@ interface PersistLoanParams {
   description?: string | null;
   usuryJustification?: string | null;
   refinancedFromLoanId?: string | null;
+  coDebtorFullName?: string | null;
+  coDebtorDocumentType?: DocumentType | null;
+  coDebtorDocumentNumber?: string | null;
+  coDebtorPhoneNumber?: string | null;
+  coDebtorAddress?: string | null;
+  coDebtorRelationship?: string | null;
+  coDebtorIdDocumentUrl?: string | null;
 }
 
 @Injectable()
@@ -184,6 +192,13 @@ export class LoansService {
       initialInstallmentIndex: dto.initialInstallmentIndex,
       description: dto.description,
       usuryJustification: dto.usuryJustification,
+      coDebtorFullName: dto.coDebtorFullName,
+      coDebtorDocumentType: dto.coDebtorDocumentType,
+      coDebtorDocumentNumber: dto.coDebtorDocumentNumber,
+      coDebtorPhoneNumber: dto.coDebtorPhoneNumber,
+      coDebtorAddress: dto.coDebtorAddress,
+      coDebtorRelationship: dto.coDebtorRelationship,
+      coDebtorIdDocumentUrl: dto.coDebtorIdDocumentUrl,
     });
 
     await this.sendNewLoanMessageSafely(savedLoan.id);
@@ -264,6 +279,21 @@ export class LoansService {
       description: dto.description,
       usuryJustification: dto.usuryJustification,
       refinancedFromLoanId: id,
+      // Carries over the old loan's co-debtor unchanged unless the dto
+      // explicitly overrides a field — confirmed default behavior, see
+      // RefinanceLoanDto and docs/phases/PHASE_21_CLIENT_PROFILE.md.
+      coDebtorFullName: dto.coDebtorFullName ?? oldLoan.coDebtorFullName,
+      coDebtorDocumentType:
+        dto.coDebtorDocumentType ?? oldLoan.coDebtorDocumentType,
+      coDebtorDocumentNumber:
+        dto.coDebtorDocumentNumber ?? oldLoan.coDebtorDocumentNumber,
+      coDebtorPhoneNumber:
+        dto.coDebtorPhoneNumber ?? oldLoan.coDebtorPhoneNumber,
+      coDebtorAddress: dto.coDebtorAddress ?? oldLoan.coDebtorAddress,
+      coDebtorRelationship:
+        dto.coDebtorRelationship ?? oldLoan.coDebtorRelationship,
+      coDebtorIdDocumentUrl:
+        dto.coDebtorIdDocumentUrl ?? oldLoan.coDebtorIdDocumentUrl,
     });
 
     await this.sendNewLoanMessageSafely(newLoan.id);
@@ -710,6 +740,13 @@ export class LoansService {
       usuryCeilingExceededAtCreation: usuryWarning !== null,
       usuryJustification: params.usuryJustification ?? null,
       refinancedFromLoanId: params.refinancedFromLoanId ?? null,
+      coDebtorFullName: params.coDebtorFullName ?? null,
+      coDebtorDocumentType: params.coDebtorDocumentType ?? null,
+      coDebtorDocumentNumber: params.coDebtorDocumentNumber ?? null,
+      coDebtorPhoneNumber: params.coDebtorPhoneNumber ?? null,
+      coDebtorAddress: params.coDebtorAddress ?? null,
+      coDebtorRelationship: params.coDebtorRelationship ?? null,
+      coDebtorIdDocumentUrl: params.coDebtorIdDocumentUrl ?? null,
     });
 
     let savedLoan: Loan;
