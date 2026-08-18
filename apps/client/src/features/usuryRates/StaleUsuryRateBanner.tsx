@@ -11,9 +11,16 @@ import { useCurrentUsuryRate } from '@/features/usuryRates/useUsuryRates';
 // /usury-rates/current is admin-only server-side, so only render this
 // where the caller already knows the current user is an admin.
 export function StaleUsuryRateBanner() {
-  const { data: current } = useCurrentUsuryRate();
+  const { data: current, isPending } = useCurrentUsuryRate();
 
-  if (!current?.isStale) return null;
+  // GET /usury-rates/current returns null when NO rate has ever been
+  // entered (not just when the latest one is from a prior month) — that
+  // case must show this banner too. Bug fixed 2026-08-18: the original
+  // `!current?.isStale` check treated a null `current` (nothing entered
+  // yet at all) as "not stale" and silently suppressed the banner in
+  // exactly the situation it exists to warn about.
+  if (isPending) return null;
+  if (current?.isStale === false) return null;
 
   return (
     <div
@@ -21,8 +28,8 @@ export function StaleUsuryRateBanner() {
       className="flex items-center justify-between gap-3 rounded border border-amber-400/40 bg-amber-400/10 px-4 py-2.5 text-small text-amber-200"
     >
       <span>
-        La tasa de usura de este mes todavía no se ha ingresado — los préstamos
-        nuevos no podrán validarse contra el techo vigente.
+        No has agregado la tasa de usura de este mes — los préstamos nuevos no
+        podrán validarse contra el techo vigente.
       </span>
       <Link
         to="/tasa-de-usura"

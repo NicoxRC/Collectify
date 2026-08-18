@@ -326,6 +326,19 @@ export function LoanDetailPage() {
         <KpiCard label="Tasa de interés" value={`${loan.interestRate}%`} />
       </div>
 
+      {loan.initialPayment != null && (
+        // Phase 13 (corrected after client QA) — purely informational: the
+        // client already paid this outside the credit system, it's not one
+        // of this loan's installments and never affects the schedule. See
+        // docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
+        <p className="text-small">
+          <span className="text-muted">Cuota inicial (pagada aparte): </span>
+          <span className="text-white">
+            {formatCurrency(loan.initialPayment)}
+          </span>
+        </p>
+      )}
+
       {loan.description && (
         <p className="text-small">
           <span className="text-muted">Descripción: </span>
@@ -449,16 +462,8 @@ export function LoanDetailPage() {
                       )}
                     </Td>
                     <Td>
-                      {installment.isInitial ? (
-                        // Phase 13 — a cuota inicial never accrues mora,
-                        // however far past its due date, so it never shows
-                        // the days-overdue badge. See
-                        // docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
-                        <span className="rounded-[3px] border border-mid bg-surface px-2 py-[3px] text-meta font-medium text-mid">
-                          Sin mora
-                        </span>
-                      ) : installment.status === InstallmentStatus.Pending &&
-                        installment.overdueDays > 0 ? (
+                      {installment.status === InstallmentStatus.Pending &&
+                      installment.overdueDays > 0 ? (
                         <span
                           className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${moraBadgeClasses(installment.overdueDays)}`}
                         >

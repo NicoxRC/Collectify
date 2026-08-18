@@ -5,66 +5,36 @@ import {
   generateAmortizationSchedule,
 } from './generateSchedule';
 
-function repeat(
-  concepts: ConceptAssignment[],
-  totalInstallments: number,
-): ConceptAssignment[][] {
-  return Array.from({ length: totalInstallments }, () => concepts);
-}
-
 describe('generateAmortizationSchedule', () => {
-  it('splits principal evenly and applies a flat percentage concept to the declining balance', () => {
+  it('produces a level total payment per installment (cuota fija), front-loading interest and back-loading capital', () => {
     const concept: ConceptAssignment = {
       conceptTypeId: 'concept-1',
       name: 'Interés remuneratorio',
       calculationType: ConceptCalculationType.Percentage,
-      value: 2,
+      value: 5,
     };
 
-    const schedule = generateAmortizationSchedule(
-      900000,
-      3,
-      repeat([concept], 3),
-    );
+    const schedule = generateAmortizationSchedule(300000, 3, [concept]);
 
-    expect(schedule).toEqual([
-      expect.objectContaining({
-        installmentNumber: 1,
-        principalPortion: 300000,
-        amount: 318000,
-      }),
-      expect.objectContaining({
-        installmentNumber: 2,
-        principalPortion: 300000,
-        amount: 312000,
-      }),
-      expect.objectContaining({
-        installmentNumber: 3,
-        principalPortion: 300000,
-        amount: 306000,
-      }),
+    // Every installment's total is identical, regardless of the shifting
+    // capital/interest split underneath it.
+    expect(schedule.map((i) => i.amount)).toEqual([
+      110162.57, 110162.57, 110162.57,
     ]);
-    // The concept's contribution declines as the balance it's applied to
-    // declines: 900000*2%, then 600000*2%, then 300000*2%.
+    // Capital grows installment-to-installment...
+    expect(schedule.map((i) => i.principalPortion)).toEqual([
+      95162.57, 99920.7, 104916.73,
+    ]);
+    // ...while the interest concept's contribution shrinks, computed on
+    // the declining balance.
     expect(schedule.map((i) => i.concepts[0].computedAmount)).toEqual([
-      18000, 12000, 6000,
+      15000, 10241.87, 5245.84,
     ]);
   });
 
   it('sums principal portions to exactly the principal amount, including a rounding remainder', () => {
-    const concept: ConceptAssignment = {
-      conceptTypeId: 'concept-1',
-      name: 'Interés remuneratorio',
-      calculationType: ConceptCalculationType.Percentage,
-      value: 2,
-    };
-
     // 1000 / 3 = 333.333... — not evenly divisible.
-    const schedule = generateAmortizationSchedule(
-      1000,
-      3,
-      repeat([concept], 3),
-    );
+    const schedule = generateAmortizationSchedule(1000, 3, []);
 
     const total = schedule.reduce((sum, i) => sum + i.principalPortion, 0);
     expect(total).toBeCloseTo(1000, 6);
@@ -82,15 +52,14 @@ describe('generateAmortizationSchedule', () => {
       value: 5000,
     };
 
-    const schedule = generateAmortizationSchedule(
-      300000,
-      3,
-      repeat([concept], 3),
-    );
+    const schedule = generateAmortizationSchedule(300000, 3, [concept]);
 
     expect(schedule.map((i) => i.concepts[0].computedAmount)).toEqual([
       5000, 5000, 5000,
     ]);
+    // With no percentage concept, the level payment is just principal
+    // split evenly plus the flat fee every period.
+    expect(schedule.map((i) => i.amount)).toEqual([105000, 105000, 105000]);
   });
 
   it('supports a mix of percentage and fixed-amount concepts on the same installment', () => {
@@ -108,34 +77,13 @@ describe('generateAmortizationSchedule', () => {
     };
 
     const schedule = generateAmortizationSchedule(300000, 1, [
-      [percentageConcept, fixedConcept],
+      percentageConcept,
+      fixedConcept,
     ]);
 
-    // principal 300000 + 2% of 300000 (6000) + 5000 flat = 311000
+    // Single installment: principal 300000 + 2% of 300000 (6000) + 5000
+    // flat = 311000.
     expect(schedule[0].amount).toBe(311000);
-  });
-
-  it('lets concepts vary installment-to-installment', () => {
-    const interestOnly: ConceptAssignment = {
-      conceptTypeId: 'concept-1',
-      name: 'Interés remuneratorio',
-      calculationType: ConceptCalculationType.Percentage,
-      value: 2,
-    };
-    const interestPlusFee: ConceptAssignment = {
-      conceptTypeId: 'concept-2',
-      name: 'Seguro',
-      calculationType: ConceptCalculationType.FixedAmount,
-      value: 3000,
-    };
-
-    const schedule = generateAmortizationSchedule(200000, 2, [
-      [interestOnly],
-      [interestOnly, interestPlusFee],
-    ]);
-
-    expect(schedule[0].concepts).toHaveLength(1);
-    expect(schedule[1].concepts).toHaveLength(2);
   });
 
   it('generates a single installment equal to principal plus its concepts', () => {
@@ -146,7 +94,7 @@ describe('generateAmortizationSchedule', () => {
       value: 5,
     };
 
-    const schedule = generateAmortizationSchedule(100000, 1, [[concept]]);
+    const schedule = generateAmortizationSchedule(100000, 1, [concept]);
 
     expect(schedule).toHaveLength(1);
     expect(schedule[0]).toMatchObject({
@@ -156,21 +104,14 @@ describe('generateAmortizationSchedule', () => {
     });
   });
 
-  it('handles an installment with no concepts at all', () => {
-    const schedule = generateAmortizationSchedule(90000, 3, repeat([], 3));
+  it('handles a loan with no concepts at all', () => {
+    const schedule = generateAmortizationSchedule(90000, 3, []);
 
     expect(schedule.every((i) => i.amount === i.principalPortion)).toBe(true);
-    expect(schedule.reduce((sum, i) => sum + i.amount, 0)).toBeCloseTo(
-      90000,
-      6,
-    );
+    expect(schedule.map((i) => i.amount)).toEqual([30000, 30000, 30000]);
   });
 
   it('throws when totalInstallments is less than 1', () => {
     expect(() => generateAmortizationSchedule(1000, 0, [])).toThrow();
-  });
-
-  it('throws when conceptsByInstallment length does not match totalInstallments', () => {
-    expect(() => generateAmortizationSchedule(1000, 2, [[]])).toThrow();
   });
 });

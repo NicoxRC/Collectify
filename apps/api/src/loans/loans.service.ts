@@ -6,7 +6,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, ILike, In, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  FindOptionsWhere,
+  ILike,
+  In,
+  Repository,
+} from 'typeorm';
 
 import { ClientsService } from '../clients/clients.service';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
@@ -37,6 +44,7 @@ import {
   enrichInstallment,
   InstallmentWithCalculated,
 } from './installments/enrichInstallment';
+import { calculateOverdueDays } from './installments/installmentCalculations';
 import {
   calculatePayoff,
   PayoffInstallmentInput,
@@ -46,11 +54,6 @@ import {
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const POSTGRES_UNIQUE_VIOLATION = '23505';
-
-interface InstallmentConceptOverride {
-  installmentNumber: number;
-  concepts: LoanConceptAssignmentDto[];
-}
 
 export interface PreviewedInstallment {
   installmentNumber: number;
@@ -80,6 +83,11 @@ export interface RefinanceQuote {
   payoff: PayoffQuote;
   suggestedPrincipalAmount: number;
   concepts: LoanConceptAssignmentDto[];
+  // Installment numbers that must be paid in full before this loan can
+  // actually be refinanced — confirmed with the human (2026-08-18): the
+  // client must be current first. Empty when nothing blocks refinancing.
+  // See LoansService.blockingInstallmentNumbers.
+  blockedByPendingInstallments: number[];
 }
 
 export interface LoanDetail extends Loan {
@@ -143,8 +151,14 @@ interface PersistLoanParams {
   installmentFrequency: InstallmentFrequency;
   totalInstallments: number;
   concepts: LoanConceptAssignmentDto[];
-  installmentConceptOverrides?: InstallmentConceptOverride[];
-  initialInstallmentIndex?: number;
+  // Purely informational — the down payment the client already made
+  // outside the credit system to cover the part of the purchase this
+  // loan doesn't finance. It is not one of the loan's installments, has
+  // no due date, accrues no interest, and never affects the amortization
+  // schedule. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md (corrected
+  // after client QA — this was originally modeled as flagging one of the
+  // generated installments, which was wrong).
+  initialPayment?: number | null;
   description?: string | null;
   usuryJustification?: string | null;
   refinancedFromLoanId?: string | null;
@@ -174,32 +188,42 @@ export class LoansService {
     private readonly usuryRateService: UsuryRateService,
     private readonly newLoanReminderService: NewLoanReminderService,
     private readonly clientsService: ClientsService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(dto: CreateLoanDto): Promise<LoanDetail> {
     await this.assertClientCanTakeNewLoan(dto.clientId, dto.principalAmount);
 
-    const savedLoan = await this.persistLoanWithInstallments({
-      clientId: dto.clientId,
-      promissoryNoteNumber: dto.promissoryNoteNumber,
-      principalAmount: dto.principalAmount,
-      interestRate: dto.interestRate,
-      disbursedAt: dto.disbursedAt,
-      installmentFrequency: dto.installmentFrequency,
-      totalInstallments: dto.totalInstallments,
-      concepts: dto.concepts,
-      installmentConceptOverrides: dto.installmentConceptOverrides,
-      initialInstallmentIndex: dto.initialInstallmentIndex,
-      description: dto.description,
-      usuryJustification: dto.usuryJustification,
-      coDebtorFullName: dto.coDebtorFullName,
-      coDebtorDocumentType: dto.coDebtorDocumentType,
-      coDebtorDocumentNumber: dto.coDebtorDocumentNumber,
-      coDebtorPhoneNumber: dto.coDebtorPhoneNumber,
-      coDebtorAddress: dto.coDebtorAddress,
-      coDebtorRelationship: dto.coDebtorRelationship,
-      coDebtorIdDocumentUrl: dto.coDebtorIdDocumentUrl,
-    });
+    // Transactional — persistLoanWithInstallments is three sequential
+    // saves (loan, then installments, then concept rows); without this, a
+    // failure partway (e.g. a concept type deleted mid-request) would
+    // leave an orphaned loan with no installments. See the same fix in
+    // refinance(), which found this the hard way.
+    const savedLoan = await this.dataSource.transaction((manager) =>
+      this.persistLoanWithInstallments(
+        {
+          clientId: dto.clientId,
+          promissoryNoteNumber: dto.promissoryNoteNumber,
+          principalAmount: dto.principalAmount,
+          interestRate: dto.interestRate,
+          disbursedAt: dto.disbursedAt,
+          installmentFrequency: dto.installmentFrequency,
+          totalInstallments: dto.totalInstallments,
+          concepts: dto.concepts,
+          initialPayment: dto.initialPayment,
+          description: dto.description,
+          usuryJustification: dto.usuryJustification,
+          coDebtorFullName: dto.coDebtorFullName,
+          coDebtorDocumentType: dto.coDebtorDocumentType,
+          coDebtorDocumentNumber: dto.coDebtorDocumentNumber,
+          coDebtorPhoneNumber: dto.coDebtorPhoneNumber,
+          coDebtorAddress: dto.coDebtorAddress,
+          coDebtorRelationship: dto.coDebtorRelationship,
+          coDebtorIdDocumentUrl: dto.coDebtorIdDocumentUrl,
+        },
+        manager,
+      ),
+    );
 
     await this.sendNewLoanMessageSafely(savedLoan.id);
 
@@ -211,15 +235,11 @@ export class LoansService {
   // installments will look like before they commit. See
   // docs/phasesClient/PHASE_14_INTEREST_CONCEPTS.md.
   async previewSchedule(dto: PreviewScheduleDto): Promise<SchedulePreview> {
-    const conceptsByInstallment = await this.resolveConceptsByInstallment(
-      dto.totalInstallments,
-      dto.concepts,
-      dto.installmentConceptOverrides ?? [],
-    );
+    const concepts = await this.resolveConcepts(dto.concepts);
     const schedule = generateAmortizationSchedule(
       dto.principalAmount,
       dto.totalInstallments,
-      conceptsByInstallment,
+      concepts,
     );
 
     const installments = schedule.map((generated) => ({
@@ -257,43 +277,64 @@ export class LoansService {
       );
     }
 
-    oldLoan.status = LoanStatus.Refinanced;
-    await this.loansRepository.save(oldLoan);
+    const blockingInstallmentNumbers =
+      await this.findBlockingInstallmentNumbers(id);
+    if (blockingInstallmentNumbers.length > 0) {
+      throw new BadRequestException(
+        `This loan cannot be refinanced until installment(s) ${blockingInstallmentNumbers.join(', ')} are paid in full — the client must be current before refinancing. See docs/phases/PHASE_17_REFINANCING_RECALC.md.`,
+      );
+    }
 
-    await this.installmentsRepository.update(
-      { loanId: id, status: InstallmentStatus.Pending },
-      { status: InstallmentStatus.Cancelled },
-    );
+    // Transactional — closing out the old loan, cancelling its pending
+    // installments, and creating the new one must all succeed or all roll
+    // back. Previously these were three separate non-transactional steps:
+    // if persistLoanWithInstallments failed partway (e.g. a duplicate
+    // promissory note number), the old loan was left stuck as
+    // 'refinanced' with its installments cancelled and no replacement
+    // loan — a real incident found during manual QA (2026-08-18).
+    const newLoan = await this.dataSource.transaction(async (manager) => {
+      oldLoan.status = LoanStatus.Refinanced;
+      await manager.getRepository(Loan).save(oldLoan);
 
-    const newLoan = await this.persistLoanWithInstallments({
-      clientId: oldLoan.clientId,
-      promissoryNoteNumber: dto.promissoryNoteNumber,
-      principalAmount: dto.principalAmount,
-      interestRate: dto.interestRate,
-      disbursedAt: dto.disbursedAt,
-      installmentFrequency: dto.installmentFrequency,
-      totalInstallments: dto.totalInstallments,
-      concepts: dto.concepts,
-      installmentConceptOverrides: dto.installmentConceptOverrides,
-      initialInstallmentIndex: dto.initialInstallmentIndex,
-      description: dto.description,
-      usuryJustification: dto.usuryJustification,
-      refinancedFromLoanId: id,
-      // Carries over the old loan's co-debtor unchanged unless the dto
-      // explicitly overrides a field — confirmed default behavior, see
-      // RefinanceLoanDto and docs/phases/PHASE_21_CLIENT_PROFILE.md.
-      coDebtorFullName: dto.coDebtorFullName ?? oldLoan.coDebtorFullName,
-      coDebtorDocumentType:
-        dto.coDebtorDocumentType ?? oldLoan.coDebtorDocumentType,
-      coDebtorDocumentNumber:
-        dto.coDebtorDocumentNumber ?? oldLoan.coDebtorDocumentNumber,
-      coDebtorPhoneNumber:
-        dto.coDebtorPhoneNumber ?? oldLoan.coDebtorPhoneNumber,
-      coDebtorAddress: dto.coDebtorAddress ?? oldLoan.coDebtorAddress,
-      coDebtorRelationship:
-        dto.coDebtorRelationship ?? oldLoan.coDebtorRelationship,
-      coDebtorIdDocumentUrl:
-        dto.coDebtorIdDocumentUrl ?? oldLoan.coDebtorIdDocumentUrl,
+      await manager
+        .getRepository(Installment)
+        .update(
+          { loanId: id, status: InstallmentStatus.Pending },
+          { status: InstallmentStatus.Cancelled },
+        );
+
+      return this.persistLoanWithInstallments(
+        {
+          clientId: oldLoan.clientId,
+          promissoryNoteNumber: dto.promissoryNoteNumber,
+          principalAmount: dto.principalAmount,
+          interestRate: dto.interestRate,
+          disbursedAt: dto.disbursedAt,
+          installmentFrequency: dto.installmentFrequency,
+          totalInstallments: dto.totalInstallments,
+          concepts: dto.concepts,
+          initialPayment: dto.initialPayment,
+          description: dto.description,
+          usuryJustification: dto.usuryJustification,
+          refinancedFromLoanId: id,
+          // Carries over the old loan's co-debtor unchanged unless the dto
+          // explicitly overrides a field — confirmed default behavior, see
+          // RefinanceLoanDto and docs/phases/PHASE_21_CLIENT_PROFILE.md.
+          coDebtorFullName: dto.coDebtorFullName ?? oldLoan.coDebtorFullName,
+          coDebtorDocumentType:
+            dto.coDebtorDocumentType ?? oldLoan.coDebtorDocumentType,
+          coDebtorDocumentNumber:
+            dto.coDebtorDocumentNumber ?? oldLoan.coDebtorDocumentNumber,
+          coDebtorPhoneNumber:
+            dto.coDebtorPhoneNumber ?? oldLoan.coDebtorPhoneNumber,
+          coDebtorAddress: dto.coDebtorAddress ?? oldLoan.coDebtorAddress,
+          coDebtorRelationship:
+            dto.coDebtorRelationship ?? oldLoan.coDebtorRelationship,
+          coDebtorIdDocumentUrl:
+            dto.coDebtorIdDocumentUrl ?? oldLoan.coDebtorIdDocumentUrl,
+        },
+        manager,
+      );
     });
 
     await this.sendNewLoanMessageSafely(newLoan.id);
@@ -593,6 +634,8 @@ export class LoansService {
       pending.map(toPayoffInstallmentInput),
       loan.interestRate,
     );
+    const blockedByPendingInstallments =
+      this.blockingInstallmentNumbers(pending);
 
     const firstInstallment = await this.installmentsRepository.findOne({
       where: { loanId: id },
@@ -614,7 +657,54 @@ export class LoansService {
           calculationType: concept.calculationType,
           value: concept.value,
         })),
+      blockedByPendingInstallments,
     };
+  }
+
+  // Confirmed with the human (2026-08-18): refinancing requires the client
+  // to be current on the old loan — every overdue installment must be paid
+  // off as an ordinary payment first. Additionally, once the most overdue
+  // installment has reached 8 days past due, the NEXT installment (even
+  // though its own due date hasn't arrived yet) must also be settled first
+  // — the client can't use a refinance to "skip ahead" past the
+  // still-current installment once they're 8+ days behind on the one
+  // before it. Returns an empty array when nothing blocks refinancing.
+  private blockingInstallmentNumbers(pending: Installment[]): number[] {
+    const today = new Date();
+    const overdue = pending.filter(
+      (installment) =>
+        calculateOverdueDays(new Date(installment.dueDate), today) > 0,
+    );
+    if (overdue.length === 0) {
+      return [];
+    }
+
+    const blocking = overdue.map(
+      (installment) => installment.installmentNumber,
+    );
+    const mostOverdue = overdue[overdue.length - 1];
+    const mostOverdueDays = calculateOverdueDays(
+      new Date(mostOverdue.dueDate),
+      today,
+    );
+    if (mostOverdueDays >= 8) {
+      const next = pending.find(
+        (installment) =>
+          installment.installmentNumber === mostOverdue.installmentNumber + 1,
+      );
+      if (next) {
+        blocking.push(next.installmentNumber);
+      }
+    }
+
+    return blocking;
+  }
+
+  private async findBlockingInstallmentNumbers(
+    loanId: string,
+  ): Promise<number[]> {
+    const pending = await this.findPendingInstallments(loanId);
+    return this.blockingInstallmentNumbers(pending);
   }
 
   // Added for the loan detail screen's "Historial de pagos" (F-19) — there
@@ -701,22 +791,24 @@ export class LoansService {
   // docs/phases/PHASE_14_INTEREST_CONCEPTS.md.
   private async persistLoanWithInstallments(
     params: PersistLoanParams,
+    manager: EntityManager,
   ): Promise<Loan> {
-    await this.assertPromissoryNoteNumberIsUnique(params.promissoryNoteNumber);
-
-    const conceptsByInstallment = await this.resolveConceptsByInstallment(
-      params.totalInstallments,
-      params.concepts,
-      params.installmentConceptOverrides ?? [],
+    const loansRepository = manager.getRepository(Loan);
+    const installmentsRepository = manager.getRepository(Installment);
+    const loanInstallmentConceptsRepository = manager.getRepository(
+      LoanInstallmentConcept,
     );
+
+    await this.assertPromissoryNoteNumberIsUnique(
+      params.promissoryNoteNumber,
+      loansRepository,
+    );
+
+    const concepts = await this.resolveConcepts(params.concepts);
     const schedule = generateAmortizationSchedule(
       params.principalAmount,
       params.totalInstallments,
-      conceptsByInstallment,
-    );
-    this.assertInitialInstallmentIndexInRange(
-      params.initialInstallmentIndex,
-      params.totalInstallments,
+      concepts,
     );
 
     // Creation-time only, not recomputed on read (confirmed with the
@@ -727,7 +819,7 @@ export class LoansService {
       params.principalAmount,
     );
 
-    const loan = this.loansRepository.create({
+    const loan = loansRepository.create({
       clientId: params.clientId,
       promissoryNoteNumber: params.promissoryNoteNumber,
       principalAmount: params.principalAmount,
@@ -737,6 +829,7 @@ export class LoansService {
       totalInstallments: params.totalInstallments,
       status: LoanStatus.Active,
       description: params.description ?? null,
+      initialPayment: params.initialPayment ?? null,
       usuryCeilingExceededAtCreation: usuryWarning !== null,
       usuryJustification: params.usuryJustification ?? null,
       refinancedFromLoanId: params.refinancedFromLoanId ?? null,
@@ -751,13 +844,13 @@ export class LoansService {
 
     let savedLoan: Loan;
     try {
-      savedLoan = await this.loansRepository.save(loan);
+      savedLoan = await loansRepository.save(loan);
     } catch (error) {
       throw this.mapUniqueViolation(error);
     }
 
-    const installments = schedule.map((generated, index) =>
-      this.installmentsRepository.create({
+    const installments = schedule.map((generated) =>
+      installmentsRepository.create({
         loanId: savedLoan.id,
         installmentNumber: generated.installmentNumber,
         amount: generated.amount,
@@ -768,15 +861,13 @@ export class LoansService {
           generated.installmentNumber,
         ),
         status: InstallmentStatus.Pending,
-        isInitial: index === params.initialInstallmentIndex,
       }),
     );
-    const savedInstallments =
-      await this.installmentsRepository.save(installments);
+    const savedInstallments = await installmentsRepository.save(installments);
 
     const conceptRows = savedInstallments.flatMap((installment, index) =>
       schedule[index].concepts.map((concept) =>
-        this.loanInstallmentConceptsRepository.create({
+        loanInstallmentConceptsRepository.create({
           installmentId: installment.id,
           interestConceptTypeId: concept.conceptTypeId,
           nameSnapshot: concept.name,
@@ -787,7 +878,7 @@ export class LoansService {
       ),
     );
     if (conceptRows.length > 0) {
-      await this.loanInstallmentConceptsRepository.save(conceptRows);
+      await loanInstallmentConceptsRepository.save(conceptRows);
     }
 
     return savedLoan;
@@ -796,22 +887,16 @@ export class LoansService {
   // Resolves each referenced concept type's current name from the catalog
   // (snapshotted onto LoanInstallmentConcept — an edit to the catalog entry
   // later must never change an already-generated schedule, confirmed with
-  // the human) and expands the baseline concepts across every installment,
-  // substituting any per-installment override on top.
-  private async resolveConceptsByInstallment(
-    totalInstallments: number,
-    baselineConcepts: LoanConceptAssignmentDto[],
-    overrides: InstallmentConceptOverride[],
-  ): Promise<ConceptAssignment[][]> {
-    const distinctConceptTypeIds = new Set<string>();
-    for (const concept of baselineConcepts) {
-      distinctConceptTypeIds.add(concept.conceptTypeId);
-    }
-    for (const override of overrides) {
-      for (const concept of override.concepts) {
-        distinctConceptTypeIds.add(concept.conceptTypeId);
-      }
-    }
+  // the human). Concepts are the same for every installment of a loan —
+  // set once at creation, not overridable per installment — since that's
+  // what makes the level-payment (cuota fija) schedule well-defined; see
+  // docs/phases/PHASE_14_INTEREST_CONCEPTS.md.
+  private async resolveConcepts(
+    concepts: LoanConceptAssignmentDto[],
+  ): Promise<ConceptAssignment[]> {
+    const distinctConceptTypeIds = new Set(
+      concepts.map((concept) => concept.conceptTypeId),
+    );
 
     const nameByConceptTypeId = new Map<string, string>();
     for (const conceptTypeId of distinctConceptTypeIds) {
@@ -820,35 +905,12 @@ export class LoansService {
       nameByConceptTypeId.set(conceptTypeId, conceptType.name);
     }
 
-    const toAssignment = (
-      concept: LoanConceptAssignmentDto,
-    ): ConceptAssignment => ({
+    return concepts.map((concept) => ({
       conceptTypeId: concept.conceptTypeId,
       name: nameByConceptTypeId.get(concept.conceptTypeId) ?? '',
       calculationType: concept.calculationType,
       value: concept.value,
-    });
-
-    const baseline = baselineConcepts.map(toAssignment);
-    const conceptsByInstallment: ConceptAssignment[][] = Array.from(
-      { length: totalInstallments },
-      () => baseline,
-    );
-
-    for (const override of overrides) {
-      if (
-        override.installmentNumber < 1 ||
-        override.installmentNumber > totalInstallments
-      ) {
-        throw new BadRequestException(
-          `installmentConceptOverrides references installment ${override.installmentNumber}, but this loan only has ${totalInstallments} installments`,
-        );
-      }
-      conceptsByInstallment[override.installmentNumber - 1] =
-        override.concepts.map(toAssignment);
-    }
-
-    return conceptsByInstallment;
+    }));
   }
 
   // A failed/skipped "new loan" WhatsApp message must never fail the loan
@@ -888,30 +950,15 @@ export class LoansService {
 
   private async assertPromissoryNoteNumberIsUnique(
     promissoryNoteNumber: string,
+    loansRepository: Repository<Loan>,
   ): Promise<void> {
-    const existing = await this.loansRepository.findOne({
+    const existing = await loansRepository.findOne({
       where: { promissoryNoteNumber },
       withDeleted: true,
     });
     if (existing) {
       throw new ConflictException(
         `A loan with promissory note number ${promissoryNoteNumber} already exists`,
-      );
-    }
-  }
-
-  // Phase 13 guard — the index refers to a position in the generated
-  // schedule (0-based), not a hand-entered array, as of Phase 14.
-  private assertInitialInstallmentIndexInRange(
-    initialInstallmentIndex: number | undefined,
-    totalInstallments: number,
-  ): void {
-    if (
-      initialInstallmentIndex !== undefined &&
-      initialInstallmentIndex >= totalInstallments
-    ) {
-      throw new BadRequestException(
-        `initialInstallmentIndex (${initialInstallmentIndex}) is out of range — this loan has ${totalInstallments} installments`,
       );
     }
   }
@@ -950,7 +997,6 @@ function toPayoffInstallmentInput(
     amount: installment.amount,
     principalPortion: installment.principalPortion,
     dueDate: installment.dueDate,
-    isInitial: installment.isInitial,
   };
 }
 

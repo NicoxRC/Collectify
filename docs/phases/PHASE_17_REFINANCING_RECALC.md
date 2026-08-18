@@ -19,6 +19,17 @@ These answers are final for this phase — do not revisit them without a new con
 
 **This phase reopens and supersedes the manual-entry decision from `docs/phases/PHASE_6_REFINANCING.md`** — the field is no longer blank by default, but the admin retains full editing control, so Phase 6's underlying principle ("a business decision, not a formula") is preserved even as its concrete UI behavior changes.
 
+## Extended after client QA (2026-08-18) — refinancing now requires the client to be current
+
+**Confirmed directly with the human, reopening point 3 above ("`LoansService.refinance()` itself is unchanged"):** refinancing is no longer unconditional. The client must first be brought current on the old loan (paying overdue installments as ordinary payments, capital + interest) before it can be refinanced — refinancing is not a way to fold overdue debt into a new principal automatically.
+
+- **Blocking rule:** `POST /loans/:id/refinance` rejects (400) if the old loan has any `Pending` installment that is overdue (`dueDate` in the past).
+- **The 8-day extension:** once the most overdue installment has reached **8 days** past due, the installment immediately after it also blocks refinancing — even though its own due date hasn't arrived yet. The client can't use a refinance to "skip ahead" past the still-current installment once they're 8+ days behind on the one before it.
+- **Advisory surfacing:** `GET /loans/:id/refinance-quote` now also returns `blockedByPendingInstallments: number[]` (the same rule, computed in advance) so `RefinanceLoanForm.tsx` can show the admin why refinancing is blocked, and which installments need to be paid first, before they fill out the rest of the form.
+- Implemented as `LoansService.blockingInstallmentNumbers()` (pure, given a loan's pending installments) — used by both `refinance()` (enforced) and `getRefinanceQuote()` (advisory).
+
+This does **not** change how `suggestedPrincipalAmount`/`payoff` are computed above — once the client is current, refinancing proceeds exactly as originally scoped in this phase (pending installments folded into the new principal, not-yet-due ones at face value).
+
 ## Required reading before starting
 
 `docs/phases/PHASE_6_REFINANCING.md` (the decision this phase reopens), `docs/phases/PHASE_14_INTEREST_CONCEPTS.md`, `docs/phases/PHASE_15_USURY_RATE.md`, `docs/phases/PHASE_16_EARLY_PAYOFF.md` (this phase reuses its calculation module directly).

@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 
 import { ClientsService } from '../clients/clients.service';
 import { DocumentType } from '../clients/entities/client.entity';
@@ -53,6 +54,7 @@ describe('LoansService', () => {
   let usuryRateService: { getCurrentRate: jest.Mock };
   let newLoanReminderService: { sendNewLoanMessage: jest.Mock };
   let clientsService: { hasMoraBlock: jest.Mock; getCreditUsage: jest.Mock };
+  let dataSource: { transaction: jest.Mock };
 
   const mockConceptType: InterestConceptType = {
     id: 'concept-type-1',
@@ -79,6 +81,7 @@ describe('LoansService', () => {
     refinancedFromLoanId: null,
     refinancedFromLoan: null,
     description: null,
+    initialPayment: null,
     usuryCeilingExceededAtCreation: false,
     usuryJustification: null,
     newLoanMessageSentAt: null,
@@ -145,6 +148,32 @@ describe('LoansService', () => {
         creditAvailable: null,
       }),
     };
+    // Mock manager.getRepository() routes to the same mock repositories
+    // above by entity class, so persistLoanWithInstallments (now run
+    // inside dataSource.transaction()) exercises the exact mocks every
+    // existing assertion already targets — see loans.service.ts's
+    // create()/refinance() transaction wrapping.
+    dataSource = {
+      transaction: jest
+        .fn()
+        .mockImplementation(
+          async (work: (manager: EntityManager) => Promise<unknown>) => {
+            const manager = {
+              getRepository: (entity: unknown) => {
+                if (entity === Loan) return loansRepository;
+                if (entity === Installment) return installmentsRepository;
+                if (entity === LoanInstallmentConcept) {
+                  return loanInstallmentConceptsRepository;
+                }
+                throw new Error(
+                  `No mock repository registered for entity ${String(entity)}`,
+                );
+              },
+            } as unknown as EntityManager;
+            return work(manager);
+          },
+        ),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -175,6 +204,7 @@ describe('LoansService', () => {
           useValue: newLoanReminderService,
         },
         { provide: ClientsService, useValue: clientsService },
+        { provide: DataSource, useValue: dataSource },
       ],
     }).compile();
 
@@ -302,6 +332,17 @@ describe('LoansService', () => {
       );
     });
 
+    // Loan + installments + concept rows are three sequential saves — a
+    // real incident (2026-08-18) found refinance() left the DB in a broken
+    // half-applied state when one of them failed. Both create() and
+    // refinance() must run through dataSource.transaction() so a failure
+    // partway rolls everything back.
+    it('runs persistence inside a transaction', async () => {
+      await service.create(createDto);
+
+      expect(dataSource.transaction).toHaveBeenCalled();
+    });
+
     it('rejects a duplicate promissory note number', async () => {
       loansRepository.findOne.mockResolvedValue(mockLoan);
 
@@ -399,62 +440,32 @@ describe('LoansService', () => {
         }),
         expect.objectContaining({
           installmentId: 'installment-2',
-          computedAmount: 12000, // 600000 * 2%
+          computedAmount: 12118.42,
         }),
         expect.objectContaining({
           installmentId: 'installment-3',
-          computedAmount: 6000, // 300000 * 2%
+          computedAmount: 6119.2,
         }),
       ]);
     });
 
-    it('rejects an installmentConceptOverride referencing an out-of-range installment number', async () => {
-      await expect(
-        service.create({
-          ...createDto,
-          installmentConceptOverrides: [
-            {
-              installmentNumber: 99,
-              concepts: [
-                {
-                  conceptTypeId: mockConceptType.id,
-                  calculationType: ConceptCalculationType.Percentage,
-                  value: 2,
-                },
-              ],
-            },
-          ],
-        }),
-      ).rejects.toThrow(BadRequestException);
-      expect(loansRepository.save).not.toHaveBeenCalled();
+    // Phase 13 — docs/phases/PHASE_13_INITIAL_INSTALLMENT.md (corrected
+    // after client QA): a cuota inicial is a purely informational value on
+    // the loan itself, not a flag on one of its installments.
+    it('persists initialPayment on the loan when provided', async () => {
+      await service.create({ ...createDto, initialPayment: 50000 });
+
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ initialPayment: 50000 }),
+      );
     });
 
-    // Phase 13 — docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
-    it('flags only the chosen installment as isInitial, leaving the rest false', async () => {
-      await service.create({ ...createDto, initialInstallmentIndex: 0 });
-
-      expect(installmentsRepository.save).toHaveBeenCalledWith([
-        expect.objectContaining({ installmentNumber: 1, isInitial: true }),
-        expect.objectContaining({ installmentNumber: 2, isInitial: false }),
-        expect.objectContaining({ installmentNumber: 3, isInitial: false }),
-      ]);
-    });
-
-    it('flags every installment isInitial: false when no index is given', async () => {
+    it('persists a null initialPayment when not provided', async () => {
       await service.create(createDto);
 
-      expect(installmentsRepository.save).toHaveBeenCalledWith([
-        expect.objectContaining({ isInitial: false }),
-        expect.objectContaining({ isInitial: false }),
-        expect.objectContaining({ isInitial: false }),
-      ]);
-    });
-
-    it('rejects when initialInstallmentIndex is out of range for installmentAmounts', async () => {
-      await expect(
-        service.create({ ...createDto, initialInstallmentIndex: 3 }),
-      ).rejects.toThrow(BadRequestException);
-      expect(loansRepository.save).not.toHaveBeenCalled();
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ initialPayment: null }),
+      );
     });
 
     it('sends the new-loan WhatsApp message for the created loan', async () => {
@@ -631,6 +642,64 @@ describe('LoansService', () => {
       ]);
     });
 
+    // Closing out the old loan, cancelling its installments, and creating
+    // the new one must all succeed or all roll back — see the same note
+    // on create()'s "runs persistence inside a transaction" test.
+    it('runs the whole refinance inside a transaction', async () => {
+      await service.refinance(mockLoan.id, refinanceDto);
+
+      expect(dataSource.transaction).toHaveBeenCalled();
+    });
+
+    // Confirmed with the human (2026-08-18): refinancing requires the
+    // client to be current on the old loan first.
+    it('rejects refinancing when the old loan has an unpaid overdue installment', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'inst-1',
+          loanId: mockLoan.id,
+          loan: mockLoan,
+          installmentNumber: 1,
+          amount: 300000,
+          principalPortion: 300000,
+          dueDate: '2020-01-01', // far in the past — deterministic overdue
+          status: InstallmentStatus.Pending,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deletedAt: null,
+        },
+      ]);
+
+      await expect(
+        service.refinance(mockLoan.id, refinanceDto),
+      ).rejects.toThrow(BadRequestException);
+      expect(loansRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('allows refinancing when no installments are overdue', async () => {
+      const futureDueDate = new Date();
+      futureDueDate.setFullYear(futureDueDate.getFullYear() + 1);
+      installmentsRepository.find.mockResolvedValue([
+        {
+          id: 'inst-1',
+          loanId: mockLoan.id,
+          loan: mockLoan,
+          installmentNumber: 1,
+          amount: 300000,
+          principalPortion: 300000,
+          dueDate: futureDueDate.toISOString().slice(0, 10),
+          status: InstallmentStatus.Pending,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deletedAt: null,
+        },
+      ]);
+
+      await service.refinance(mockLoan.id, refinanceDto);
+
+      expect(loansRepository.save).toHaveBeenCalled();
+    });
+
     it('sends the new-loan WhatsApp message for the new loan', async () => {
       await service.refinance(mockLoan.id, refinanceDto);
 
@@ -719,16 +788,15 @@ describe('LoansService', () => {
     });
 
     // Phase 13 — docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
-    it('flags only the chosen installment as isInitial on the new loan', async () => {
+    it("persists initialPayment on the new loan's own record", async () => {
       await service.refinance(mockLoan.id, {
         ...refinanceDto,
-        initialInstallmentIndex: 1,
+        initialPayment: 20000,
       });
 
-      expect(installmentsRepository.save).toHaveBeenCalledWith([
-        expect.objectContaining({ installmentNumber: 1, isInitial: false }),
-        expect.objectContaining({ installmentNumber: 2, isInitial: true }),
-      ]);
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ initialPayment: 20000 }),
+      );
     });
 
     it('flags a refinance whose new concepts exceed the current usury ceiling (Phase 17: no new code needed, existing check applies)', async () => {
@@ -807,7 +875,6 @@ describe('LoansService', () => {
         principalPortion: null,
         dueDate: '2024-01-01', // far in the past — deterministic overdue
         status: InstallmentStatus.Pending,
-        isInitial: false,
         createdAt: new Date(),
         updatedAt: new Date(),
         deletedAt: null,
@@ -846,7 +913,6 @@ describe('LoansService', () => {
         principalPortion: 300000,
         dueDate: '2026-08-01',
         status: InstallmentStatus.Pending,
-        isInitial: false,
         createdAt: new Date(),
         updatedAt: new Date(),
         deletedAt: null,
@@ -1167,12 +1233,18 @@ describe('LoansService', () => {
         expect.objectContaining({
           installmentNumber: 1,
           dueDate: '2026-02-01',
-          principalPortion: 300000,
-          amount: 318000,
+          principalPortion: 294079.21,
+          amount: 312079.21,
           conceptBreakdown: [{ name: mockConceptType.name, amount: 18000 }],
         }),
-        expect.objectContaining({ installmentNumber: 2, amount: 312000 }),
-        expect.objectContaining({ installmentNumber: 3, amount: 306000 }),
+        expect.objectContaining({
+          installmentNumber: 2,
+          amount: 312079.21,
+        }),
+        expect.objectContaining({
+          installmentNumber: 3,
+          amount: 312079.2,
+        }),
       ]);
       expect(result.usuryWarning).toBeNull();
       expect(loansRepository.save).not.toHaveBeenCalled();
@@ -1384,7 +1456,6 @@ describe('LoansService', () => {
         principalPortion: 270000,
         dueDate: '2026-01-01',
         status: InstallmentStatus.Pending,
-        isInitial: false,
         createdAt: new Date(),
         updatedAt: new Date(),
         deletedAt: null,
@@ -1436,7 +1507,6 @@ describe('LoansService', () => {
         principalPortion: 270000,
         dueDate: '2026-01-01',
         status: InstallmentStatus.Pending,
-        isInitial: false,
         createdAt: new Date(),
         updatedAt: new Date(),
         deletedAt: null,
@@ -1518,6 +1588,93 @@ describe('LoansService', () => {
       expect(quote.suggestedPrincipalAmount).toBe(0);
     });
 
+    // Confirmed with the human (2026-08-18): refinancing requires the
+    // client to be current on the old loan first.
+    it('reports no blocking installments when nothing is overdue', async () => {
+      const futureDueDate = new Date();
+      futureDueDate.setFullYear(futureDueDate.getFullYear() + 1);
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({
+          dueDate: futureDueDate.toISOString().slice(0, 10),
+        }),
+      ]);
+      installmentsRepository.findOne.mockResolvedValue(
+        pendingInstallment({ id: 'inst-1' }),
+      );
+
+      const quote = await service.getRefinanceQuote(mockLoan.id);
+
+      expect(quote.blockedByPendingInstallments).toEqual([]);
+    });
+
+    it('reports every overdue installment as blocking', async () => {
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({
+          installmentNumber: 1,
+          dueDate: threeDaysAgo.toISOString().slice(0, 10),
+        }),
+      ]);
+      installmentsRepository.findOne.mockResolvedValue(
+        pendingInstallment({ id: 'inst-1' }),
+      );
+
+      const quote = await service.getRefinanceQuote(mockLoan.id);
+
+      expect(quote.blockedByPendingInstallments).toEqual([1]);
+    });
+
+    it('also blocks the next installment once the most overdue one reaches 8 days', async () => {
+      const eightDaysAgo = new Date();
+      eightDaysAgo.setDate(eightDaysAgo.getDate() - 8);
+      const inThreeWeeks = new Date();
+      inThreeWeeks.setDate(inThreeWeeks.getDate() + 21);
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({
+          installmentNumber: 1,
+          dueDate: eightDaysAgo.toISOString().slice(0, 10),
+        }),
+        pendingInstallment({
+          id: 'inst-2',
+          installmentNumber: 2,
+          dueDate: inThreeWeeks.toISOString().slice(0, 10),
+        }),
+      ]);
+      installmentsRepository.findOne.mockResolvedValue(
+        pendingInstallment({ id: 'inst-1' }),
+      );
+
+      const quote = await service.getRefinanceQuote(mockLoan.id);
+
+      expect(quote.blockedByPendingInstallments).toEqual([1, 2]);
+    });
+
+    it('does not block the next installment when the most overdue one is under 8 days', async () => {
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      const inThreeWeeks = new Date();
+      inThreeWeeks.setDate(inThreeWeeks.getDate() + 21);
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({
+          installmentNumber: 1,
+          dueDate: threeDaysAgo.toISOString().slice(0, 10),
+        }),
+        pendingInstallment({
+          id: 'inst-2',
+          installmentNumber: 2,
+          dueDate: inThreeWeeks.toISOString().slice(0, 10),
+        }),
+      ]);
+      installmentsRepository.findOne.mockResolvedValue(
+        pendingInstallment({ id: 'inst-1' }),
+      );
+
+      const quote = await service.getRefinanceQuote(mockLoan.id);
+
+      expect(quote.blockedByPendingInstallments).toEqual([1]);
+    });
+
     it('throws NotFoundException when the loan does not exist', async () => {
       loansRepository.findOneBy.mockResolvedValue(null);
 
@@ -1540,7 +1697,6 @@ describe('LoansService', () => {
         principalPortion: 270000,
         dueDate: '2026-01-01',
         status: InstallmentStatus.Pending,
-        isInitial: false,
         createdAt: new Date(),
         updatedAt: new Date(),
         deletedAt: null,

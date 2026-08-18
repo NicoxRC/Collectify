@@ -1,11 +1,10 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
   IsDateString,
   IsEnum,
   IsInt,
-  IsOptional,
   IsPositive,
   Min,
   ValidateNested,
@@ -13,10 +12,7 @@ import {
 
 import { InstallmentFrequency } from '../entities/loan.entity';
 
-import {
-  InstallmentConceptOverrideDto,
-  LoanConceptAssignmentDto,
-} from './loanConceptAssignment.dto';
+import { LoanConceptAssignmentDto } from './loanConceptAssignment.dto';
 
 // Same shape as the schedule-relevant subset of CreateLoanDto — no
 // clientId/promissoryNoteNumber/interestRate, since nothing is persisted
@@ -44,11 +40,4 @@ export class PreviewScheduleDto {
   @ValidateNested({ each: true })
   @Type(() => LoanConceptAssignmentDto)
   concepts!: LoanConceptAssignmentDto[];
-
-  @ApiPropertyOptional({ type: [InstallmentConceptOverrideDto] })
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => InstallmentConceptOverrideDto)
-  installmentConceptOverrides?: InstallmentConceptOverrideDto[];
 }

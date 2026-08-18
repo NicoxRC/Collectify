@@ -25,7 +25,6 @@ export interface Installment {
   principalPortion: number | null;
   dueDate: string;
   status: InstallmentStatus;
-  isInitial: boolean;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;

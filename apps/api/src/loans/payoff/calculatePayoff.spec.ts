@@ -13,7 +13,6 @@ function installment(
     amount: 300000,
     principalPortion: 270000,
     dueDate: '2026-01-01',
-    isInitial: false,
     ...overrides,
   };
 }
@@ -155,32 +154,6 @@ describe('calculatePayoff', () => {
     // Matured (due today), so concepts interest (30000) applies, but
     // overdueDays is 0 so moratory interest is 0.
     expect(quote.installments[0].interestApplied).toBeCloseTo(30000, 6);
-  });
-
-  it('applies an initial installment as pure principal, never interest, regardless of overdue status', () => {
-    const today = new Date('2026-01-11');
-    const overdueDate = subDays(today, 10).toISOString().slice(0, 10);
-
-    const quote = calculatePayoff(
-      [
-        installment({
-          dueDate: overdueDate,
-          amount: 300000,
-          principalPortion: 270000,
-          isInitial: true,
-        }),
-      ],
-      6,
-      today,
-    );
-
-    expect(quote.installments[0]).toEqual({
-      installmentId: 'inst-1',
-      installmentNumber: 1,
-      interestApplied: 0,
-      principalApplied: 300000,
-      totalDue: 300000,
-    });
   });
 
   it('falls back to treating the whole amount as principal when principalPortion is null (pre-Phase-14 installments)', () => {

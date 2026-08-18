@@ -21,10 +21,7 @@ import {
 import { DocumentType } from '../../clients/entities/client.entity';
 import { InstallmentFrequency } from '../entities/loan.entity';
 
-import {
-  InstallmentConceptOverrideDto,
-  LoanConceptAssignmentDto,
-} from './loanConceptAssignment.dto';
+import { LoanConceptAssignmentDto } from './loanConceptAssignment.dto';
 
 // As of Phase 14, installments are no longer hand-entered totals — the
 // amortization schedule (loans/amortization/generateSchedule.ts) is
@@ -70,29 +67,22 @@ export class CreateLoanDto {
   @ApiProperty({
     type: [LoanConceptAssignmentDto],
     description:
-      'Baseline interest/fee concepts applied to every installment, unless overridden for a specific one via installmentConceptOverrides. Can be empty for an interest-free financing plan.',
+      'Interest/fee concepts applied to every installment for the whole term of the loan. Can be empty for an interest-free financing plan.',
   })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => LoanConceptAssignmentDto)
   concepts!: LoanConceptAssignmentDto[];
 
-  @ApiPropertyOptional({ type: [InstallmentConceptOverrideDto] })
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => InstallmentConceptOverrideDto)
-  installmentConceptOverrides?: InstallmentConceptOverrideDto[];
-
   @ApiPropertyOptional({
-    example: 0,
+    example: 50000,
     description:
-      '0-based index into the generated schedule marking that installment as the initial payment ("cuota inicial") — exempt from mora regardless of due date. Omit if the loan has no initial installment. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.',
+      'The "cuota inicial" — a down payment the client already made outside the credit system to cover the part of the purchase this loan doesn\'t finance. Purely informational: it is not one of the loan\'s installments, has no due date, and never affects the amortization schedule. Omit if there was no down payment. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.',
   })
   @IsOptional()
-  @IsInt()
+  @IsNumber()
   @Min(0)
-  initialInstallmentIndex?: number;
+  initialPayment?: number;
 
   @ApiPropertyOptional({
     example:

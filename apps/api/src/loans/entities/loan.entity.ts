@@ -74,6 +74,22 @@ export class Loan {
   @Column({ type: 'text', nullable: true })
   description!: string | null;
 
+  // The "cuota inicial" — a down payment the client already made outside
+  // the credit system to cover the part of the purchase this loan doesn't
+  // finance. Purely informational: not one of this loan's installments,
+  // has no due date, accrues no interest, and never affects the
+  // amortization schedule. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md
+  // (corrected after client QA — this was originally, incorrectly,
+  // modeled as flagging one of the generated installments).
+  @Column({
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+    transformer: decimalTransformer,
+  })
+  initialPayment!: number | null;
+
   // Snapshotted once at creation/refinance time — not recomputed on read
   // (confirmed with the human: creation-time enforcement only, see
   // docs/phases/PHASE_15_USURY_RATE.md "Resolved"). true when this loan's

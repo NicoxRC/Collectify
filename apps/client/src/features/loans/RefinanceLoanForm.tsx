@@ -24,6 +24,7 @@ import {
   usePreviewSchedule,
   useRefinanceQuote,
 } from '@/features/loans/useLoans';
+import { StaleUsuryRateBanner } from '@/features/usuryRates/StaleUsuryRateBanner';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatDateOnly } from '@/lib/format';
 import { ImageUploadError, uploadDocument } from '@/lib/imageUpload';
@@ -212,6 +213,14 @@ export function RefinanceLoanForm({
 
   const principal = principalAmount;
   const count = parseInt(totalInstallments, 10) || 0;
+  // Confirmed with the human (2026-08-18): the client must be current on
+  // the old loan before it can be refinanced — enforced server-side in
+  // POST /loans/:id/refinance, surfaced here up front from the quote so
+  // the admin doesn't fill out the whole form only to get rejected at
+  // submit. See LoansService.blockingInstallmentNumbers.
+  const blockingInstallments =
+    refinanceQuote?.blockedByPendingInstallments ?? [];
+  const isBlocked = blockingInstallments.length > 0;
 
   const conceptTypeOptions = (conceptTypes ?? []).map((conceptType) => ({
     value: conceptType.id,
@@ -391,6 +400,13 @@ export function RefinanceLoanForm({
           setFieldErrors({
             promissoryNoteNumber: 'Ya existe un préstamo con este número.',
           });
+        } else if (
+          err.statusCode === 400 &&
+          /cannot be refinanced until/i.test(err.message)
+        ) {
+          setFormError(
+            'El cliente debe estar al día para poder refinanciar — paga primero las cuotas vencidas.',
+          );
         } else {
           setFormError(err.message);
         }
@@ -423,322 +439,352 @@ export function RefinanceLoanForm({
           futuro), pero podés editarlo libremente.
         </p>
 
+        <div className="mt-3.5">
+          <StaleUsuryRateBanner />
+        </div>
+
+        {isBlocked && (
+          <p
+            role="alert"
+            className="mt-3.5 rounded border border-[#ef4444] bg-[#240a0a] px-3.5 py-2.5 text-small text-[#ef4444]"
+          >
+            Este préstamo no se puede refinanciar todavía: el cliente debe
+            ponerse al día primero pagando la
+            {blockingInstallments.length > 1 ? 's cuotas ' : ' cuota '}
+            {blockingInstallments.join(', ')}
+            {blockingInstallments.length > 1
+              ? ' completas (capital + interés).'
+              : ' completa (capital + interés).'}
+          </p>
+        )}
+
         <div className="mt-5 border-t border-border" />
 
         <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-3.5">
-          <div className="flex gap-4">
-            <Field
-              label="N° de pagaré (nuevo)"
-              error={fieldErrors.promissoryNoteNumber}
-            >
-              <input
-                value={promissoryNoteNumber}
-                onChange={(event) => {
-                  setPromissoryNoteNumber(event.target.value);
-                  setFieldErrors((prev) => ({
-                    ...prev,
-                    promissoryNoteNumber: undefined,
-                  }));
-                }}
-                placeholder="Ej: #1000"
-                className={inputClassName(
-                  Boolean(fieldErrors.promissoryNoteNumber),
-                )}
-              />
-            </Field>
-            <Field
-              label="Tasa de interés moratorio (%)"
-              error={fieldErrors.interestRate}
-            >
-              <input
-                type="number"
-                min={0}
-                max={100}
-                step="0.1"
-                value={interestRate}
-                onChange={(event) => {
-                  setInterestRate(event.target.value);
-                  setFieldErrors((prev) => ({
-                    ...prev,
-                    interestRate: undefined,
-                  }));
-                }}
-                placeholder="Ej: 6"
-                className={inputClassName(Boolean(fieldErrors.interestRate))}
-              />
-            </Field>
-          </div>
-
-          <div className="flex gap-4">
-            <Field
-              label="Monto renegociado"
-              error={fieldErrors.principalAmount}
-            >
-              <CurrencyInput
-                value={principalAmount}
-                onChange={(value) => {
-                  setPrincipalAmount(value);
-                  setFieldErrors((prev) => ({
-                    ...prev,
-                    principalAmount: undefined,
-                  }));
-                  setPreview(null);
-                }}
-                placeholder="Ej: $950.000"
-                className={inputClassName(Boolean(fieldErrors.principalAmount))}
-              />
-            </Field>
-            <Field label="N° cuotas" error={fieldErrors.totalInstallments}>
-              <input
-                type="number"
-                min={1}
-                value={totalInstallments}
-                onChange={(event) => {
-                  setTotalInstallments(event.target.value);
-                  setFieldErrors((prev) => ({
-                    ...prev,
-                    totalInstallments: undefined,
-                  }));
-                  setPreview(null);
-                }}
-                placeholder="Ej: 12"
-                className={inputClassName(
-                  Boolean(fieldErrors.totalInstallments),
-                )}
-              />
-            </Field>
-          </div>
-
-          {refinanceQuote && (
-            <div className="rounded border border-border bg-input p-3">
-              <span className="text-meta text-muted">
-                Cómo se calculó el monto sugerido
-              </span>
-              <div className="mt-2 flex items-center justify-between text-meta">
-                <span className="text-muted">Capital pendiente</span>
-                <span className="text-white">
-                  {formatCurrency(refinanceQuote.payoff.totalPrincipalOwed)}
-                </span>
-              </div>
-              <div className="mt-1 flex items-center justify-between text-meta">
-                <span className="text-muted">Interés causado</span>
-                <span className="text-white">
-                  {formatCurrency(refinanceQuote.payoff.totalInterestOwed)}
-                </span>
-              </div>
-              <div className="mt-1 flex items-center justify-between text-meta font-medium">
-                <span className="text-muted">Capital sugerido</span>
-                <span className="text-white">
-                  {formatCurrency(refinanceQuote.suggestedPrincipalAmount)}
-                </span>
-              </div>
-            </div>
-          )}
-
-          <Field label="Abono adicional a capital (opcional)">
-            <CurrencyInput
-              value={additionalPrincipalPayment}
-              onChange={handleAdditionalPrincipalPaymentChange}
-              placeholder="Ej: $100.000"
-              className={inputClassName(false)}
-            />
-            <span className="mt-1 text-meta text-muted">
-              Se resta del monto sugerido — el campo "Monto renegociado" sigue
-              siendo editable después.
-            </span>
-          </Field>
-
-          <div className="flex gap-4">
-            <Field
-              label="Fecha de la primera cuota"
-              error={fieldErrors.firstDueDate}
-            >
-              <DatePicker
-                value={firstDueDate}
-                onChange={(next) => {
-                  setFirstDueDate(next);
-                  setFieldErrors((prev) => ({
-                    ...prev,
-                    firstDueDate: undefined,
-                  }));
-                  setPreview(null);
-                }}
-                className={inputClassName(Boolean(fieldErrors.firstDueDate))}
-              />
-            </Field>
-            <Field label="Periodicidad de cuotas">
-              <select
-                value={installmentFrequency}
-                onChange={(event) => {
-                  setInstallmentFrequency(
-                    event.target.value as InstallmentFrequency,
-                  );
-                  setPreview(null);
-                }}
-                className={inputClassName(false)}
+          <fieldset disabled={isBlocked} className="contents">
+            <div className="flex gap-4">
+              <Field
+                label="N° de pagaré (nuevo)"
+                error={fieldErrors.promissoryNoteNumber}
               >
-                <option value={InstallmentFrequency.Monthly}>Mensual</option>
-                <option value={InstallmentFrequency.Biweekly}>Quincenal</option>
-              </select>
-            </Field>
-          </div>
+                <input
+                  value={promissoryNoteNumber}
+                  onChange={(event) => {
+                    setPromissoryNoteNumber(event.target.value);
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      promissoryNoteNumber: undefined,
+                    }));
+                  }}
+                  placeholder="Ej: #1000"
+                  className={inputClassName(
+                    Boolean(fieldErrors.promissoryNoteNumber),
+                  )}
+                />
+              </Field>
+              <Field
+                label="Tasa de interés moratorio (%)"
+                error={fieldErrors.interestRate}
+              >
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.1"
+                  value={interestRate}
+                  onChange={(event) => {
+                    setInterestRate(event.target.value);
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      interestRate: undefined,
+                    }));
+                  }}
+                  placeholder="Ej: 6"
+                  className={inputClassName(Boolean(fieldErrors.interestRate))}
+                />
+              </Field>
+            </div>
 
-          <Field
-            label="Conceptos de interés / cargos"
-            error={fieldErrors.concepts}
-          >
-            <div className="flex flex-col gap-2">
-              {concepts.length === 0 && (
-                <p className="text-meta text-muted">
-                  Sin conceptos — el préstamo se financiará solo con capital
-                  (sin intereses ni cargos).
-                </p>
-              )}
-              {concepts.map((row) => (
-                <div key={row.rowId} className="flex items-center gap-2">
-                  <Select
-                    value={row.conceptTypeId}
-                    onChange={(conceptTypeId) => {
-                      const type = conceptTypes?.find(
-                        (c) => c.id === conceptTypeId,
-                      );
-                      updateConceptRow(row.rowId, {
-                        conceptTypeId,
-                        calculationType:
-                          type?.defaultCalculationType ?? row.calculationType,
-                        value: type?.defaultValue ?? row.value,
-                      });
-                    }}
-                    options={conceptTypeOptions}
-                    className="flex-1"
-                  />
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={row.value}
-                    onChange={(event) =>
-                      updateConceptRow(row.rowId, {
-                        value: parseFloat(event.target.value) || 0,
-                      })
-                    }
-                    placeholder={
-                      row.calculationType === ConceptCalculationType.Percentage
-                        ? '%'
-                        : '$'
-                    }
-                    className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none"
-                  />
+            <div className="flex gap-4">
+              <Field
+                label="Monto renegociado"
+                error={fieldErrors.principalAmount}
+              >
+                <CurrencyInput
+                  value={principalAmount}
+                  onChange={(value) => {
+                    setPrincipalAmount(value);
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      principalAmount: undefined,
+                    }));
+                    setPreview(null);
+                  }}
+                  placeholder="Ej: $950.000"
+                  className={inputClassName(
+                    Boolean(fieldErrors.principalAmount),
+                  )}
+                />
+              </Field>
+              <Field label="N° cuotas" error={fieldErrors.totalInstallments}>
+                <input
+                  type="number"
+                  min={1}
+                  value={totalInstallments}
+                  onChange={(event) => {
+                    setTotalInstallments(event.target.value);
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      totalInstallments: undefined,
+                    }));
+                    setPreview(null);
+                  }}
+                  placeholder="Ej: 12"
+                  className={inputClassName(
+                    Boolean(fieldErrors.totalInstallments),
+                  )}
+                />
+              </Field>
+            </div>
+
+            {refinanceQuote && (
+              <div className="rounded border border-border bg-input p-3">
+                <span className="text-meta text-muted">
+                  Cómo se calculó el monto sugerido
+                </span>
+                <div className="mt-2 flex items-center justify-between text-meta">
+                  <span className="text-muted">Capital pendiente</span>
+                  <span className="text-white">
+                    {formatCurrency(refinanceQuote.payoff.totalPrincipalOwed)}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center justify-between text-meta">
+                  <span className="text-muted">Interés causado</span>
+                  <span className="text-white">
+                    {formatCurrency(refinanceQuote.payoff.totalInterestOwed)}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center justify-between text-meta font-medium">
+                  <span className="text-muted">Capital sugerido</span>
+                  <span className="text-white">
+                    {formatCurrency(refinanceQuote.suggestedPrincipalAmount)}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <Field label="Abono adicional a capital (opcional)">
+              <CurrencyInput
+                value={additionalPrincipalPayment}
+                onChange={handleAdditionalPrincipalPaymentChange}
+                placeholder="Ej: $100.000"
+                className={inputClassName(false)}
+              />
+              <span className="mt-1 text-meta text-muted">
+                Se resta del monto sugerido — el campo "Monto renegociado" sigue
+                siendo editable después.
+              </span>
+            </Field>
+
+            <div className="flex gap-4">
+              <Field
+                label="Fecha de la primera cuota"
+                error={fieldErrors.firstDueDate}
+              >
+                <DatePicker
+                  value={firstDueDate}
+                  onChange={(next) => {
+                    setFirstDueDate(next);
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      firstDueDate: undefined,
+                    }));
+                    setPreview(null);
+                  }}
+                  className={inputClassName(Boolean(fieldErrors.firstDueDate))}
+                />
+              </Field>
+              <Field label="Periodicidad de cuotas">
+                <select
+                  value={installmentFrequency}
+                  onChange={(event) => {
+                    setInstallmentFrequency(
+                      event.target.value as InstallmentFrequency,
+                    );
+                    setPreview(null);
+                  }}
+                  className={inputClassName(false)}
+                >
+                  <option value={InstallmentFrequency.Monthly}>Mensual</option>
+                  <option value={InstallmentFrequency.Biweekly}>
+                    Quincenal
+                  </option>
+                </select>
+              </Field>
+            </div>
+
+            <Field
+              label="Conceptos de interés / cargos"
+              error={fieldErrors.concepts}
+            >
+              <div className="flex flex-col gap-2">
+                {concepts.length === 0 && (
+                  <p className="text-meta text-muted">
+                    Sin conceptos — el préstamo se financiará solo con capital
+                    (sin intereses ni cargos).
+                  </p>
+                )}
+                {concepts.map((row) => (
+                  <div key={row.rowId} className="flex items-center gap-2">
+                    <Select
+                      value={row.conceptTypeId}
+                      onChange={(conceptTypeId) => {
+                        const type = conceptTypes?.find(
+                          (c) => c.id === conceptTypeId,
+                        );
+                        updateConceptRow(row.rowId, {
+                          conceptTypeId,
+                          calculationType:
+                            type?.defaultCalculationType ?? row.calculationType,
+                          value: type?.defaultValue ?? row.value,
+                        });
+                      }}
+                      options={conceptTypeOptions}
+                      className="flex-1"
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={row.value}
+                      onChange={(event) =>
+                        updateConceptRow(row.rowId, {
+                          value: parseFloat(event.target.value) || 0,
+                        })
+                      }
+                      placeholder={
+                        row.calculationType ===
+                        ConceptCalculationType.Percentage
+                          ? '%'
+                          : '$'
+                      }
+                      className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeConceptRow(row.rowId)}
+                      className="text-meta text-muted hover:text-red-400"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                ))}
+                <div className="mt-1 flex items-center gap-4">
                   <button
                     type="button"
-                    onClick={() => removeConceptRow(row.rowId)}
-                    className="text-meta text-muted hover:text-red-400"
+                    onClick={addConceptRow}
+                    className="text-meta text-muted hover:text-white"
                   >
-                    Quitar
+                    + Agregar concepto
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewConceptTypeForm(true)}
+                    className="text-meta text-muted hover:text-white"
+                  >
+                    + Crear nuevo tipo
                   </button>
                 </div>
-              ))}
-              <div className="mt-1 flex items-center gap-4">
-                <button
-                  type="button"
-                  onClick={addConceptRow}
-                  className="text-meta text-muted hover:text-white"
-                >
-                  + Agregar concepto
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowNewConceptTypeForm(true)}
-                  className="text-meta text-muted hover:text-white"
-                >
-                  + Crear nuevo tipo
-                </button>
               </div>
-            </div>
-          </Field>
+            </Field>
 
-          {count > 0 && (
-            <div className="rounded border border-border bg-input p-3">
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={handlePreview}
-                  disabled={previewSchedule.isPending}
-                  className="text-meta font-medium text-white hover:text-mid"
-                >
-                  {previewSchedule.isPending
-                    ? 'Calculando…'
-                    : 'Previsualizar cronograma de cuotas'}
-                </button>
-              </div>
-              {preview && (
-                <div className="mt-2.5 max-h-[180px] overflow-y-auto">
-                  <table className="w-full text-meta">
-                    <thead>
-                      <tr className="text-muted">
-                        <th className="pb-1 text-left font-normal">Cuota</th>
-                        <th className="pb-1 text-left font-normal">Vence</th>
-                        <th className="pb-1 text-right font-normal">Capital</th>
-                        <th className="pb-1 text-right font-normal">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {preview.installments.map((installment) => (
-                        <tr
-                          key={installment.installmentNumber}
-                          className="text-white"
-                        >
-                          <td className="py-0.5">
-                            {installment.installmentNumber}
-                          </td>
-                          <td className="py-0.5">
-                            {formatDateOnly(installment.dueDate)}
-                          </td>
-                          <td className="py-0.5 text-right">
-                            {formatCurrency(installment.principalPortion)}
-                          </td>
-                          <td className="py-0.5 text-right font-medium">
-                            {formatCurrency(installment.amount)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+            {count > 0 && (
+              <div className="rounded border border-border bg-input p-3">
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={handlePreview}
+                    disabled={previewSchedule.isPending}
+                    className="text-meta font-medium text-white hover:text-mid"
+                  >
+                    {previewSchedule.isPending
+                      ? 'Calculando…'
+                      : 'Previsualizar cronograma de cuotas'}
+                  </button>
                 </div>
-              )}
-              {preview?.usuryWarning && (
-                <p className="mt-2.5 text-meta text-amber-400" role="alert">
-                  Este cronograma supera la tasa de usura vigente (
-                  {preview.usuryWarning.maxEffectiveInstallmentRate}% vs.{' '}
-                  {preview.usuryWarning.currentCeilingRate}% permitido). El
-                  préstamo puede crearse igual, pero considera dejar una
-                  justificación abajo.
-                </p>
-              )}
-            </div>
-          )}
+                {preview && (
+                  <div className="mt-2.5 max-h-[180px] overflow-y-auto">
+                    <table className="w-full text-meta">
+                      <thead>
+                        <tr className="text-muted">
+                          <th className="pb-1 text-left font-normal">Cuota</th>
+                          <th className="pb-1 text-left font-normal">Vence</th>
+                          <th className="pb-1 text-right font-normal">
+                            Capital
+                          </th>
+                          <th className="pb-1 text-right font-normal">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {preview.installments.map((installment) => (
+                          <tr
+                            key={installment.installmentNumber}
+                            className="text-white"
+                          >
+                            <td className="py-0.5">
+                              {installment.installmentNumber}
+                            </td>
+                            <td className="py-0.5">
+                              {formatDateOnly(installment.dueDate)}
+                            </td>
+                            <td className="py-0.5 text-right">
+                              {formatCurrency(installment.principalPortion)}
+                            </td>
+                            <td className="py-0.5 text-right font-medium">
+                              {formatCurrency(installment.amount)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {preview?.usuryWarning && (
+                  <p className="mt-2.5 text-meta text-red-400" role="alert">
+                    Este cronograma supera la tasa de usura vigente (
+                    {preview.usuryWarning.maxEffectiveInstallmentRate}% vs.{' '}
+                    {preview.usuryWarning.currentCeilingRate}% permitido). El
+                    préstamo puede crearse igual, pero considera dejar una
+                    justificación abajo.
+                  </p>
+                )}
+              </div>
+            )}
 
-          {preview?.usuryWarning && (
-            <Field label="Justificación de la tasa de usura (opcional)">
+            {preview?.usuryWarning && (
+              <Field label="Justificación de la tasa de usura (opcional)">
+                <textarea
+                  value={usuryJustification}
+                  onChange={(event) =>
+                    setUsuryJustification(event.target.value)
+                  }
+                  placeholder="Ej: Cliente antiguo, aprobado por el dueño."
+                  rows={2}
+                  className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
+                />
+              </Field>
+            )}
+
+            <Field label="Descripción (opcional)">
               <textarea
-                value={usuryJustification}
-                onChange={(event) => setUsuryJustification(event.target.value)}
-                placeholder="Ej: Cliente antiguo, aprobado por el dueño."
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="Ej: Refinanciación del pagaré anterior…"
                 rows={2}
                 className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
               />
             </Field>
-          )}
-
-          <Field label="Descripción (opcional)">
-            <textarea
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="Ej: Refinanciación del pagaré anterior…"
-              rows={2}
-              className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
-            />
-          </Field>
+          </fieldset>
 
           {/* Phase 21 — pre-filled from the loan being refinanced, still
               editable. See docs/phasesClient/PHASE_21_CLIENT_PROFILE.md. */}
@@ -862,7 +908,7 @@ export function RefinanceLoanForm({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || isUploading}
+              disabled={isSubmitting || isUploading || isBlocked}
               className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isUploading

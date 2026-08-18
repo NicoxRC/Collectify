@@ -20,10 +20,7 @@ import {
 import { DocumentType } from '../../clients/entities/client.entity';
 import { InstallmentFrequency } from '../entities/loan.entity';
 
-import {
-  InstallmentConceptOverrideDto,
-  LoanConceptAssignmentDto,
-} from './loanConceptAssignment.dto';
+import { LoanConceptAssignmentDto } from './loanConceptAssignment.dto';
 
 // The new loan created by a refinance is built the same way any other loan
 // is (see CreateLoanDto) — its schedule is generated from principalAmount,
@@ -73,29 +70,22 @@ export class RefinanceLoanDto {
   @ApiProperty({
     type: [LoanConceptAssignmentDto],
     description:
-      'Baseline interest/fee concepts applied to every installment of the new loan, unless overridden — see CreateLoanDto.',
+      'Interest/fee concepts applied to every installment of the new loan for its whole term — see CreateLoanDto.',
   })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => LoanConceptAssignmentDto)
   concepts!: LoanConceptAssignmentDto[];
 
-  @ApiPropertyOptional({ type: [InstallmentConceptOverrideDto] })
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => InstallmentConceptOverrideDto)
-  installmentConceptOverrides?: InstallmentConceptOverrideDto[];
-
   @ApiPropertyOptional({
-    example: 0,
+    example: 50000,
     description:
-      '0-based index into the generated schedule marking that installment as the initial payment ("cuota inicial") — exempt from mora regardless of due date. Omit if the new loan has no initial installment. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.',
+      'The new loan\'s own "cuota inicial" — see CreateLoanDto. Purely informational, unrelated to the loan being refinanced.',
   })
   @IsOptional()
-  @IsInt()
+  @IsNumber()
   @Min(0)
-  initialInstallmentIndex?: number;
+  initialPayment?: number;
 
   @ApiPropertyOptional({
     example: 'Refinanciación del pagaré anterior',
