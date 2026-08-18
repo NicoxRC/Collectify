@@ -72,6 +72,14 @@ export interface SchedulePreview {
   usuryWarning: UsuryWarning | null;
 }
 
+// See docs/phases/PHASE_17_REFINANCING_RECALC.md "Resolved" — advisory
+// data for pre-filling RefinanceLoanForm.tsx, not a new persisted concept.
+export interface RefinanceQuote {
+  payoff: PayoffQuote;
+  suggestedPrincipalAmount: number;
+  concepts: LoanConceptAssignmentDto[];
+}
+
 export interface LoanDetail extends Loan {
   installments: InstallmentWithCalculated[];
   // Computed reverse lookup, not a stored column — the loan this one was
@@ -531,6 +539,51 @@ export class LoansService {
       where: { loanId, status: InstallmentStatus.Pending },
       order: { installmentNumber: 'ASC' },
     });
+  }
+
+  // Suggests what to pre-fill when refinancing — per
+  // docs/phases/PHASE_17_REFINANCING_RECALC.md "Resolved", this reopens
+  // Phase 6's manual-entry decision but keeps the field editable, so this
+  // is advisory only: refinance() itself still accepts whatever
+  // principalAmount/concepts the admin actually submits, unchanged.
+  // suggestedPrincipalAmount reuses Phase 16's calculatePayoff() directly
+  // (the exact same figure a payoff quote for this loan would show) rather
+  // than a separate formula, so the two can never silently disagree on
+  // "what the client currently owes." Concepts are carried over from the
+  // loan's first installment — the representative baseline, since
+  // per-installment overrides are an expected-to-be-rare case with no
+  // well-defined mapping onto a new loan's possibly-different installment
+  // count — excluding any whose catalog type was since deleted (no valid
+  // id left to resubmit).
+  async getRefinanceQuote(id: string): Promise<RefinanceQuote> {
+    const loan = await this.findLoanOrThrow(id);
+    const pending = await this.findPendingInstallments(id);
+    const payoff = calculatePayoff(
+      pending.map(toPayoffInstallmentInput),
+      loan.interestRate,
+    );
+
+    const firstInstallment = await this.installmentsRepository.findOne({
+      where: { loanId: id },
+      order: { installmentNumber: 'ASC' },
+    });
+    const concepts = firstInstallment
+      ? await this.loanInstallmentConceptsRepository.find({
+          where: { installmentId: firstInstallment.id },
+        })
+      : [];
+
+    return {
+      payoff,
+      suggestedPrincipalAmount: payoff.totalDue,
+      concepts: concepts
+        .filter((concept) => concept.interestConceptTypeId !== null)
+        .map((concept) => ({
+          conceptTypeId: concept.interestConceptTypeId as string,
+          calculationType: concept.calculationType,
+          value: concept.value,
+        })),
+    };
   }
 
   // Added for the loan detail screen's "Historial de pagos" (F-19) — there

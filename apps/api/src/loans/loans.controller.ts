@@ -30,6 +30,7 @@ import {
   LoansService,
   LoanDetail,
   LoanSummary,
+  RefinanceQuote,
   SchedulePreview,
 } from './loans.service';
 import { PayoffQuote } from './payoff/calculatePayoff';
@@ -205,6 +206,25 @@ export class LoansController {
     return this.loansService.getPayments(id);
   }
 
+  @Get(':id/refinance-quote')
+  @ApiOperation({
+    summary:
+      'Suggest a new principal and carried-over concepts for refinancing this loan',
+    description:
+      "Reopens docs/phases/PHASE_6_REFINANCING.md's manual-entry decision, per " +
+      'docs/phases/PHASE_17_REFINANCING_RECALC.md — advisory only, POST /loans/:id/refinance ' +
+      'still accepts whatever principalAmount/concepts are actually submitted, unchanged. ' +
+      "suggestedPrincipalAmount reuses GET /loans/:id/payoff-quote's totalDue directly (the same " +
+      'figure a payoff quote would show), so the two can never disagree on what the client ' +
+      "currently owes. concepts carries over the old loan's first installment's concepts, " +
+      'excluding any whose catalog type was since deleted.',
+  })
+  @ApiResponse({ status: 200, description: 'Returns the refinance quote.' })
+  @ApiResponse({ status: 404, description: 'Loan not found.' })
+  getRefinanceQuote(@Param('id') id: string): Promise<RefinanceQuote> {
+    return this.loansService.getRefinanceQuote(id);
+  }
+
   @Post(':id/refinance')
   @Roles(UserRole.Admin)
   @Audit('loan.refinance', 'loan')
@@ -215,7 +235,9 @@ export class LoansController {
       "pending (marked 'cancelled' — excluded from active collection/reminders, kept as historical " +
       'record). Creates a new loan linked back via refinancedFromLoanId, with its own promissory ' +
       'note number and a schedule generated the same way as loan creation (principalAmount, ' +
-      'totalInstallments, and concepts — see POST /loans).',
+      'totalInstallments, and concepts — see POST /loans). principalAmount and concepts are still ' +
+      'exactly what the admin submits — see GET /loans/:id/refinance-quote for a suggested ' +
+      'starting point, per docs/phases/PHASE_17_REFINANCING_RECALC.md.',
   })
   @ApiResponse({
     status: 201,
