@@ -11,13 +11,14 @@ Show the computed new principal (instead of a blank manual-entry field) when ref
 ## Scope
 
 ### Refinance form
-- [ ] `RefinanceLoanForm.tsx`: replace the manual principal-amount input with the computed figure returned by the `api` — read-only or editable-with-a-visible-override-warning, per the confirmed answer in the `api` doc — plus a new "Abono adicional a capital" input.
-- [ ] Show the breakdown (pending principal, interest causado, resulting new capital) so the admin can see how the number was derived, not just the final figure.
+- [x] `RefinanceLoanForm.tsx`: fetches `GET /loans/:id/refinance-quote` on open and pre-fills the "Monto renegociado" `CurrencyInput` with `suggestedPrincipalAmount` — fully editable afterward (confirmed: pre-filled default, not read-only), plus a new "Abono adicional a capital" input that recomputes the pre-filled figure (pure client-side arithmetic).
+- [x] Shows the breakdown (capital pendiente / interés causado / capital sugerido, from the quote's `payoff` object) above the abono field, so the admin sees how the number was derived, not just the final figure.
+- [x] Concepts pre-fill from the quote's `concepts` array (the old loan's carried-over baseline), same repeatable "Conceptos" UI, fully editable.
 
 ## Definition of done for this phase
 
-- The refinance form shows a computed, explained principal figure instead of an empty manual-entry field.
-- All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
+- [x] The refinance form shows a computed, explained principal figure instead of an empty manual-entry field.
+- [x] All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## Related documents
 

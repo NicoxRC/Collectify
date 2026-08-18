@@ -26,26 +26,26 @@ These answers are final for this phase — do not revisit them without a new con
 ## Scope (once the above is confirmed)
 
 ### Refinancing quote (new, read-only)
-- [ ] `LoansService.getRefinanceQuote(id)` — reuses `calculatePayoff()` from Phase 16 directly (no duplicated math): returns the old loan's payoff breakdown, `suggestedPrincipalAmount` (= its `totalDue`), and the old loan's carried-over concepts (from its first installment, `conceptTypeId`-null ones filtered out since there's no valid catalog id to resubmit).
-- [ ] `GET /api/v1/loans/:id/refinance-quote` — read-only, same no-`@Roles`-restriction convention as `GET /loans/:id/payoff-quote`.
-- [ ] `LoansService.refinance()` itself is **unchanged** — per the confirmed answers, `principalAmount` and `concepts` stay exactly the fields they already are; only the client pre-fills them differently now. `additionalPrincipalPayment` is client-side arithmetic, not a new field here.
+- [x] `LoansService.getRefinanceQuote(id)` — reuses `calculatePayoff()` from Phase 16 directly (no duplicated math): returns the old loan's payoff breakdown, `suggestedPrincipalAmount` (= its `totalDue`), and the old loan's carried-over concepts (from its first installment, `conceptTypeId`-null ones filtered out since there's no valid catalog id to resubmit).
+- [x] `GET /api/v1/loans/:id/refinance-quote` — read-only, same no-`@Roles`-restriction convention as `GET /loans/:id/payoff-quote`.
+- [x] `LoansService.refinance()` itself is **unchanged** — per the confirmed answers, `principalAmount` and `concepts` stay exactly the fields they already are; only the client pre-fills them differently now. `additionalPrincipalPayment` is client-side arithmetic, not a new field here.
 
 ### Tests (mandatory)
-- [ ] `getRefinanceQuote()`: `suggestedPrincipalAmount` matches `calculatePayoff()`'s `totalDue` for a representative set of pending/overdue/future installment combinations; concepts are carried over from the first installment; a concept with a deleted (null) `interestConceptTypeId` is excluded from carry-over.
-- [ ] Confirms (no new code needed, but worth a regression test) that a refinance using carried-over concepts still gets validated against the current usury ceiling via the existing `buildUsuryWarning()` path.
+- [x] `getRefinanceQuote()`: `suggestedPrincipalAmount` matches `calculatePayoff()`'s `totalDue` for a representative set of pending/overdue/future installment combinations; concepts are carried over from the first installment; a concept with a deleted (null) `interestConceptTypeId` is excluded from carry-over; empty when the loan has no installments.
+- [x] Confirmed via a dedicated regression test in the `refinance` describe block: a refinance's new concepts still get validated against the current usury ceiling via the existing `buildUsuryWarning()` path, no new code needed.
 
 ### Swagger
-- [ ] New endpoint documented, explicitly noting it reopens/changes the Phase 6 manual-entry expectation and that `POST /loans/:id/refinance` itself is otherwise unchanged.
+- [x] New endpoint documented, explicitly noting it reopens/changes the Phase 6 manual-entry expectation and that `POST /loans/:id/refinance` itself is otherwise unchanged.
 
 ## Definition of done for this phase
 
-- Refinancing a loan produces a computed new principal matching the confirmed formula, with an optional extra paydown applied correctly.
-- The confirmed answers to every "Before starting" question are implemented exactly as agreed — not guessed.
-- All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
+- [x] Refinancing a loan produces a computed new principal matching the confirmed formula, with an optional extra paydown applied correctly.
+- [x] The confirmed answers to every "Before starting" question are implemented exactly as agreed — not guessed.
+- [x] All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## After this phase
 
-Update `docs/phases/PHASE_6_REFINANCING.md`'s own text (or `docs/DATABASE.md`'s refinancing section) to note it was superseded by this phase, so a future reader doesn't find the two documents contradicting each other silently.
+Updated `docs/phases/PHASE_6_REFINANCING.md`'s own text to note it was superseded in part by this phase, so a future reader doesn't find the two documents contradicting each other silently. `docs/DATABASE.md`'s refinancing section did not need updating — no schema or `Payment`/`Installment` relationship changed, only a new read-only aggregation endpoint.
 
 ## Related documents
 
