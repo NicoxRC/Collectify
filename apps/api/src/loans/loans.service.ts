@@ -13,6 +13,7 @@ import { PaginatedResult } from '../common/interfaces/paginatedResult.interface'
 import { InterestConceptTypesService } from '../interestConceptTypes/interestConceptTypes.service';
 import { calculateMaxEffectiveInstallmentRate } from '../usuryRates/calculateLoanEffectiveRate';
 import { UsuryRateService } from '../usuryRates/usuryRates.service';
+import { MessageLogStatus } from '../whatsapp/entities/messageLog.entity';
 import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 
 import {
@@ -817,9 +818,21 @@ export class LoansService {
   // creation itself — same principle as the rest of the whatsapp module
   // (messaging failures are a business outcome, logged, not an application
   // error). See docs/phases/PHASE_9_MESSAGE_TYPES.md.
+  //
+  // Only a genuinely Sent result marks newLoanMessageSentAt — a Failed
+  // result (WhatsAppService itself reported failure, no exception thrown)
+  // must leave it null, so the Phase 18 retry cron picks the loan back up.
+  // See docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
   private async sendNewLoanMessageSafely(loanId: string): Promise<void> {
     try {
-      await this.newLoanReminderService.sendNewLoanMessage(loanId);
+      const messageLog =
+        await this.newLoanReminderService.sendNewLoanMessage(loanId);
+      if (messageLog.status === MessageLogStatus.Sent) {
+        await this.loansRepository.update(
+          { id: loanId },
+          { newLoanMessageSentAt: new Date() },
+        );
+      }
     } catch (error) {
       this.logger.error(
         `Failed to send new-loan WhatsApp message for loan ${loanId}`,

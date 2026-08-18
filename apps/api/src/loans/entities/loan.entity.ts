@@ -89,6 +89,16 @@ export class Loan {
   @Column({ type: 'text', nullable: true })
   usuryJustification!: string | null;
 
+  // Set once the "new loan" WhatsApp message actually succeeds — either
+  // from the synchronous send at creation/refinance time, or from the
+  // Phase 18 retry cron picking up a loan whose synchronous send failed.
+  // Lets that cron find "loans still needing their message" directly,
+  // instead of the fragile message-content string-matching
+  // LoanDetailPage.tsx used before. See
+  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
+  @Column({ type: 'timestamptz', nullable: true })
+  newLoanMessageSentAt!: Date | null;
+
   @ManyToOne(() => Loan, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'refinanced_from_loan_id' })
   refinancedFromLoan!: Loan | null;

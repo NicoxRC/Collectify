@@ -22,6 +22,9 @@ describe('MessageLogsService', () => {
     messageContent: 'Hola...',
     status: MessageLogStatus.Sent,
     sentAt: new Date(),
+    retriedAt: null,
+    retryOfMessageLogId: null,
+    retryOfMessageLog: null,
     createdAt: new Date(),
   };
 

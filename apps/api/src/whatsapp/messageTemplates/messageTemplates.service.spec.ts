@@ -16,6 +16,7 @@ describe('MessageTemplatesService', () => {
     name: 'Weekly reminder',
     type: MessageType.Overdue,
     content: 'Hola {{clientFullName}}',
+    cronExpression: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,

@@ -57,6 +57,7 @@ describe('NewLoanReminderService', () => {
     description: 'Compra de Apple MacBook Air M5',
     usuryCeilingExceededAtCreation: false,
     usuryJustification: null,
+    newLoanMessageSentAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,

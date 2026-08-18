@@ -46,6 +46,21 @@ export class MessageLog {
   @Column({ type: 'timestamptz' })
   sentAt!: Date;
 
+  // Phase 18 manual retry tracking — retriedAt is set on the ORIGINAL
+  // (failed) row once someone retries it; retryOfMessageLogId is set on
+  // the NEW row created for that retry attempt, pointing back at the
+  // original. Both nullable: most rows are never retried. See
+  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
+  @Column({ type: 'timestamptz', nullable: true })
+  retriedAt!: Date | null;
+
+  @Column({ nullable: true })
+  retryOfMessageLogId!: string | null;
+
+  @ManyToOne(() => MessageLog, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'retry_of_message_log_id' })
+  retryOfMessageLog!: MessageLog | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 }
