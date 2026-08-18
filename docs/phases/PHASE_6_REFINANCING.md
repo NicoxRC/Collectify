@@ -1,5 +1,9 @@
 # Phase 6 — Refinancing (Backend)
 
+## ⚠️ Superseded in part by Phase 17
+
+`docs/phases/PHASE_17_REFINANCING_RECALC.md` reopens the manual-entry decision below (line 18's "principal amount ... a business decision, not a formula"): the new loan's `principalAmount` field is now **pre-filled** with a computed default (`GET /loans/:id/refinance-quote`'s `suggestedPrincipalAmount`, reusing Phase 16's `calculatePayoff()`), while remaining a required, fully admin-editable field — so the underlying principle here (a human decides the final number) still holds, only the UI default changed from blank to computed. Everything else in this document (the refinancing flow itself, the `cancelled` installment-status resolution below) is unchanged and still accurate.
+
 ## Goal
 Support closing out a loan and replacing it with a new one, preserving full history.
 
