@@ -204,7 +204,13 @@ export class ClientsService {
       (installment) => installment.overdueDays > 30,
     );
 
-    return { ...client, creditUsed, creditAvailable, isMoraBlocked, references };
+    return {
+      ...client,
+      creditUsed,
+      creditAvailable,
+      isMoraBlocked,
+      references,
+    };
   }
 
   // { creditLimit, creditUsed, creditAvailable } on its own, for callers

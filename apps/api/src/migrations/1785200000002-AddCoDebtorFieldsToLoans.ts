@@ -8,9 +8,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 // 1785200000000-AddExtendedProfileFieldsToClients, which must run first)
 // rather than defining a second identical enum type, since a co-debtor is
 // identified the same way a client is.
-export class AddCoDebtorFieldsToLoans1785200000002
-  implements MigrationInterface
-{
+export class AddCoDebtorFieldsToLoans1785200000002 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       ALTER TABLE "loans"

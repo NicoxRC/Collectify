@@ -6,9 +6,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 // enforced in ClientsService.create(), not at the database level — see
 // docs/phases/PHASE_21_CLIENT_PROFILE.md decision 6 for why (Excel-imported
 // clients are deliberately exempt).
-export class AddExtendedProfileFieldsToClients1785200000000
-  implements MigrationInterface
-{
+export class AddExtendedProfileFieldsToClients1785200000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
       `CREATE TYPE "clients_document_type_enum" AS ENUM('cedula_ciudadania', 'cedula_extranjeria', 'pasaporte')`,

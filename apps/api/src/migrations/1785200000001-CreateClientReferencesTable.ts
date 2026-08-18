@@ -11,9 +11,7 @@ import {
 // soft-delete is automatic since that only sets clients.deleted_at, never
 // removes the row this table's FK points to. See
 // docs/phases/PHASE_21_CLIENT_PROFILE.md.
-export class CreateClientReferencesTable1785200000001
-  implements MigrationInterface
-{
+export class CreateClientReferencesTable1785200000001 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
       `CREATE TYPE "client_references_type_enum" AS ENUM('personal', 'comercial')`,
