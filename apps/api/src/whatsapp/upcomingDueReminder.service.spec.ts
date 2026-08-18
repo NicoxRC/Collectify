@@ -16,6 +16,7 @@ import {
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
+import { MessageAudiencesService } from './messageAudiences/messageAudiences.service';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
@@ -28,6 +29,7 @@ describe('UpcomingDueReminderService', () => {
   let messageLogsRepository: { create: jest.Mock; save: jest.Mock };
   let messageLogItemsRepository: { create: jest.Mock; save: jest.Mock };
   let messageTemplatesService: { findByTypeOrThrow: jest.Mock };
+  let messageAudiencesService: { getClientIdsForTemplateType: jest.Mock };
   let whatsAppService: { sendTextMessage: jest.Mock };
 
   const mockClient: Client = {
@@ -98,6 +100,9 @@ describe('UpcomingDueReminderService', () => {
       save: jest.fn((items: unknown[]) => Promise.resolve(items)),
     };
     messageTemplatesService = { findByTypeOrThrow: jest.fn() };
+    messageAudiencesService = {
+      getClientIdsForTemplateType: jest.fn().mockResolvedValue([]),
+    };
     whatsAppService = { sendTextMessage: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -117,6 +122,10 @@ describe('UpcomingDueReminderService', () => {
           useValue: messageLogItemsRepository,
         },
         { provide: MessageTemplatesService, useValue: messageTemplatesService },
+        {
+          provide: MessageAudiencesService,
+          useValue: messageAudiencesService,
+        },
         { provide: WhatsAppService, useValue: whatsAppService },
         {
           provide: ConfigService,
@@ -233,8 +242,27 @@ describe('UpcomingDueReminderService', () => {
 
       await service.runDailyReminder();
 
-      expect(sendSpy).toHaveBeenCalledWith('client-1');
-      expect(sendSpy).toHaveBeenCalledWith('client-2');
+      expect(sendSpy).toHaveBeenCalledWith('client-1', { allowEmpty: true });
+      expect(sendSpy).toHaveBeenCalledWith('client-2', { allowEmpty: true });
+    });
+
+    it('additionally notifies audience members with nothing upcoming', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
+      ]);
+      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([
+        'client-1',
+        'client-3',
+      ]);
+      const sendSpy = jest
+        .spyOn(service, 'sendReminderForClient')
+        .mockResolvedValue({} as MessageLog);
+
+      await service.runDailyReminder();
+
+      expect(sendSpy).toHaveBeenCalledTimes(2);
+      expect(sendSpy).toHaveBeenCalledWith('client-1', { allowEmpty: true });
+      expect(sendSpy).toHaveBeenCalledWith('client-3', { allowEmpty: true });
     });
 
     it('continues with the next client when one fails', async () => {

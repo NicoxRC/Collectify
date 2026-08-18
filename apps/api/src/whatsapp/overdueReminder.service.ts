@@ -17,6 +17,7 @@ import { enrichInstallment } from '../loans/installments/enrichInstallment';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
+import { MessageAudiencesService } from './messageAudiences/messageAudiences.service';
 import { MessageType } from './messageType.enum';
 import { renderOverdueReminderMessage } from './messageRenderer';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
@@ -36,20 +37,30 @@ export class OverdueReminderService {
     @InjectRepository(MessageLogItem)
     private readonly messageLogItemsRepository: Repository<MessageLogItem>,
     private readonly messageTemplatesService: MessageTemplatesService,
+    private readonly messageAudiencesService: MessageAudiencesService,
     private readonly whatsAppService: WhatsAppService,
   ) {}
 
   // Weekly job entry point — one client at a time, so one client's failure
-  // doesn't stop the rest from being reminded.
+  // doesn't stop the rest from being reminded. The curated audience is
+  // additive: its members are always notified alongside whoever dynamically
+  // qualifies, even with nothing overdue themselves (allowEmpty). See
+  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
   async runWeeklyReminder(): Promise<void> {
-    const clientIds = await this.findClientIdsWithOverdueInstallments();
+    const [dynamicClientIds, audienceClientIds] = await Promise.all([
+      this.findClientIdsWithOverdueInstallments(),
+      this.messageAudiencesService.getClientIdsForTemplateType(
+        MessageType.Overdue,
+      ),
+    ]);
+    const clientIds = [...new Set([...dynamicClientIds, ...audienceClientIds])];
     this.logger.log(
       `Weekly overdue reminder: ${clientIds.length} client(s) to notify`,
     );
 
     for (const clientId of clientIds) {
       try {
-        await this.sendReminderForClient(clientId);
+        await this.sendReminderForClient(clientId, { allowEmpty: true });
       } catch (error) {
         this.logger.error(
           `Failed to send overdue reminder to client ${clientId}`,

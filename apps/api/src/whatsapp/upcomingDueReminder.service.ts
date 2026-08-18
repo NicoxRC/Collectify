@@ -20,6 +20,7 @@ import { calculateDaysUntilDue } from '../loans/installments/installmentCalculat
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
+import { MessageAudiencesService } from './messageAudiences/messageAudiences.service';
 import { renderUpcomingDueMessage } from './messageRenderer';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
@@ -43,19 +44,30 @@ export class UpcomingDueReminderService {
     @InjectRepository(MessageLogItem)
     private readonly messageLogItemsRepository: Repository<MessageLogItem>,
     private readonly messageTemplatesService: MessageTemplatesService,
+    private readonly messageAudiencesService: MessageAudiencesService,
     private readonly whatsAppService: WhatsAppService,
     private readonly configService: ConfigService<Configuration, true>,
   ) {}
 
+  // The curated audience is additive: its members are always notified
+  // alongside whoever dynamically qualifies, even with nothing approaching
+  // due date themselves (allowEmpty). See
+  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
   async runDailyReminder(): Promise<void> {
-    const clientIds = await this.findClientIdsWithUpcomingInstallments();
+    const [dynamicClientIds, audienceClientIds] = await Promise.all([
+      this.findClientIdsWithUpcomingInstallments(),
+      this.messageAudiencesService.getClientIdsForTemplateType(
+        MessageType.UpcomingDue,
+      ),
+    ]);
+    const clientIds = [...new Set([...dynamicClientIds, ...audienceClientIds])];
     this.logger.log(
       `Daily upcoming-due reminder: ${clientIds.length} client(s) to notify`,
     );
 
     for (const clientId of clientIds) {
       try {
-        await this.sendReminderForClient(clientId);
+        await this.sendReminderForClient(clientId, { allowEmpty: true });
       } catch (error) {
         this.logger.error(
           `Failed to send upcoming-due reminder to client ${clientId}`,
