@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { CloseButton } from '@/components/ui/CloseButton';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
@@ -15,7 +15,10 @@ import {
   subtractMonthsFromDateString,
 } from '@/features/loans/dueDateMath';
 import { InstallmentFrequency } from '@/features/loans/loansApi';
-import { usePreviewSchedule } from '@/features/loans/useLoans';
+import {
+  usePreviewSchedule,
+  useRefinanceQuote,
+} from '@/features/loans/useLoans';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatDateOnly } from '@/lib/format';
 import { useEscapeKey } from '@/lib/useEscapeKey';
@@ -23,16 +26,14 @@ import { useEscapeKey } from '@/lib/useEscapeKey';
 import type {
   LoanConceptAssignment,
   RefinanceLoanInput,
+  RefinanceQuote,
   SchedulePreview,
 } from '@/features/loans/loansApi';
 import type { FormEvent } from 'react';
 
 interface RefinanceLoanFormProps {
+  oldLoanId: string;
   oldLoanLabel: string;
-  // Shown as a reference only — apps/api/src/loans/dto/refinanceLoan.dto.ts
-  // is explicit that principalAmount is NOT auto-calculated from this; the
-  // admin types the exact renegotiated figure by hand (business decision,
-  // not a formula) until docs/phases/PHASE_17_REFINANCING_RECALC.md ships.
   oldLoanOutstandingBalance: number;
   onSubmit: (input: RefinanceLoanInput) => Promise<unknown>;
   onClose: () => void;
@@ -63,7 +64,13 @@ function makeRowId(): string {
 // new loan. The only real difference is there's no client selector —
 // POST /loans/:id/refinance always attaches the new loan to the same
 // client as the one being refinanced, enforced server-side.
+//
+// Phase 17 (docs/phases/PHASE_17_REFINANCING_RECALC.md) reopens Phase 6's
+// "type the exact figure by hand" decision: principalAmount and concepts
+// are now pre-filled from GET /loans/:id/refinance-quote, but both stay
+// fully editable — the admin keeps final say, exactly as Phase 6 required.
 export function RefinanceLoanForm({
+  oldLoanId,
   oldLoanLabel,
   oldLoanOutstandingBalance,
   onSubmit,
@@ -71,6 +78,8 @@ export function RefinanceLoanForm({
 }: RefinanceLoanFormProps) {
   const [promissoryNoteNumber, setPromissoryNoteNumber] = useState('');
   const [principalAmount, setPrincipalAmount] = useState(0);
+  const [additionalPrincipalPayment, setAdditionalPrincipalPayment] =
+    useState(0);
   const [interestRate, setInterestRate] = useState('');
   const [firstDueDate, setFirstDueDate] = useState('');
   const [installmentFrequency, setInstallmentFrequency] = useState(
@@ -88,12 +97,55 @@ export function RefinanceLoanForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showNewConceptTypeForm, setShowNewConceptTypeForm] = useState(false);
   const [preview, setPreview] = useState<SchedulePreview | null>(null);
+  const [refinanceQuote, setRefinanceQuote] = useState<RefinanceQuote | null>(
+    null,
+  );
 
   useEscapeKey(onClose);
 
   const { data: conceptTypes } = useInterestConceptTypes({ isActive: true });
   const createConceptType = useCreateInterestConceptType();
   const previewSchedule = usePreviewSchedule();
+  const refinanceQuoteMutation = useRefinanceQuote();
+
+  // Pre-fills principalAmount and concepts as soon as the old loan's quote
+  // is available — both remain fully editable afterward. A failed fetch
+  // just leaves the form blank, same as pre-Phase-17 behavior, so this
+  // never blocks refinancing.
+  useEffect(() => {
+    refinanceQuoteMutation
+      .mutateAsync(oldLoanId)
+      .then((quote) => {
+        setRefinanceQuote(quote);
+        setPrincipalAmount(quote.suggestedPrincipalAmount);
+        setConcepts(
+          quote.concepts.map((concept) => ({
+            rowId: makeRowId(),
+            ...concept,
+          })),
+        );
+      })
+      .catch(() => {
+        // Non-fatal — see comment above.
+      });
+    // Fetch once, when the form opens — not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [oldLoanId]);
+
+  // Recomputes the suggested principal against the loaded quote — the
+  // admin can still hand-edit the result afterward via the field itself
+  // (confirmed with the human: this is client-side arithmetic only, not a
+  // separate backend concept). Clamped at 0 so a paydown larger than the
+  // suggested capital can't produce a negative amount.
+  const handleAdditionalPrincipalPaymentChange = (value: number) => {
+    setAdditionalPrincipalPayment(value);
+    if (refinanceQuote) {
+      setPrincipalAmount(
+        Math.max(0, refinanceQuote.suggestedPrincipalAmount - value),
+      );
+      setFieldErrors((prev) => ({ ...prev, principalAmount: undefined }));
+    }
+  };
 
   const principal = principalAmount;
   const count = parseInt(totalInstallments, 10) || 0;
@@ -254,8 +306,9 @@ export function RefinanceLoanForm({
         <p className="mt-2.5 text-meta text-mid">
           Este préstamo quedará como "Refinanciado" y sus cuotas pendientes se
           cancelarán. Se crea un préstamo nuevo con los términos de abajo — el
-          monto no se calcula automáticamente, ingresa la cifra renegociada
-          exacta.
+          monto renegociado viene precargado con lo que el cliente realmente
+          debe hoy (capital pendiente + interés ya causado, sin cobrar interés
+          futuro), pero podés editarlo libremente.
         </p>
 
         <div className="mt-5 border-t border-border" />
@@ -343,6 +396,45 @@ export function RefinanceLoanForm({
               />
             </Field>
           </div>
+
+          {refinanceQuote && (
+            <div className="rounded border border-border bg-input p-3">
+              <span className="text-meta text-muted">
+                Cómo se calculó el monto sugerido
+              </span>
+              <div className="mt-2 flex items-center justify-between text-meta">
+                <span className="text-muted">Capital pendiente</span>
+                <span className="text-white">
+                  {formatCurrency(refinanceQuote.payoff.totalPrincipalOwed)}
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between text-meta">
+                <span className="text-muted">Interés causado</span>
+                <span className="text-white">
+                  {formatCurrency(refinanceQuote.payoff.totalInterestOwed)}
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between text-meta font-medium">
+                <span className="text-muted">Capital sugerido</span>
+                <span className="text-white">
+                  {formatCurrency(refinanceQuote.suggestedPrincipalAmount)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <Field label="Abono adicional a capital (opcional)">
+            <CurrencyInput
+              value={additionalPrincipalPayment}
+              onChange={handleAdditionalPrincipalPaymentChange}
+              placeholder="Ej: $100.000"
+              className={inputClassName(false)}
+            />
+            <span className="mt-1 text-meta text-muted">
+              Se resta del monto sugerido — el campo "Monto renegociado" sigue
+              siendo editable después.
+            </span>
+          </Field>
 
           <div className="flex gap-4">
             <Field

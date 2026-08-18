@@ -69,6 +69,12 @@ export function usePayoffQuote() {
   return useMutation({ mutationFn: loansApi.getPayoffQuote });
 }
 
+// Not a useQuery — fetched on demand when RefinanceLoanForm opens (via
+// .mutateAsync), same pattern as usePreviewSchedule/usePayoffQuote.
+export function useRefinanceQuote() {
+  return useMutation({ mutationFn: loansApi.getRefinanceQuote });
+}
+
 export function usePayoffLoan() {
   const queryClient = useQueryClient();
   return useMutation({
