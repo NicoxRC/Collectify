@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -17,19 +18,26 @@ import { calculateDaysUntilDue } from '../loans/installments/installmentCalculat
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
+import { MessageAudiencesService } from './messageAudiences/messageAudiences.service';
 import { renderAccountSummaryMessage } from './messageRenderer';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
 import { WhatsAppService } from './whatsapp.service';
 
-// On-demand only, no cron — a full account statement is something the
-// admin sends when a client asks for their status, not a scheduled push.
-// Lists every pending installment (overdue or not) across all of a
-// client's active loans, ending in a grand total — the combined "list all
-// active pagarés" + "total across all credits" message. See
+// Manual send is still on-demand — a full account statement is something
+// the admin sends when a client asks for their status. The Phase 18 cron
+// (runAudienceSummaries) is separate: account_summary has no dynamic
+// qualifying condition at all, so its cron sends only to the curated
+// audience, not to "every client" — see
+// docs/phases/PHASE_18_MESSAGE_AUDIENCES.md. Lists every pending
+// installment (overdue or not) across all of a client's active loans,
+// ending in a grand total — the combined "list all active pagarés" +
+// "total across all credits" message. See
 // docs/phases/PHASE_9_MESSAGE_TYPES.md for why these were combined.
 @Injectable()
 export class AccountSummaryService {
+  private readonly logger = new Logger(AccountSummaryService.name);
+
   constructor(
     @InjectRepository(Client)
     private readonly clientsRepository: Repository<Client>,
@@ -40,8 +48,33 @@ export class AccountSummaryService {
     @InjectRepository(MessageLogItem)
     private readonly messageLogItemsRepository: Repository<MessageLogItem>,
     private readonly messageTemplatesService: MessageTemplatesService,
+    private readonly messageAudiencesService: MessageAudiencesService,
     private readonly whatsAppService: WhatsAppService,
   ) {}
+
+  // account_summary's cron entry point — audience-only, since there's no
+  // dynamic condition to derive a candidate list from. See
+  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
+  async runAudienceSummaries(): Promise<void> {
+    const clientIds =
+      await this.messageAudiencesService.getClientIdsForTemplateType(
+        MessageType.AccountSummary,
+      );
+    this.logger.log(
+      `Account summary audience run: ${clientIds.length} client(s) to notify`,
+    );
+
+    for (const clientId of clientIds) {
+      try {
+        await this.sendAccountSummary(clientId, { allowEmpty: true });
+      } catch (error) {
+        this.logger.error(
+          `Failed to send account summary to client ${clientId}`,
+          error,
+        );
+      }
+    }
+  }
 
   // allowEmpty (default false, unchanged for the manual on-demand controller
   // endpoint): the audience-only cron passes true, since account_summary has
