@@ -34,9 +34,12 @@ import {
   ImportClientsResult,
 } from './clients.service';
 import { CreateClientDto } from './dto/createClient.dto';
+import { CreateClientReferenceDto } from './dto/createClientReference.dto';
 import { QueryClientsDto } from './dto/queryClients.dto';
 import { UpdateClientDto } from './dto/updateClient.dto';
+import { UpdateClientReferenceDto } from './dto/updateClientReference.dto';
 import { Client } from './entities/client.entity';
+import { ClientReference } from './entities/clientReference.entity';
 
 const XLSX_MIME_TYPE =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -60,9 +63,11 @@ export class ClientsController {
   @ApiResponse({
     status: 200,
     description:
-      'Returns the client, including creditUsed, creditAvailable and ' +
-      'isMoraBlocked — all computed on read, not stored columns. See ' +
-      'docs/phases/PHASE_10_CLIENT_CAPACITY.md.',
+      'Returns the client, including creditUsed, creditAvailable, ' +
+      'isMoraBlocked, and references — the first three computed on read, ' +
+      'not stored columns; references from the client_references table. ' +
+      'See docs/phases/PHASE_10_CLIENT_CAPACITY.md and ' +
+      'docs/phases/PHASE_21_CLIENT_PROFILE.md.',
   })
   @ApiResponse({ status: 404, description: 'Client not found.' })
   findOne(@Param('id') id: string): Promise<ClientDetail> {
@@ -72,8 +77,17 @@ export class ClientsController {
   @Post()
   @Roles(UserRole.Admin)
   @Audit('client.create', 'client')
-  @ApiOperation({ summary: 'Create a client (admin only)' })
+  @ApiOperation({
+    summary: 'Create a client (admin only)',
+    description:
+      'dataProcessingConsent must be true — the client must have signed the data-processing ' +
+      'authorization before being saved. See docs/phases/PHASE_21_CLIENT_PROFILE.md.',
+  })
   @ApiResponse({ status: 201, description: 'The client was created.' })
+  @ApiResponse({
+    status: 400,
+    description: 'Missing data-processing consent.',
+  })
   @ApiResponse({ status: 409, description: 'Document number already in use.' })
   create(@Body() dto: CreateClientDto): Promise<Client> {
     return this.clientsService.create(dto);
@@ -104,6 +118,49 @@ export class ClientsController {
     return this.clientsService.reactivate(id);
   }
 
+  @Post(':id/references')
+  @Roles(UserRole.Admin)
+  @Audit('client.addReference', 'client')
+  @ApiOperation({
+    summary: 'Add a personal or comercial reference to a client (admin only)',
+  })
+  @ApiResponse({ status: 201, description: 'The reference was added.' })
+  @ApiResponse({ status: 404, description: 'Client not found.' })
+  addReference(
+    @Param('id') id: string,
+    @Body() dto: CreateClientReferenceDto,
+  ): Promise<ClientReference> {
+    return this.clientsService.addReference(id, dto);
+  }
+
+  @Patch(':id/references/:referenceId')
+  @Roles(UserRole.Admin)
+  @Audit('client.updateReference', 'client')
+  @ApiOperation({ summary: "Edit one of a client's references (admin only)" })
+  @ApiResponse({ status: 200, description: 'The reference was updated.' })
+  @ApiResponse({ status: 404, description: 'Client or reference not found.' })
+  updateReference(
+    @Param('id') id: string,
+    @Param('referenceId') referenceId: string,
+    @Body() dto: UpdateClientReferenceDto,
+  ): Promise<ClientReference> {
+    return this.clientsService.updateReference(id, referenceId, dto);
+  }
+
+  @Delete(':id/references/:referenceId')
+  @Roles(UserRole.Admin)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Audit('client.removeReference', 'client')
+  @ApiOperation({ summary: "Remove one of a client's references (admin only)" })
+  @ApiResponse({ status: 204, description: 'The reference was removed.' })
+  @ApiResponse({ status: 404, description: 'Client or reference not found.' })
+  removeReference(
+    @Param('id') id: string,
+    @Param('referenceId') referenceId: string,
+  ): Promise<void> {
+    return this.clientsService.removeReference(id, referenceId);
+  }
+
   @Post('import')
   @Roles(UserRole.Admin)
   @UseInterceptors(
@@ -124,7 +181,8 @@ export class ClientsController {
       'Accepts Spanish (Nombre/Apellido/Cédula/Teléfono) or English (First Name/Last Name/Document ' +
       'Number/Phone) headers, case- and accent-insensitive. A row with missing/invalid data or a ' +
       'duplicate document number is skipped and reported in the response — it does not abort the rest ' +
-      'of the import. Max file size 5MB.',
+      'of the import. Max file size 5MB. Imported clients are exempt from the data-processing consent ' +
+      'requirement — see docs/phases/PHASE_21_CLIENT_PROFILE.md decision 6.',
   })
   @ApiResponse({ status: 201, description: 'Returns the import summary.' })
   @ApiResponse({
