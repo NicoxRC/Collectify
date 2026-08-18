@@ -10,7 +10,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-import { Client } from '../../clients/entities/client.entity';
+import { Client, DocumentType } from '../../clients/entities/client.entity';
 import { decimalTransformer } from '../../database/decimal.transformer';
 
 export enum InstallmentFrequency {
@@ -102,6 +102,31 @@ export class Loan {
   @ManyToOne(() => Loan, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'refinanced_from_loan_id' })
   refinancedFromLoan!: Loan | null;
+
+  // --- Co-debtor (codeudor), Phase 21 — belongs here, not on Client: the
+  // business confirmed whether a loan has one varies per loan. At most one
+  // per loan (confirmed) — plain nullable columns, no separate table. See
+  // docs/phases/PHASE_21_CLIENT_PROFILE.md.
+  @Column({ nullable: true })
+  coDebtorFullName!: string | null;
+
+  @Column({ type: 'enum', enum: DocumentType, nullable: true })
+  coDebtorDocumentType!: DocumentType | null;
+
+  @Column({ nullable: true })
+  coDebtorDocumentNumber!: string | null;
+
+  @Column({ nullable: true })
+  coDebtorPhoneNumber!: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  coDebtorAddress!: string | null;
+
+  @Column({ nullable: true })
+  coDebtorRelationship!: string | null;
+
+  @Column({ nullable: true })
+  coDebtorIdDocumentUrl!: string | null;
 
   @CreateDateColumn()
   createdAt!: Date;
