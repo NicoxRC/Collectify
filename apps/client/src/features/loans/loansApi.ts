@@ -1,5 +1,6 @@
 import { apiClient } from '@/lib/apiClient';
 
+import type { DocumentType } from '@/features/clients/clientsApi';
 import type {
   Installment,
   Payment,
@@ -34,6 +35,17 @@ export interface Loan {
   // warning, never a block. See docs/phases/PHASE_15_USURY_RATE.md.
   usuryCeilingExceededAtCreation: boolean;
   usuryJustification: string | null;
+  // --- Co-debtor (codeudor), Phase 21 — belongs to the loan, not the
+  // client: whether a given loan has one varies per loan. At most one per
+  // loan, all nullable. See docs/phases/PHASE_21_CLIENT_PROFILE.md
+  // decision 7. ---
+  coDebtorFullName: string | null;
+  coDebtorDocumentType: DocumentType | null;
+  coDebtorDocumentNumber: string | null;
+  coDebtorPhoneNumber: string | null;
+  coDebtorAddress: string | null;
+  coDebtorRelationship: string | null;
+  coDebtorIdDocumentUrl: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -138,6 +150,15 @@ export interface CreateLoanInput {
   // current usury ceiling — only meaningful when usuryWarning from
   // previewSchedule() actually fired. See docs/phases/PHASE_15_USURY_RATE.md.
   usuryJustification?: string;
+  // Optional co-debtor (codeudor), Phase 21 — omit entirely for a loan with
+  // none. See docs/phases/PHASE_21_CLIENT_PROFILE.md decision 7.
+  coDebtorFullName?: string;
+  coDebtorDocumentType?: DocumentType;
+  coDebtorDocumentNumber?: string;
+  coDebtorPhoneNumber?: string;
+  coDebtorAddress?: string;
+  coDebtorRelationship?: string;
+  coDebtorIdDocumentUrl?: string;
 }
 
 // Matches apps/api/src/loans/dto/previewSchedule.dto.ts exactly — the
@@ -235,6 +256,17 @@ export interface RefinanceLoanInput {
   description?: string;
   // See CreateLoanInput.usuryJustification.
   usuryJustification?: string;
+  // Optional co-debtor, Phase 21 — omitting all seven fields carries the
+  // old loan's co-debtor over unchanged (LoansService.refinance's
+  // confirmed default); sending any of them overrides just that field. See
+  // docs/phases/PHASE_21_CLIENT_PROFILE.md decision 7.
+  coDebtorFullName?: string;
+  coDebtorDocumentType?: DocumentType;
+  coDebtorDocumentNumber?: string;
+  coDebtorPhoneNumber?: string;
+  coDebtorAddress?: string;
+  coDebtorRelationship?: string;
+  coDebtorIdDocumentUrl?: string;
 }
 
 export const loansApi = {
