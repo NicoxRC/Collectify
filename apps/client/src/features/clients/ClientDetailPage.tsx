@@ -1,8 +1,13 @@
 import { useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 
+import { ImageLightbox } from '@/components/ui/ImageLightbox';
 import { useAuth } from '@/features/auth/useAuth';
 import { ClientForm } from '@/features/clients/ClientForm';
+import {
+  CLIENT_REFERENCE_TYPE_LABELS,
+  DOCUMENT_TYPE_LABELS,
+} from '@/features/clients/clientsApi';
 import { DeactivateClientDialog } from '@/features/clients/DeactivateClientDialog';
 import {
   useClient,
@@ -27,6 +32,7 @@ import {
   formatCurrency,
   formatDateOnly,
   formatPhoneNumber,
+  isPdfUrl,
 } from '@/lib/format';
 
 import type { ReactNode } from 'react';
@@ -47,6 +53,13 @@ export function ClientDetailPage() {
 
   const [isEditing, setIsEditing] = useState(false);
   const [isDeactivating, setIsDeactivating] = useState(false);
+  // Phase 21 — same lightbox pattern as LoanDetailPage.tsx (Phase 12),
+  // extracted into the shared ImageLightbox component so both pages reuse
+  // it instead of each keeping a local copy.
+  const [enlargedImage, setEnlargedImage] = useState<{
+    url: string;
+    alt: string;
+  } | null>(null);
 
   const { data: client, isLoading, isError } = useClient(id ?? '');
   const updateClient = useUpdateClient();
@@ -213,6 +226,184 @@ export function ClientDetailPage() {
               : formatCurrency(client.creditAvailable ?? 0)
           }
         />
+      </div>
+
+      {/* Phase 21 — extended profile (KYC), sectioned the same way as
+          ClientForm.tsx. Each DetailField skips rendering when its value
+          is empty, so a client with a mostly-blank profile (e.g. one
+          created before this phase) doesn't show a wall of "—" lines. See
+          docs/phasesClient/PHASE_21_CLIENT_PROFILE.md. */}
+      <div className="flex flex-col gap-4">
+        <DetailSection title="DATOS PERSONALES">
+          <DetailField
+            label="Documento"
+            value={
+              client.documentType
+                ? DOCUMENT_TYPE_LABELS[client.documentType]
+                : null
+            }
+          />
+          <DetailField
+            label="Fecha de nacimiento"
+            value={
+              client.dateOfBirth ? formatDateOnly(client.dateOfBirth) : null
+            }
+          />
+          <DetailField
+            label="Lugar de expedición"
+            value={client.documentIssuePlace}
+          />
+          <DetailField label="Ocupación" value={client.occupation} />
+          <DetailField label="Empresa" value={client.employerName} />
+          <DetailField
+            label="Ingreso mensual"
+            value={
+              client.monthlyIncome !== null
+                ? formatCurrency(client.monthlyIncome)
+                : null
+            }
+          />
+        </DetailSection>
+
+        <DetailSection title="CONTACTO">
+          <DetailField
+            label="Celular alterno"
+            value={
+              client.alternatePhoneNumber
+                ? formatPhoneNumber(client.alternatePhoneNumber)
+                : null
+            }
+          />
+          <DetailField label="Correo electrónico" value={client.email} />
+        </DetailSection>
+
+        <DetailSection title="DIRECCIONES">
+          <DetailField
+            label="Dirección de residencia"
+            value={client.homeAddress}
+          />
+          <DetailField
+            label="Dirección de trabajo"
+            value={client.workAddress}
+          />
+          <DetailField label="Barrio" value={client.neighborhood} />
+          <DetailField label="Ciudad" value={client.city} />
+        </DetailSection>
+
+        <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+          <span className="text-section-label font-medium tracking-[0.36px] text-muted">
+            REFERENCIAS
+          </span>
+          {client.references.length === 0 ? (
+            <p className="text-small text-muted">
+              Sin referencias registradas.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {client.references.map((reference) => (
+                <div
+                  key={reference.id}
+                  className="flex items-center justify-between rounded border border-border bg-input px-3.5 py-2.5"
+                >
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-small font-medium text-white">
+                      {reference.fullName}
+                    </span>
+                    <span className="text-meta text-muted">
+                      {reference.relationship}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-meta text-muted">
+                      {formatPhoneNumber(reference.phoneNumber)}
+                    </span>
+                    <span className="rounded-[3px] border border-border bg-background px-2 py-[3px] text-meta text-muted">
+                      {CLIENT_REFERENCE_TYPE_LABELS[reference.type]}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+          <span className="text-section-label font-medium tracking-[0.36px] text-muted">
+            DOCUMENTOS
+          </span>
+          {!client.idDocumentFrontUrl &&
+          !client.idDocumentBackUrl &&
+          !client.selfieImageUrl ? (
+            <p className="text-small text-muted">Sin documentos cargados.</p>
+          ) : (
+            <div className="flex items-center gap-4">
+              <DocumentThumbnail
+                label="Documento — frente"
+                url={client.idDocumentFrontUrl}
+                alt={`Documento de identidad (frente) de ${client.firstName} ${client.lastName}`}
+                onEnlarge={setEnlargedImage}
+              />
+              <DocumentThumbnail
+                label="Documento — reverso"
+                url={client.idDocumentBackUrl}
+                alt={`Documento de identidad (reverso) de ${client.firstName} ${client.lastName}`}
+                onEnlarge={setEnlargedImage}
+              />
+              <DocumentThumbnail
+                label="Selfie"
+                url={client.selfieImageUrl}
+                alt={`Selfie de ${client.firstName} ${client.lastName}`}
+                onEnlarge={setEnlargedImage}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+          <span className="text-section-label font-medium tracking-[0.36px] text-muted">
+            AUTORIZACIÓN DE TRATAMIENTO DE DATOS
+          </span>
+          <div className="flex items-center gap-3">
+            {client.dataProcessingConsent ? (
+              <span className="rounded-[3px] border border-[#22c55e] bg-[#051e0e] px-2 py-[3px] text-meta font-medium text-[#22c55e]">
+                Autorización firmada
+              </span>
+            ) : (
+              <span className="rounded-[3px] border border-[#ef4444] bg-[#240a0a] px-2 py-[3px] text-meta font-medium text-[#ef4444]">
+                Sin autorización registrada
+              </span>
+            )}
+            {client.consentGivenAt && (
+              <span className="text-meta text-muted">
+                {new Date(client.consentGivenAt).toLocaleDateString('es-CO')}
+              </span>
+            )}
+          </div>
+          {client.consentDocumentUrl &&
+            (isPdfUrl(client.consentDocumentUrl) ? (
+              <a
+                href={client.consentDocumentUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="self-start text-meta text-muted hover:text-white hover:underline"
+              >
+                Ver evidencia de autorización (PDF)
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={() =>
+                  setEnlargedImage({
+                    url: client.consentDocumentUrl!,
+                    alt: `Evidencia de autorización de ${client.firstName} ${client.lastName}`,
+                  })
+                }
+                className="self-start text-meta text-muted hover:text-white hover:underline"
+              >
+                Ver evidencia de autorización
+              </button>
+            ))}
+        </div>
       </div>
 
       <div className="flex flex-col gap-2.5">
@@ -468,6 +659,14 @@ export function ClientDetailPage() {
           }}
         />
       )}
+
+      {enlargedImage && (
+        <ImageLightbox
+          imageUrl={enlargedImage.url}
+          alt={enlargedImage.alt}
+          onClose={() => setEnlargedImage(null)}
+        />
+      )}
     </div>
   );
 }
@@ -512,5 +711,99 @@ function Legend({ color, label }: { color: string; label: string }) {
       />
       <span style={{ color }}>{label}</span>
     </span>
+  );
+}
+
+// Phase 21 — one of the sectioned profile blocks below the stats grid,
+// mirroring ClientForm.tsx's FormSection titles. Always renders (no
+// "empty section" collapse) so the page's shape stays predictable even
+// when every field inside is blank — the individual DetailFields below
+// handle the empty-value case instead.
+function DetailSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+      <span className="text-section-label font-medium tracking-[0.36px] text-muted">
+        {title}
+      </span>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-small">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Same pattern as LoanDetailPage.tsx's DetailField (Phase 21 codeudor
+// section) — skips rendering entirely when the value is empty, so an
+// optional field left blank doesn't leave a dangling "Barrio: —" line.
+function DetailField({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null | undefined;
+}) {
+  if (!value) {
+    return null;
+  }
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-meta text-muted">{label}</span>
+      <span className="text-white">{value}</span>
+    </div>
+  );
+}
+
+// One of the three ID/selfie photo slots in the "DOCUMENTOS" section.
+// Renders nothing when the client has no file in that slot (skipped
+// entirely, same as DetailField) — a PDF can't render as an <img>, so it
+// falls back to a filename-less "Ver" link that opens the file in a new
+// tab instead of the lightbox, same branching LoanDetailPage.tsx uses for
+// the co-debtor's ID document.
+function DocumentThumbnail({
+  label,
+  url,
+  alt,
+  onEnlarge,
+}: {
+  label: string;
+  url: string | null;
+  alt: string;
+  onEnlarge: (image: { url: string; alt: string }) => void;
+}) {
+  if (!url) {
+    return null;
+  }
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      {isPdfUrl(url) ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className="flex h-[52px] w-[52px] items-center justify-center rounded border border-border bg-input text-meta text-muted hover:border-subtle hover:text-white"
+        >
+          PDF
+        </a>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onEnlarge({ url, alt })}
+          className="block"
+        >
+          <img
+            src={url}
+            alt={alt}
+            className="h-[52px] w-[52px] rounded border border-border object-cover hover:border-subtle"
+          />
+        </button>
+      )}
+      <span className="text-meta text-muted">{label}</span>
+    </div>
   );
 }
