@@ -195,6 +195,17 @@ export interface PayoffQuote {
   totalDue: number;
 }
 
+// Matches apps/api/src/loans/loans.service.ts's RefinanceQuote exactly —
+// see docs/phases/PHASE_17_REFINANCING_RECALC.md. Advisory only: reopens
+// docs/phases/PHASE_6_REFINANCING.md's manual-entry decision, but
+// suggestedPrincipalAmount and concepts are only a pre-fill — the admin
+// keeps full editing control over what actually gets submitted.
+export interface RefinanceQuote {
+  payoff: PayoffQuote;
+  suggestedPrincipalAmount: number;
+  concepts: LoanConceptAssignment[];
+}
+
 // Matches apps/api/src/loans/dto/updateLoan.dto.ts exactly — only these two
 // fields are editable post-creation. principalAmount/schedule are NOT
 // patchable (would cascade into already-generated installments, out of
@@ -301,6 +312,16 @@ export const loansApi = {
   // settles the FULL payoff quote, closing the loan out. Admin only.
   payoff: async (id: string): Promise<LoanDetail> => {
     const { data } = await apiClient.post<LoanDetail>(`/loans/${id}/payoff`);
+    return data;
+  },
+
+  // Read-only, advisory — see docs/phases/PHASE_17_REFINANCING_RECALC.md.
+  // The suggested figures are just a pre-fill; refinance() below still
+  // accepts whatever principalAmount/concepts actually get submitted.
+  getRefinanceQuote: async (id: string): Promise<RefinanceQuote> => {
+    const { data } = await apiClient.get<RefinanceQuote>(
+      `/loans/${id}/refinance-quote`,
+    );
     return data;
   },
 

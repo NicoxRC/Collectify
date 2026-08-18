@@ -33,6 +33,7 @@ describe('LoansService', () => {
   };
   let installmentsRepository: {
     find: jest.Mock;
+    findOne: jest.Mock;
     create: jest.Mock;
     save: jest.Mock;
     update: jest.Mock;
@@ -95,6 +96,7 @@ describe('LoansService', () => {
     };
     installmentsRepository = {
       find: jest.fn(),
+      findOne: jest.fn(),
       create: jest.fn((dto: Partial<Installment>) => dto),
       save: jest.fn(),
       update: jest.fn(),
@@ -595,6 +597,33 @@ describe('LoansService', () => {
         expect.objectContaining({ installmentNumber: 1, isInitial: false }),
         expect.objectContaining({ installmentNumber: 2, isInitial: true }),
       ]);
+    });
+
+    it('flags a refinance whose new concepts exceed the current usury ceiling (Phase 17: no new code needed, existing check applies)', async () => {
+      usuryRateService.getCurrentRate.mockResolvedValue({
+        id: 'rate-1',
+        effectiveMonth: '2026-01-01',
+        ratePercentage: 1,
+        createdBy: null,
+        createdByUser: null,
+        createdAt: new Date(),
+        isStale: false,
+      });
+
+      await service.refinance(mockLoan.id, {
+        ...refinanceDto,
+        concepts: [
+          {
+            conceptTypeId: mockConceptType.id,
+            calculationType: ConceptCalculationType.Percentage,
+            value: 5,
+          },
+        ],
+      });
+
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ usuryCeilingExceededAtCreation: true }),
+      );
     });
 
     it('rejects refinancing an already-paid loan', async () => {
@@ -1257,6 +1286,110 @@ describe('LoansService', () => {
       loansRepository.findOneBy.mockResolvedValue(null);
 
       await expect(service.getPayoffQuote('missing-id')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('getRefinanceQuote', () => {
+    function pendingInstallment(
+      overrides: Partial<Installment> = {},
+    ): Installment {
+      return {
+        id: 'inst-1',
+        loanId: mockLoan.id,
+        loan: mockLoan,
+        installmentNumber: 1,
+        amount: 300000,
+        principalPortion: 270000,
+        dueDate: '2026-01-01',
+        status: InstallmentStatus.Pending,
+        isInitial: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+        ...overrides,
+      };
+    }
+
+    beforeEach(() => {
+      loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
+    });
+
+    it('suggests the payoff quote total as the new principal', async () => {
+      // Far in the future — deterministic "not yet due", so the quote's
+      // total is exactly principalPortion, regardless of when this test runs.
+      const futureDueDate = new Date();
+      futureDueDate.setFullYear(futureDueDate.getFullYear() + 5);
+
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({
+          amount: 300000,
+          principalPortion: 270000,
+          dueDate: futureDueDate.toISOString().slice(0, 10),
+        }),
+      ]);
+      installmentsRepository.findOne.mockResolvedValue(
+        pendingInstallment({ id: 'inst-1' }),
+      );
+
+      const quote = await service.getRefinanceQuote(mockLoan.id);
+
+      expect(quote.suggestedPrincipalAmount).toBe(270000);
+      expect(quote.suggestedPrincipalAmount).toBe(quote.payoff.totalDue);
+    });
+
+    it("carries over the first installment's concepts, dropping ones with a deleted catalog type", async () => {
+      installmentsRepository.find.mockResolvedValue([pendingInstallment()]);
+      installmentsRepository.findOne.mockResolvedValue(
+        pendingInstallment({ id: 'inst-1' }),
+      );
+      loanInstallmentConceptsRepository.find.mockResolvedValue([
+        {
+          id: 'concept-row-1',
+          installmentId: 'inst-1',
+          interestConceptTypeId: mockConceptType.id,
+          nameSnapshot: mockConceptType.name,
+          calculationType: ConceptCalculationType.Percentage,
+          value: 2,
+          computedAmount: 6000,
+        },
+        {
+          id: 'concept-row-2',
+          installmentId: 'inst-1',
+          interestConceptTypeId: null,
+          nameSnapshot: 'Concepto eliminado',
+          calculationType: ConceptCalculationType.FixedAmount,
+          value: 5000,
+          computedAmount: 5000,
+        },
+      ]);
+
+      const quote = await service.getRefinanceQuote(mockLoan.id);
+
+      expect(quote.concepts).toEqual([
+        {
+          conceptTypeId: mockConceptType.id,
+          calculationType: ConceptCalculationType.Percentage,
+          value: 2,
+        },
+      ]);
+    });
+
+    it('returns an empty concepts array when the loan has no installments', async () => {
+      installmentsRepository.find.mockResolvedValue([]);
+      installmentsRepository.findOne.mockResolvedValue(null);
+
+      const quote = await service.getRefinanceQuote(mockLoan.id);
+
+      expect(quote.concepts).toEqual([]);
+      expect(quote.suggestedPrincipalAmount).toBe(0);
+    });
+
+    it('throws NotFoundException when the loan does not exist', async () => {
+      loansRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.getRefinanceQuote('missing-id')).rejects.toThrow(
         NotFoundException,
       );
     });

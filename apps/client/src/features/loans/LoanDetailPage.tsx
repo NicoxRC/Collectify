@@ -572,6 +572,7 @@ export function LoanDetailPage() {
 
       {isRefinancing && (
         <RefinanceLoanForm
+          oldLoanId={loan.id}
           oldLoanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
           oldLoanOutstandingBalance={outstandingBalance}
           onClose={() => setIsRefinancing(false)}

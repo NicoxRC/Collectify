@@ -8,14 +8,16 @@ Automatically calculate the new loan's principal when refinancing, instead of re
 
 `docs/phases/PHASE_6_REFINANCING.md` explicitly states: *"principal amount — typically old balance + accrued interest, but let the admin enter the exact figure rather than auto-calculating it, since the exact renegotiated amount is a business decision, not a formula."* This phase proposes changing that. **Do not treat this as new scope in isolation** — the phase doc, the PR description, and any conversation with the human about this phase must say plainly: "this changes a previously confirmed decision from Phase 6," not present it as if the manual-entry behavior never existed.
 
-## Before starting this phase — stop and confirm with the human
+## Resolved — confirmed directly with the human
 
-1. Confirm the full formula: new capital = sum of pending installments' principal (per Phase 14's concept breakdown) minus interest causado (via Phase 16's calculation) — does this include the old loan's not-yet-due installments, or only the overdue ones?
-2. Does this **replace** Phase 6's manually-entered `principal_amount`, or become a pre-filled, still-overridable default? Given Phase 6's reasoning was explicit ("a business decision, not a formula"), reversing it outright needs explicit sign-off — a pre-filled-but-overridable default is the safer middle ground unless the human says otherwise.
-3. The "abono adicional a capital" (extra paydown) — is it registered as a `Payment` (against what, if the new loan/installments don't exist yet at that point in the flow), or does it simply reduce the computed principal before the new loan is generated?
-4. Do the old loan's interest concepts (Phase 14) carry over as-is into the new loan, or reset to current defaults/the current usury ceiling (Phase 15)?
+1. **Formula:** new capital = `calculatePayoff()`'s `totalDue` for the old loan's pending installments — the exact same figure `docs/phases/PHASE_16_EARLY_PAYOFF.md`'s payoff quote produces. This includes **all** pending installments, not just overdue ones: not-yet-due installments contribute their principal at face value with zero interest (Phase 16's confirmed rule), and matured ones contribute principal + interest causado. Reusing the payoff quote directly (rather than a separate formula) means refinancing and early payoff can never silently disagree on "what the client currently owes."
+2. **Replace vs. pre-fill:** pre-filled, still-overridable default. Phase 6's "a business decision, not a formula" reasoning stands — `RefinanceLoanDto.principalAmount` stays a required field the admin sends, unchanged in shape; only the client-side default shown to the admin changes (from blank to computed).
+3. **Abono adicional a capital:** reduces the computed principal **before** the new loan is generated — implemented as pure client-side arithmetic on the pre-filled default (`suggestedPrincipalAmount - additionalPrincipalPayment`), not a new persisted field or a `Payment` row. It has no independent meaning once `principalAmount` is submitted — whatever number ends up in that single field (computed, then possibly hand-edited further) is what's created, exactly as Phase 6 already worked. No backend/DTO change needed for this.
+4. **Interest concepts:** carry over as-is from the old loan (its first installment's concepts — the representative baseline, since per-installment overrides are documented elsewhere as an expected-to-be-rare case with no well-defined mapping onto a new loan's possibly-different installment count), fully editable before submit, and — automatically, with no new code — still validated against the current usury ceiling by the same `buildUsuryWarning()` check `persistLoanWithInstallments()` already runs for every loan creation/refinance.
 
-**Do not pick answers and build it — ask the human**, same as Phase 6 required for the original refinancing behavior.
+These answers are final for this phase — do not revisit them without a new confirmation round with the human.
+
+**This phase reopens and supersedes the manual-entry decision from `docs/phases/PHASE_6_REFINANCING.md`** — the field is no longer blank by default, but the admin retains full editing control, so Phase 6's underlying principle ("a business decision, not a formula") is preserved even as its concrete UI behavior changes.
 
 ## Required reading before starting
 
@@ -23,28 +25,27 @@ Automatically calculate the new loan's principal when refinancing, instead of re
 
 ## Scope (once the above is confirmed)
 
-### Refinancing flow
-- [ ] `LoansService.refinance()`: compute the default new `principal_amount` using `calculatePayoff.ts` from Phase 16 (pending installments minus interest causado), rather than duplicating that math. Whether this replaces or merely pre-fills the manual entry depends on the confirmed answer above.
-- [ ] Accept an optional `additionalPrincipalPayment` field, applied per the confirmed answer to question 3.
-- [ ] New loan's interest concepts default to carrying over from the old loan (per the confirmed answer), remaining editable via Phase 14's `interestConcepts` input, and still validated against Phase 15's usury ceiling.
+### Refinancing quote (new, read-only)
+- [x] `LoansService.getRefinanceQuote(id)` — reuses `calculatePayoff()` from Phase 16 directly (no duplicated math): returns the old loan's payoff breakdown, `suggestedPrincipalAmount` (= its `totalDue`), and the old loan's carried-over concepts (from its first installment, `conceptTypeId`-null ones filtered out since there's no valid catalog id to resubmit).
+- [x] `GET /api/v1/loans/:id/refinance-quote` — read-only, same no-`@Roles`-restriction convention as `GET /loans/:id/payoff-quote`.
+- [x] `LoansService.refinance()` itself is **unchanged** — per the confirmed answers, `principalAmount` and `concepts` stay exactly the fields they already are; only the client pre-fills them differently now. `additionalPrincipalPayment` is client-side arithmetic, not a new field here.
 
 ### Tests (mandatory)
-- [ ] `LoansService.refinance()`: computed principal matches `calculatePayoff.ts`'s output for a representative set of pending/overdue installment combinations.
-- [ ] `additionalPrincipalPayment` is applied exactly per the confirmed rule.
-- [ ] Interest concept carry-over/reset behaves per the confirmed rule, and is validated against the current usury ceiling.
+- [x] `getRefinanceQuote()`: `suggestedPrincipalAmount` matches `calculatePayoff()`'s `totalDue` for a representative set of pending/overdue/future installment combinations; concepts are carried over from the first installment; a concept with a deleted (null) `interestConceptTypeId` is excluded from carry-over; empty when the loan has no installments.
+- [x] Confirmed via a dedicated regression test in the `refinance` describe block: a refinance's new concepts still get validated against the current usury ceiling via the existing `buildUsuryWarning()` path, no new code needed.
 
 ### Swagger
-- [ ] Endpoint updated with a clear explanation of how the new principal is derived and that it changes the Phase 6 behavior.
+- [x] New endpoint documented, explicitly noting it reopens/changes the Phase 6 manual-entry expectation and that `POST /loans/:id/refinance` itself is otherwise unchanged.
 
 ## Definition of done for this phase
 
-- Refinancing a loan produces a computed new principal matching the confirmed formula, with an optional extra paydown applied correctly.
-- The confirmed answers to every "Before starting" question are implemented exactly as agreed — not guessed.
-- All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
+- [x] Refinancing a loan produces a computed new principal matching the confirmed formula, with an optional extra paydown applied correctly.
+- [x] The confirmed answers to every "Before starting" question are implemented exactly as agreed — not guessed.
+- [x] All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## After this phase
 
-Update `docs/phases/PHASE_6_REFINANCING.md`'s own text (or `docs/DATABASE.md`'s refinancing section) to note it was superseded by this phase, so a future reader doesn't find the two documents contradicting each other silently.
+Updated `docs/phases/PHASE_6_REFINANCING.md`'s own text to note it was superseded in part by this phase, so a future reader doesn't find the two documents contradicting each other silently. `docs/DATABASE.md`'s refinancing section did not need updating — no schema or `Payment`/`Installment` relationship changed, only a new read-only aggregation endpoint.
 
 ## Related documents
 
