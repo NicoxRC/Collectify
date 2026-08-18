@@ -1,0 +1,24 @@
+import { ApiProperty } from '@nestjs/swagger';
+import { IsEnum, IsNotEmpty, IsPhoneNumber, IsString } from 'class-validator';
+
+import { ClientReferenceType } from '../entities/clientReference.entity';
+
+export class CreateClientReferenceDto {
+  @ApiProperty({ enum: ClientReferenceType })
+  @IsEnum(ClientReferenceType)
+  type!: ClientReferenceType;
+
+  @ApiProperty({ example: 'Carlos Gómez' })
+  @IsString()
+  @IsNotEmpty()
+  fullName!: string;
+
+  @ApiProperty({ example: '+573001112233' })
+  @IsPhoneNumber('CO')
+  phoneNumber!: string;
+
+  @ApiProperty({ example: 'Hermano' })
+  @IsString()
+  @IsNotEmpty()
+  relationship!: string;
+}
