@@ -37,6 +37,24 @@ describe('OverdueReminderService', () => {
     documentNumber: '1234567890',
     phoneNumber: '+573001234567',
     creditLimit: null,
+    documentType: null,
+    dateOfBirth: null,
+    documentIssuePlace: null,
+    email: null,
+    alternatePhoneNumber: null,
+    homeAddress: null,
+    workAddress: null,
+    neighborhood: null,
+    city: null,
+    occupation: null,
+    employerName: null,
+    monthlyIncome: null,
+    idDocumentFrontUrl: null,
+    idDocumentBackUrl: null,
+    selfieImageUrl: null,
+    dataProcessingConsent: false,
+    consentGivenAt: null,
+    consentDocumentUrl: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -56,9 +74,17 @@ describe('OverdueReminderService', () => {
     refinancedFromLoanId: null,
     refinancedFromLoan: null,
     description: null,
+    initialPayment: null,
     usuryCeilingExceededAtCreation: false,
     usuryJustification: null,
     newLoanMessageSentAt: null,
+    coDebtorFullName: null,
+    coDebtorDocumentType: null,
+    coDebtorDocumentNumber: null,
+    coDebtorPhoneNumber: null,
+    coDebtorAddress: null,
+    coDebtorRelationship: null,
+    coDebtorIdDocumentUrl: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -76,7 +102,6 @@ describe('OverdueReminderService', () => {
       principalPortion: null,
       dueDate: '2024-01-01',
       status: InstallmentStatus.Pending,
-      isInitial: false,
       createdAt: new Date(),
       updatedAt: new Date(),
       deletedAt: null,
@@ -227,28 +252,21 @@ describe('OverdueReminderService', () => {
       expect(result.status).toBe(MessageLogStatus.Sent);
       expect(messageLogItemsRepository.save).toHaveBeenCalledWith([]);
     });
-
-    // Phase 13 — docs/phases/PHASE_13_INITIAL_INSTALLMENT.md: a cuota
-    // inicial never counts as overdue, so it must never trigger or appear
-    // in the reminder message.
-    it('excludes isInitial installments from the overdue query', async () => {
-      installmentsRepository.find.mockResolvedValue([overdueInstallment()]);
-
-      await service.sendReminderForClient(mockClient.id);
-
-      expect(installmentsRepository.find).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ isInitial: false }) as unknown,
-        }),
-      );
-    });
   });
 
   describe('runWeeklyReminder', () => {
-    it('sends a reminder for every client with overdue installments', async () => {
+    // Confirmed with the human (2026-08-18), reopening the original
+    // additive/union design: the audience is now a required filter — a
+    // client is only reminded when they're both dynamically overdue AND a
+    // member of the audience.
+    it('sends a reminder only to clients who are both overdue and in the audience', async () => {
       installmentsRepository.find.mockResolvedValue([
         overdueInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
         overdueInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),
+      ]);
+      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([
+        'client-1',
+        'client-2',
       ]);
       const sendSpy = jest
         .spyOn(service, 'sendReminderForClient')
@@ -256,11 +274,29 @@ describe('OverdueReminderService', () => {
 
       await service.runWeeklyReminder();
 
-      expect(sendSpy).toHaveBeenCalledWith('client-1', { allowEmpty: true });
-      expect(sendSpy).toHaveBeenCalledWith('client-2', { allowEmpty: true });
+      expect(sendSpy).toHaveBeenCalledWith('client-1');
+      expect(sendSpy).toHaveBeenCalledWith('client-2');
     });
 
-    it('additionally notifies audience members with nothing overdue', async () => {
+    it('excludes an overdue client who is not in the audience', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        overdueInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
+        overdueInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),
+      ]);
+      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([
+        'client-1',
+      ]);
+      const sendSpy = jest
+        .spyOn(service, 'sendReminderForClient')
+        .mockResolvedValue({} as MessageLog);
+
+      await service.runWeeklyReminder();
+
+      expect(sendSpy).toHaveBeenCalledTimes(1);
+      expect(sendSpy).toHaveBeenCalledWith('client-1');
+    });
+
+    it('does not notify an audience member who has nothing overdue', async () => {
       installmentsRepository.find.mockResolvedValue([
         overdueInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
       ]);
@@ -274,15 +310,32 @@ describe('OverdueReminderService', () => {
 
       await service.runWeeklyReminder();
 
-      expect(sendSpy).toHaveBeenCalledTimes(2);
-      expect(sendSpy).toHaveBeenCalledWith('client-1', { allowEmpty: true });
-      expect(sendSpy).toHaveBeenCalledWith('client-3', { allowEmpty: true });
+      expect(sendSpy).toHaveBeenCalledTimes(1);
+      expect(sendSpy).toHaveBeenCalledWith('client-1');
+    });
+
+    it('notifies nobody when the audience is empty, even with overdue clients', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        overdueInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
+      ]);
+      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([]);
+      const sendSpy = jest
+        .spyOn(service, 'sendReminderForClient')
+        .mockResolvedValue({} as MessageLog);
+
+      await service.runWeeklyReminder();
+
+      expect(sendSpy).not.toHaveBeenCalled();
     });
 
     it('continues with the next client when one fails', async () => {
       installmentsRepository.find.mockResolvedValue([
         overdueInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
         overdueInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),
+      ]);
+      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([
+        'client-1',
+        'client-2',
       ]);
       const sendSpy = jest
         .spyOn(service, 'sendReminderForClient')

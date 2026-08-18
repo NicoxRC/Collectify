@@ -22,6 +22,7 @@ import {
 } from '@/features/loans/dueDateMath';
 import { InstallmentFrequency } from '@/features/loans/loansApi';
 import { usePreviewSchedule } from '@/features/loans/useLoans';
+import { StaleUsuryRateBanner } from '@/features/usuryRates/StaleUsuryRateBanner';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatDateOnly } from '@/lib/format';
 import { ImageUploadError, uploadDocument } from '@/lib/imageUpload';
@@ -78,12 +79,9 @@ function makeRowId(): string {
 // totalInstallments, and concepts — this form no longer collects or splits
 // installmentAmounts by hand. interestRate is kept (still required by the
 // API) but now only drives moratory interest on overdue installments, not
-// the cost of the loan itself — see the relabeled field below.
-//
-// Per-installment concept overrides (InstallmentConceptOverrideDto) are not
-// exposed here — expected to be a rare case, and the API accepts the same
-// baseline concepts for every installment when no override is sent. Revisit
-// if the business needs it.
+// the cost of the loan itself — see the relabeled field below. Concepts
+// apply to every installment for the whole term of the loan and cannot
+// vary per installment — set once here, at creation.
 export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [clientSearch, setClientSearch] = useState('');
@@ -113,11 +111,10 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   );
   const [totalInstallments, setTotalInstallments] = useState('');
   const [concepts, setConcepts] = useState<ConceptRow[]>([]);
-  // 0-based index into the generated schedule flagged "Cuota inicial", or
-  // null when none is. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
-  const [initialInstallmentIndex, setInitialInstallmentIndex] = useState<
-    number | null
-  >(null);
+  // The "cuota inicial" — a down payment the client already made outside
+  // the credit system, purely informational and unrelated to the
+  // generated schedule. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
+  const [initialPayment, setInitialPayment] = useState(0);
   const [description, setDescription] = useState('');
   // Only meaningful when preview?.usuryWarning fired — see
   // docs/phases/PHASE_15_USURY_RATE.md ("warning, not a hard block").
@@ -184,14 +181,9 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     setFieldErrors((prev) => ({ ...prev, concepts: undefined }));
   };
 
-  // A resize always clears the initial-installment flag — the row indices
-  // no longer mean the same thing after a resize, so keeping it risks
-  // flagging the wrong generated installment as the initial one. See
-  // docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
   const handleCountChange = (value: string) => {
     setTotalInstallments(value);
     setFieldErrors((prev) => ({ ...prev, totalInstallments: undefined }));
-    setInitialInstallmentIndex(null);
     setPreview(null);
   };
 
@@ -315,7 +307,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
         installmentFrequency,
         totalInstallments: count,
         concepts: toConceptAssignments(),
-        initialInstallmentIndex: initialInstallmentIndex ?? undefined,
+        initialPayment: initialPayment > 0 ? initialPayment : undefined,
         description: description.trim() || undefined,
         usuryJustification: preview?.usuryWarning
           ? usuryJustification.trim() || undefined
@@ -383,6 +375,10 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
         <p className="mt-1 text-label text-muted">
           Solo administradores pueden crear préstamos.
         </p>
+
+        <div className="mt-3.5">
+          <StaleUsuryRateBanner />
+        </div>
 
         <div className="mt-5 border-t border-border" />
 
@@ -644,32 +640,19 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
               </div>
             </Field>
 
-            {count > 0 && (
-              <Field label="Cuota inicial (opcional)">
-                <select
-                  value={initialInstallmentIndex ?? ''}
-                  onChange={(event) =>
-                    setInitialInstallmentIndex(
-                      event.target.value === ''
-                        ? null
-                        : Number(event.target.value),
-                    )
-                  }
-                  className={inputClassName(false)}
-                >
-                  <option value="">Ninguna</option>
-                  {Array.from({ length: count }, (_, index) => (
-                    <option key={index} value={index}>
-                      Cuota {index + 1}
-                    </option>
-                  ))}
-                </select>
-                <span className="mt-1 text-meta text-muted">
-                  La cuota marcada como inicial queda exenta de mora — ver
-                  docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
-                </span>
-              </Field>
-            )}
+            <Field label="Cuota inicial (opcional)">
+              <CurrencyInput
+                value={initialPayment}
+                onChange={setInitialPayment}
+                placeholder="Ej: $200.000"
+                className={inputClassName(false)}
+              />
+              <span className="mt-1 text-meta text-muted">
+                Valor que el cliente ya pagó por fuera del crédito para cubrir
+                parte de la compra — es solo informativo, no hace parte de las
+                cuotas ni afecta el cronograma.
+              </span>
+            </Field>
 
             {count > 0 && (
               <div className="rounded border border-border bg-input p-3">
@@ -723,7 +706,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                   </div>
                 )}
                 {preview?.usuryWarning && (
-                  <p className="mt-2.5 text-meta text-amber-400" role="alert">
+                  <p className="mt-2.5 text-meta text-red-400" role="alert">
                     Este cronograma supera la tasa de usura vigente (
                     {preview.usuryWarning.maxEffectiveInstallmentRate}% vs.{' '}
                     {preview.usuryWarning.currentCeilingRate}% permitido). El

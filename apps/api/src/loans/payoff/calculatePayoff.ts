@@ -13,7 +13,6 @@ export interface PayoffInstallmentInput {
   // used elsewhere for this column.
   principalPortion: number | null;
   dueDate: string;
-  isInitial: boolean;
 }
 
 export interface PayoffInstallmentBreakdown {
@@ -46,9 +45,10 @@ export interface PayoffQuote {
 //   - A matured installment (due today or already overdue) contributes its
 //     full concept charges plus any moratory interest, in addition to its
 //     principal.
-//   - An initial installment (Phase 13) contributes only its own amount as
-//     principal, never as interest — consistent with it never accruing
-//     mora.
+//   - The "cuota inicial" (Phase 13) never appears here at all — it's a
+//     Loan-level informational field, not one of its installments (see
+//     docs/phases/PHASE_13_INITIAL_INSTALLMENT.md, corrected after client
+//     QA), so it has no bearing on what a loan's installments still owe.
 //   - Allocation across multiple installments is interest-globally-then-
 //     principal-globally, not a per-installment waterfall — see the phase
 //     doc's "Resolved" point 2 for why this doesn't change the numbers
@@ -86,16 +86,6 @@ function calculateInstallmentPayoff(
   today: Date,
 ): PayoffInstallmentBreakdown {
   const principalPortion = installment.principalPortion ?? installment.amount;
-
-  if (installment.isInitial) {
-    return {
-      installmentId: installment.installmentId,
-      installmentNumber: installment.installmentNumber,
-      interestApplied: 0,
-      principalApplied: installment.amount,
-      totalDue: installment.amount,
-    };
-  }
 
   const dueDate = new Date(installment.dueDate);
   // 0 once the due date is today or has already passed — same "matured"

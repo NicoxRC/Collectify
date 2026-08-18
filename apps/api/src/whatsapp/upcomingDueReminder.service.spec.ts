@@ -39,6 +39,24 @@ describe('UpcomingDueReminderService', () => {
     documentNumber: '1234567890',
     phoneNumber: '+573001234567',
     creditLimit: null,
+    documentType: null,
+    dateOfBirth: null,
+    documentIssuePlace: null,
+    email: null,
+    alternatePhoneNumber: null,
+    homeAddress: null,
+    workAddress: null,
+    neighborhood: null,
+    city: null,
+    occupation: null,
+    employerName: null,
+    monthlyIncome: null,
+    idDocumentFrontUrl: null,
+    idDocumentBackUrl: null,
+    selfieImageUrl: null,
+    dataProcessingConsent: false,
+    consentGivenAt: null,
+    consentDocumentUrl: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -58,9 +76,17 @@ describe('UpcomingDueReminderService', () => {
     refinancedFromLoanId: null,
     refinancedFromLoan: null,
     description: null,
+    initialPayment: null,
     usuryCeilingExceededAtCreation: false,
     usuryJustification: null,
     newLoanMessageSentAt: null,
+    coDebtorFullName: null,
+    coDebtorDocumentType: null,
+    coDebtorDocumentNumber: null,
+    coDebtorPhoneNumber: null,
+    coDebtorAddress: null,
+    coDebtorRelationship: null,
+    coDebtorIdDocumentUrl: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -78,7 +104,6 @@ describe('UpcomingDueReminderService', () => {
       principalPortion: null,
       dueDate: '2026-07-21',
       status: InstallmentStatus.Pending,
-      isInitial: false,
       createdAt: new Date(),
       updatedAt: new Date(),
       deletedAt: null,
@@ -231,10 +256,18 @@ describe('UpcomingDueReminderService', () => {
   });
 
   describe('runDailyReminder', () => {
-    it('sends a reminder for every client with upcoming installments', async () => {
+    // Confirmed with the human (2026-08-18), reopening the original
+    // additive/union design: the audience is now a required filter — a
+    // client is only reminded when they're both dynamically approaching
+    // due AND a member of the audience.
+    it('sends a reminder only to clients who are both upcoming and in the audience', async () => {
       installmentsRepository.find.mockResolvedValue([
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),
+      ]);
+      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([
+        'client-1',
+        'client-2',
       ]);
       const sendSpy = jest
         .spyOn(service, 'sendReminderForClient')
@@ -242,11 +275,29 @@ describe('UpcomingDueReminderService', () => {
 
       await service.runDailyReminder();
 
-      expect(sendSpy).toHaveBeenCalledWith('client-1', { allowEmpty: true });
-      expect(sendSpy).toHaveBeenCalledWith('client-2', { allowEmpty: true });
+      expect(sendSpy).toHaveBeenCalledWith('client-1');
+      expect(sendSpy).toHaveBeenCalledWith('client-2');
     });
 
-    it('additionally notifies audience members with nothing upcoming', async () => {
+    it('excludes an upcoming client who is not in the audience', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
+        upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),
+      ]);
+      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([
+        'client-1',
+      ]);
+      const sendSpy = jest
+        .spyOn(service, 'sendReminderForClient')
+        .mockResolvedValue({} as MessageLog);
+
+      await service.runDailyReminder();
+
+      expect(sendSpy).toHaveBeenCalledTimes(1);
+      expect(sendSpy).toHaveBeenCalledWith('client-1');
+    });
+
+    it('does not notify an audience member who has nothing upcoming', async () => {
       installmentsRepository.find.mockResolvedValue([
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
       ]);
@@ -260,15 +311,32 @@ describe('UpcomingDueReminderService', () => {
 
       await service.runDailyReminder();
 
-      expect(sendSpy).toHaveBeenCalledTimes(2);
-      expect(sendSpy).toHaveBeenCalledWith('client-1', { allowEmpty: true });
-      expect(sendSpy).toHaveBeenCalledWith('client-3', { allowEmpty: true });
+      expect(sendSpy).toHaveBeenCalledTimes(1);
+      expect(sendSpy).toHaveBeenCalledWith('client-1');
+    });
+
+    it('notifies nobody when the audience is empty, even with upcoming clients', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
+      ]);
+      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([]);
+      const sendSpy = jest
+        .spyOn(service, 'sendReminderForClient')
+        .mockResolvedValue({} as MessageLog);
+
+      await service.runDailyReminder();
+
+      expect(sendSpy).not.toHaveBeenCalled();
     });
 
     it('continues with the next client when one fails', async () => {
       installmentsRepository.find.mockResolvedValue([
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),
+      ]);
+      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([
+        'client-1',
+        'client-2',
       ]);
       const sendSpy = jest
         .spyOn(service, 'sendReminderForClient')

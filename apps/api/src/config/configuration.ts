@@ -28,11 +28,12 @@ export interface CronConfig {
   overdueReminderExpression: string;
   upcomingDueReminderExpression: string;
   upcomingDueReminderDays: number[];
-  // Code-level defaults for the two message types added to the cron
-  // mechanism in Phase 18. MessageTemplate.cronExpression (DB, admin-
-  // editable) takes precedence over these when set — see
-  // WhatsappCronService and docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
-  newLoanReminderExpression: string;
+  // Code-level default for account_summary, added to the cron mechanism in
+  // Phase 18. MessageTemplate.cronExpression (DB, admin-editable) takes
+  // precedence when set — see WhatsappCronService and
+  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md. new_loan has no cron
+  // expression at all (corrected after client QA, 2026-08-18) — it's sent
+  // synchronously at loan creation only.
   accountSummaryReminderExpression: string;
 }
 
@@ -74,11 +75,8 @@ export default (): Configuration => ({
     upcomingDueReminderDays: (process.env.UPCOMING_DUE_REMINDER_DAYS ?? '5,3,1')
       .split(',')
       .map((value) => parseInt(value.trim(), 10)),
-    // Retry/backstop sweep for loans whose synchronous new-loan message
-    // never went out — hourly keeps the gap small without being noisy.
-    newLoanReminderExpression:
-      process.env.NEW_LOAN_REMINDER_CRON ?? '0 * * * *',
-    // Audience-only account statement — monthly, 1st of the month, 8am.
+    // Sent to every client with an active loan — monthly, 1st of the
+    // month, 8am.
     accountSummaryReminderExpression:
       process.env.ACCOUNT_SUMMARY_REMINDER_CRON ?? '0 8 1 * *',
   },

@@ -171,7 +171,6 @@ export class DashboardService {
       where: {
         status: InstallmentStatus.Pending,
         dueDate: LessThan(today),
-        isInitial: false,
         loan: { status: LoanStatus.Active },
       },
       relations: { loan: { client: true } },

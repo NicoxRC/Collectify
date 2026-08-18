@@ -85,7 +85,7 @@ export class LoansController {
   @ApiOperation({
     summary: 'Create a loan and generate its installments (admin only)',
     description:
-      'The installment schedule is generated automatically from principalAmount, totalInstallments, and concepts (interest/fee concepts picked from the InterestConceptTypes catalog) — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md. Concepts apply to every installment unless overridden per installment via installmentConceptOverrides. Due dates are auto-generated from disbursedAt + installmentFrequency. interestRate is used only for moratory interest on overdue installments. If the schedule exceeds the current usury ceiling, the loan is still created (usuryCeilingExceededAtCreation is set true on the response) — this is a warning, not a block; usuryJustification records an optional admin note. See docs/phases/PHASE_15_USURY_RATE.md.',
+      'The installment schedule is generated automatically from principalAmount, totalInstallments, and concepts (interest/fee concepts picked from the InterestConceptTypes catalog), solved as a level total payment ("cuota fija") — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md. Concepts apply to every installment for the whole term of the loan; they cannot vary per installment. Due dates are auto-generated from disbursedAt + installmentFrequency. interestRate is used only for moratory interest on overdue installments. If the schedule exceeds the current usury ceiling, the loan is still created (usuryCeilingExceededAtCreation is set true on the response) — this is a warning, not a block; usuryJustification records an optional admin note. See docs/phases/PHASE_15_USURY_RATE.md.',
   })
   @ApiResponse({
     status: 201,
@@ -94,8 +94,7 @@ export class LoansController {
   @ApiResponse({
     status: 400,
     description:
-      "An installmentConceptOverrides entry references an installment number outside the loan's totalInstallments, OR the client " +
-      'is mora-blocked (an installment more than 30 days overdue), OR the ' +
+      'The client is mora-blocked (an installment more than 30 days overdue), OR the ' +
       "principal exceeds the client's available cupo — see the error " +
       'message for which one applies.',
   })
@@ -237,7 +236,12 @@ export class LoansController {
       'note number and a schedule generated the same way as loan creation (principalAmount, ' +
       'totalInstallments, and concepts — see POST /loans). principalAmount and concepts are still ' +
       'exactly what the admin submits — see GET /loans/:id/refinance-quote for a suggested ' +
-      'starting point, per docs/phases/PHASE_17_REFINANCING_RECALC.md.',
+      'starting point, per docs/phases/PHASE_17_REFINANCING_RECALC.md. The client must be current ' +
+      'on the old loan first: rejected if any installment is overdue and unpaid, or — once the ' +
+      'most overdue installment reaches 8 days past due — if the installment right after it is ' +
+      'also unpaid, even though its own due date has not arrived yet. ' +
+      'GET /loans/:id/refinance-quote surfaces the same check in advance via ' +
+      'blockedByPendingInstallments.',
   })
   @ApiResponse({
     status: 201,
@@ -246,7 +250,8 @@ export class LoansController {
   @ApiResponse({
     status: 400,
     description:
-      "The loan is not active (already paid or already refinanced), or an installmentConceptOverrides entry references an installment number outside the loan's totalInstallments.",
+      'The loan is not active (already paid or already refinanced), or the client is not yet ' +
+      'current on it — see the description above.',
   })
   @ApiResponse({ status: 404, description: 'Loan not found.' })
   @ApiResponse({

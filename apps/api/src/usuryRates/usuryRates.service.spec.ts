@@ -50,16 +50,16 @@ describe('UsuryRateService', () => {
 
   describe('getCurrentRate', () => {
     it('returns null when no rate has ever been entered', async () => {
-      repository.findOne.mockResolvedValue(null);
+      repository.find.mockResolvedValue([]);
 
       await expect(service.getCurrentRate()).resolves.toBeNull();
     });
 
     it('marks isStale false when the latest row matches the current month', async () => {
       const currentMonth = new Date().toISOString().slice(0, 7);
-      repository.findOne.mockResolvedValue(
+      repository.find.mockResolvedValue([
         makeRate({ effectiveMonth: `${currentMonth}-01` }),
-      );
+      ]);
 
       const result = await service.getCurrentRate();
 
@@ -67,13 +67,24 @@ describe('UsuryRateService', () => {
     });
 
     it('marks isStale true when the latest row is from a prior month', async () => {
-      repository.findOne.mockResolvedValue(
+      repository.find.mockResolvedValue([
         makeRate({ effectiveMonth: '2020-01-01' }),
-      );
+      ]);
 
       const result = await service.getCurrentRate();
 
       expect(result?.isStale).toBe(true);
+    });
+
+    it('queries only the single most recent row, not a where-filtered one', async () => {
+      repository.find.mockResolvedValue([makeRate()]);
+
+      await service.getCurrentRate();
+
+      expect(repository.find).toHaveBeenCalledWith({
+        order: { effectiveMonth: 'DESC' },
+        take: 1,
+      });
     });
   });
 

@@ -16,7 +16,6 @@ import {
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
-import { MessageAudiencesService } from './messageAudiences/messageAudiences.service';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
 import { WhatsAppService } from './whatsapp.service';
@@ -24,11 +23,11 @@ import { WhatsAppService } from './whatsapp.service';
 describe('AccountSummaryService', () => {
   let service: AccountSummaryService;
   let clientsRepository: { findOneBy: jest.Mock };
+  let loansRepository: { find: jest.Mock };
   let installmentsRepository: { find: jest.Mock };
   let messageLogsRepository: { create: jest.Mock; save: jest.Mock };
   let messageLogItemsRepository: { create: jest.Mock; save: jest.Mock };
   let messageTemplatesService: { findByTypeOrThrow: jest.Mock };
-  let messageAudiencesService: { getClientIdsForTemplateType: jest.Mock };
   let whatsAppService: { sendTextMessage: jest.Mock };
 
   const mockClient: Client = {
@@ -38,6 +37,24 @@ describe('AccountSummaryService', () => {
     documentNumber: '1234567890',
     phoneNumber: '+573001234567',
     creditLimit: null,
+    documentType: null,
+    dateOfBirth: null,
+    documentIssuePlace: null,
+    email: null,
+    alternatePhoneNumber: null,
+    homeAddress: null,
+    workAddress: null,
+    neighborhood: null,
+    city: null,
+    occupation: null,
+    employerName: null,
+    monthlyIncome: null,
+    idDocumentFrontUrl: null,
+    idDocumentBackUrl: null,
+    selfieImageUrl: null,
+    dataProcessingConsent: false,
+    consentGivenAt: null,
+    consentDocumentUrl: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -57,9 +74,17 @@ describe('AccountSummaryService', () => {
     refinancedFromLoanId: null,
     refinancedFromLoan: null,
     description: null,
+    initialPayment: null,
     usuryCeilingExceededAtCreation: false,
     usuryJustification: null,
     newLoanMessageSentAt: null,
+    coDebtorFullName: null,
+    coDebtorDocumentType: null,
+    coDebtorDocumentNumber: null,
+    coDebtorPhoneNumber: null,
+    coDebtorAddress: null,
+    coDebtorRelationship: null,
+    coDebtorIdDocumentUrl: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -77,7 +102,6 @@ describe('AccountSummaryService', () => {
       principalPortion: null,
       dueDate: '2099-01-01', // far future by default — not overdue
       status: InstallmentStatus.Pending,
-      isInitial: false,
       createdAt: new Date(),
       updatedAt: new Date(),
       deletedAt: null,
@@ -87,6 +111,7 @@ describe('AccountSummaryService', () => {
 
   beforeEach(async () => {
     clientsRepository = { findOneBy: jest.fn() };
+    loansRepository = { find: jest.fn() };
     installmentsRepository = { find: jest.fn() };
     messageLogsRepository = {
       create: jest.fn((dto: Partial<MessageLog>) => dto),
@@ -99,15 +124,13 @@ describe('AccountSummaryService', () => {
       save: jest.fn((items: unknown[]) => Promise.resolve(items)),
     };
     messageTemplatesService = { findByTypeOrThrow: jest.fn() };
-    messageAudiencesService = {
-      getClientIdsForTemplateType: jest.fn().mockResolvedValue([]),
-    };
     whatsAppService = { sendTextMessage: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AccountSummaryService,
         { provide: getRepositoryToken(Client), useValue: clientsRepository },
+        { provide: getRepositoryToken(Loan), useValue: loansRepository },
         {
           provide: getRepositoryToken(Installment),
           useValue: installmentsRepository,
@@ -121,10 +144,6 @@ describe('AccountSummaryService', () => {
           useValue: messageLogItemsRepository,
         },
         { provide: MessageTemplatesService, useValue: messageTemplatesService },
-        {
-          provide: MessageAudiencesService,
-          useValue: messageAudiencesService,
-        },
         { provide: WhatsAppService, useValue: whatsAppService },
       ],
     }).compile();
@@ -212,36 +231,55 @@ describe('AccountSummaryService', () => {
     });
   });
 
-  describe('runAudienceSummaries', () => {
-    it('sends only to the curated audience, with allowEmpty', async () => {
-      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([
-        'client-1',
-        'client-2',
+  // Confirmed with the human (2026-08-18), replacing the original
+  // audience-only design: every client with at least one active loan gets
+  // a summary — no curated audience involved.
+  describe('runActiveClientSummaries', () => {
+    it('sends to every client with an active loan, with allowEmpty', async () => {
+      loansRepository.find.mockResolvedValue([
+        { clientId: 'client-1' },
+        { clientId: 'client-2' },
       ]);
       const sendSpy = jest
         .spyOn(service, 'sendAccountSummary')
         .mockResolvedValue({} as MessageLog);
 
-      await service.runAudienceSummaries();
+      await service.runActiveClientSummaries();
 
-      expect(
-        messageAudiencesService.getClientIdsForTemplateType,
-      ).toHaveBeenCalledWith(MessageType.AccountSummary);
+      expect(loansRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { status: LoanStatus.Active },
+        }),
+      );
       expect(sendSpy).toHaveBeenCalledWith('client-1', { allowEmpty: true });
       expect(sendSpy).toHaveBeenCalledWith('client-2', { allowEmpty: true });
     });
 
+    it('deduplicates a client with multiple active loans', async () => {
+      loansRepository.find.mockResolvedValue([
+        { clientId: 'client-1' },
+        { clientId: 'client-1' },
+      ]);
+      const sendSpy = jest
+        .spyOn(service, 'sendAccountSummary')
+        .mockResolvedValue({} as MessageLog);
+
+      await service.runActiveClientSummaries();
+
+      expect(sendSpy).toHaveBeenCalledTimes(1);
+    });
+
     it('continues with the next client when one fails', async () => {
-      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([
-        'client-1',
-        'client-2',
+      loansRepository.find.mockResolvedValue([
+        { clientId: 'client-1' },
+        { clientId: 'client-2' },
       ]);
       const sendSpy = jest
         .spyOn(service, 'sendAccountSummary')
         .mockRejectedValueOnce(new Error('boom'))
         .mockResolvedValueOnce({} as MessageLog);
 
-      await expect(service.runAudienceSummaries()).resolves.toBeUndefined();
+      await expect(service.runActiveClientSummaries()).resolves.toBeUndefined();
       expect(sendSpy).toHaveBeenCalledTimes(2);
     });
   });

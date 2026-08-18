@@ -49,10 +49,14 @@ export class UpcomingDueReminderService {
     private readonly configService: ConfigService<Configuration, true>,
   ) {}
 
-  // The curated audience is additive: its members are always notified
-  // alongside whoever dynamically qualifies, even with nothing approaching
-  // due date themselves (allowEmpty). See
-  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
+  // The curated audience is a required filter, not additive (reopened and
+  // corrected after client QA, 2026-08-18 — originally additive, see
+  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md "Extended after client QA"):
+  // only clients who BOTH dynamically qualify (an installment approaching
+  // due date) AND are members of this template's audience get reminded.
+  // An empty/unpopulated audience means nobody is reminded, even if
+  // clients have installments coming due — the admin must explicitly
+  // enroll every client this job should ever reach.
   async runDailyReminder(): Promise<void> {
     const [dynamicClientIds, audienceClientIds] = await Promise.all([
       this.findClientIdsWithUpcomingInstallments(),
@@ -60,14 +64,15 @@ export class UpcomingDueReminderService {
         MessageType.UpcomingDue,
       ),
     ]);
-    const clientIds = [...new Set([...dynamicClientIds, ...audienceClientIds])];
+    const audienceSet = new Set(audienceClientIds);
+    const clientIds = dynamicClientIds.filter((id) => audienceSet.has(id));
     this.logger.log(
       `Daily upcoming-due reminder: ${clientIds.length} client(s) to notify`,
     );
 
     for (const clientId of clientIds) {
       try {
-        await this.sendReminderForClient(clientId, { allowEmpty: true });
+        await this.sendReminderForClient(clientId);
       } catch (error) {
         this.logger.error(
           `Failed to send upcoming-due reminder to client ${clientId}`,
@@ -78,10 +83,11 @@ export class UpcomingDueReminderService {
   }
 
   // allowEmpty (default false, unchanged for the manual on-demand controller
-  // endpoint): the daily cron passes true for audience members who don't
-  // dynamically qualify, so they still get a message — rendered with an
-  // empty list — instead of being skipped. See
-  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
+  // endpoint): every client the daily cron now calls this with already
+  // dynamically qualifies (the audience filter only narrows, never adds),
+  // so it never needs allowEmpty. Still used by the manual "retry a failed
+  // message" flow (MessageLogsService), which resends regardless of the
+  // client's current status. See docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
   async sendReminderForClient(
     clientId: string,
     options?: { allowEmpty?: boolean },
