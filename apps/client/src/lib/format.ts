@@ -45,3 +45,15 @@ export function formatDateOnly(dateString: string): string {
     timeZone: 'UTC',
   });
 }
+
+// Phase 21 — the client/co-debtor document-upload fields
+// (idDocumentFrontUrl, consentDocumentUrl, coDebtorIdDocumentUrl, ...)
+// accept either an image or a PDF (lib/imageUpload.ts#uploadDocument).
+// Display code needs to know which, since an <img> tag can't render a
+// PDF — a PDF should open as a plain link/new tab instead of going through
+// components/ui/ImageLightbox.tsx. Cloudinary's secure_url keeps the
+// original file extension, so checking the URL's own extension (ignoring
+// any query string) is reliable without a network round-trip.
+export function isPdfUrl(url: string): boolean {
+  return /\.pdf(?:[?#]|$)/i.test(url);
+}
