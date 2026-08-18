@@ -11,11 +11,11 @@ Let the admin manage a group of clients per message template and its schedule, a
 ## Scope
 
 ### Message templates
-- [ ] `MessageTemplatesPage.tsx`: keep `content` read-only exactly as it is today; add UI to view/create/edit the audience (group of clients) attached to each template — a client search/selector, similar to the one already used in `LoanForm.tsx`. One audience per template (`GET`/`PUT /message-templates/:type/audience`), confirmed with the human — not multiple named audiences, even though the `api`'s schema doesn't hard-restrict it.
-- [ ] Per-template cron schedule control, for **all four** message types (confirmed — bigger scope than just the two already-scheduled jobs), mirroring and generalizing the existing pause/resume control already built for the overdue reminder: status/pause/resume/reschedule against the new parametrized `GET`/`POST /whatsapp/cron/:type/...` routes.
+- [x] `MessageTemplatesPage.tsx`: keep `content` read-only exactly as it is today; add UI to view/create/edit the audience (group of clients) attached to each template — a client search/selector, similar to the one already used in `LoanForm.tsx`. One audience per template (`GET`/`PUT /message-templates/:type/audience`), confirmed with the human — not multiple named audiences, even though the `api`'s schema doesn't hard-restrict it.
+- [x] Per-template cron schedule control, for **all four** message types (confirmed — bigger scope than just the two already-scheduled jobs), mirroring and generalizing the existing pause/resume control already built for the overdue reminder: status/pause/resume/reschedule against the new parametrized `GET`/`POST /whatsapp/cron/:type/...` routes.
 
 ### Message logs
-- [ ] `MessageLogsPage.tsx`: add a "Reintentar" row action on failed rows, using the same `RowAction` component pattern already used in `ClientRow.tsx`.
+- [x] `MessageLogsPage.tsx`: add a "Reintentar" row action on failed rows, using the same `RowAction` component pattern already used in `ClientRow.tsx`.
 
 ## Definition of done for this phase
 
