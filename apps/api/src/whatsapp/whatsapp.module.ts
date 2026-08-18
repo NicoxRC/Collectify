@@ -16,11 +16,10 @@ import { MessageLogsService } from './messageLogs/messageLogs.service';
 import { MessageTemplatesController } from './messageTemplates/messageTemplates.controller';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { NewLoanReminderService } from './newLoanReminder.service';
-import { OverdueReminderCron } from './overdueReminder.cron';
 import { OverdueReminderService } from './overdueReminder.service';
-import { UpcomingDueReminderCron } from './upcomingDueReminder.cron';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
 import { WhatsappController } from './whatsapp.controller';
+import { WhatsappCronService } from './whatsappCron.service';
 import { WhatsAppService } from './whatsapp.service';
 
 @Module({
@@ -46,11 +45,10 @@ import { WhatsAppService } from './whatsapp.service';
     MessageAudiencesService,
     MessageLogsService,
     OverdueReminderService,
-    OverdueReminderCron,
     NewLoanReminderService,
     UpcomingDueReminderService,
-    UpcomingDueReminderCron,
     AccountSummaryService,
+    WhatsappCronService,
   ],
   // LoansService calls NewLoanReminderService synchronously after creating
   // a loan — see docs/phases/PHASE_9_MESSAGE_TYPES.md. WhatsappModule does

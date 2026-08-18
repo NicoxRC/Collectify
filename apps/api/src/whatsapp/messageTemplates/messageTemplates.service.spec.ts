@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
@@ -9,7 +9,11 @@ import { MessageTemplatesService } from './messageTemplates.service';
 
 describe('MessageTemplatesService', () => {
   let service: MessageTemplatesService;
-  let repository: { find: jest.Mock; findOneBy: jest.Mock };
+  let repository: {
+    find: jest.Mock;
+    findOneBy: jest.Mock;
+    save: jest.Mock;
+  };
 
   const mockTemplate: MessageTemplate = {
     id: 'template-1',
@@ -26,6 +30,7 @@ describe('MessageTemplatesService', () => {
     repository = {
       find: jest.fn(),
       findOneBy: jest.fn(),
+      save: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -66,6 +71,41 @@ describe('MessageTemplatesService', () => {
 
       await expect(
         service.findByTypeOrThrow(MessageType.NewLoan),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('updateCronExpression', () => {
+    it('persists a valid cron expression on the template', async () => {
+      repository.findOneBy.mockResolvedValue({ ...mockTemplate });
+      repository.save.mockImplementation((template) =>
+        Promise.resolve(template),
+      );
+
+      const result = await service.updateCronExpression(
+        MessageType.Overdue,
+        '0 9 * * 1,3,5',
+      );
+
+      expect(result.cronExpression).toBe('0 9 * * 1,3,5');
+      expect(repository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ cronExpression: '0 9 * * 1,3,5' }),
+      );
+    });
+
+    it('throws BadRequestException for an invalid cron expression', async () => {
+      await expect(
+        service.updateCronExpression(MessageType.Overdue, 'not a cron'),
+      ).rejects.toThrow(BadRequestException);
+      expect(repository.findOneBy).not.toHaveBeenCalled();
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when no template of that type exists', async () => {
+      repository.findOneBy.mockResolvedValue(null);
+
+      await expect(
+        service.updateCronExpression(MessageType.Overdue, '0 9 * * 1'),
       ).rejects.toThrow(NotFoundException);
     });
   });

@@ -48,6 +48,8 @@ META_WHATSAPP_BUSINESS_ACCOUNT_ID=
 OVERDUE_REMINDER_CRON=0 9 * * 1,3,5
 UPCOMING_DUE_REMINDER_CRON=0 8 * * *
 UPCOMING_DUE_REMINDER_DAYS=5,3,1
+NEW_LOAN_REMINDER_CRON=0 * * * *
+ACCOUNT_SUMMARY_REMINDER_CRON=0 8 1 * *
 
 # ── CORS ────────────────────────────────────────────────
 CLIENT_URL=http://localhost:5173
@@ -73,6 +75,8 @@ CLIENT_URL=http://localhost:5173
 | `OVERDUE_REMINDER_CRON` | ✅ | Cron expression controlling when the overdue reminder job runs. Default `0 9 * * 1,3,5` = every Monday, Wednesday, and Friday at 9:00 AM. Changed from a single weekly run (Monday only) at the client's request — the message content is still one consolidated summary per client, it's just sent three times a week instead of once. |
 | `UPCOMING_DUE_REMINDER_CRON` | ✅ | Cron expression controlling when the daily upcoming-due ("Aviso") reminder job runs. Default `0 8 * * *` = every day at 8:00 AM. Added in Phase 9 — see `docs/phases/PHASE_9_MESSAGE_TYPES.md`. |
 | `UPCOMING_DUE_REMINDER_DAYS` | ✅ | Comma-separated list of day thresholds before an installment's due date to send the "Aviso" reminder. Default `5,3,1`. Added in Phase 9. |
+| `NEW_LOAN_REMINDER_CRON` | ✅ | Cron expression for the new-loan retry/backstop job (Phase 18) — sweeps loans whose synchronous new-loan message never went out. Default `0 * * * *` = hourly. The synchronous send at loan creation remains primary; this only catches failures. Each message type's schedule is also admin-editable via `MessageTemplate.cronExpression`, which takes precedence over this code default when set — see `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md`. |
+| `ACCOUNT_SUMMARY_REMINDER_CRON` | ✅ | Cron expression for the account-summary cron (Phase 18) — sends only to each template's curated audience, since account_summary has no dynamic qualifying condition. Default `0 8 1 * *` = 8:00 AM on the 1st of each month. Same admin-editable override as above. |
 | `CLIENT_URL` | ✅ | The client's URL, used to configure CORS. `http://localhost:5173` locally; the Cloudflare Pages URL in production. |
 
 ### On the pending Meta Cloud API credentials
