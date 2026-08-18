@@ -12,27 +12,27 @@ import {
   Installment,
   InstallmentStatus,
 } from '../loans/entities/installment.entity';
-import { LoanStatus } from '../loans/entities/loan.entity';
+import { Loan, LoanStatus } from '../loans/entities/loan.entity';
 import { enrichInstallment } from '../loans/installments/enrichInstallment';
 import { calculateDaysUntilDue } from '../loans/installments/installmentCalculations';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
-import { MessageAudiencesService } from './messageAudiences/messageAudiences.service';
 import { renderAccountSummaryMessage } from './messageRenderer';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
 import { WhatsAppService } from './whatsapp.service';
 
 // Manual send is still on-demand — a full account statement is something
-// the admin sends when a client asks for their status. The Phase 18 cron
-// (runAudienceSummaries) is separate: account_summary has no dynamic
-// qualifying condition at all, so its cron sends only to the curated
-// audience, not to "every client" — see
-// docs/phases/PHASE_18_MESSAGE_AUDIENCES.md. Lists every pending
-// installment (overdue or not) across all of a client's active loans,
-// ending in a grand total — the combined "list all active pagarés" +
-// "total across all credits" message. See
+// the admin sends when a client asks for their status. The cron
+// (runActiveClientSummaries) is separate and sends to every client with at
+// least one active loan — no curated audience involved (corrected after
+// client QA, 2026-08-18: account_summary originally sent only to a manually
+// curated audience, per Phase 18; the audience concept was dropped for this
+// type entirely). See docs/phases/PHASE_18_MESSAGE_AUDIENCES.md "Extended
+// after client QA". Lists every pending installment (overdue or not) across
+// all of a client's active loans, ending in a grand total — the combined
+// "list all active pagarés" + "total across all credits" message. See
 // docs/phases/PHASE_9_MESSAGE_TYPES.md for why these were combined.
 @Injectable()
 export class AccountSummaryService {
@@ -41,6 +41,8 @@ export class AccountSummaryService {
   constructor(
     @InjectRepository(Client)
     private readonly clientsRepository: Repository<Client>,
+    @InjectRepository(Loan)
+    private readonly loansRepository: Repository<Loan>,
     @InjectRepository(Installment)
     private readonly installmentsRepository: Repository<Installment>,
     @InjectRepository(MessageLog)
@@ -48,20 +50,16 @@ export class AccountSummaryService {
     @InjectRepository(MessageLogItem)
     private readonly messageLogItemsRepository: Repository<MessageLogItem>,
     private readonly messageTemplatesService: MessageTemplatesService,
-    private readonly messageAudiencesService: MessageAudiencesService,
     private readonly whatsAppService: WhatsAppService,
   ) {}
 
-  // account_summary's cron entry point — audience-only, since there's no
-  // dynamic condition to derive a candidate list from. See
-  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
-  async runAudienceSummaries(): Promise<void> {
-    const clientIds =
-      await this.messageAudiencesService.getClientIdsForTemplateType(
-        MessageType.AccountSummary,
-      );
+  // account_summary's cron entry point — every client with at least one
+  // active loan gets a summary, regardless of whether they currently owe
+  // anything overdue. See the class doc comment above.
+  async runActiveClientSummaries(): Promise<void> {
+    const clientIds = await this.findClientIdsWithActiveLoan();
     this.logger.log(
-      `Account summary audience run: ${clientIds.length} client(s) to notify`,
+      `Account summary run: ${clientIds.length} client(s) to notify`,
     );
 
     for (const clientId of clientIds) {
@@ -76,11 +74,18 @@ export class AccountSummaryService {
     }
   }
 
+  private async findClientIdsWithActiveLoan(): Promise<string[]> {
+    const loans = await this.loansRepository.find({
+      where: { status: LoanStatus.Active },
+      select: ['clientId'],
+    });
+    return [...new Set(loans.map((loan) => loan.clientId))];
+  }
+
   // allowEmpty (default false, unchanged for the manual on-demand controller
-  // endpoint): the audience-only cron passes true, since account_summary has
-  // no dynamic qualifying condition at all — every audience member is sent
-  // a message, rendered with an empty list/$0 if they have nothing pending.
-  // See docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
+  // endpoint): the cron passes true, since a client can have an active loan
+  // with nothing currently pending/overdue — they still get a message,
+  // rendered with an empty list/$0 rather than being skipped.
   async sendAccountSummary(
     clientId: string,
     options?: { allowEmpty?: boolean },

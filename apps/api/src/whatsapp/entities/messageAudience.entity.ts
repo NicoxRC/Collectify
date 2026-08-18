@@ -16,14 +16,20 @@ import { Client } from '../../clients/entities/client.entity';
 
 import { MessageTemplate } from './messageTemplate.entity';
 
-// A curated group of clients attached to a message template (Phase 18).
-// ADDITIVE for the 3 types with a dynamic qualifying condition (overdue,
-// upcoming_due, new_loan): audience members are always included alongside
-// whoever qualifies dynamically that day, even with nothing to report
-// themselves (see the allowEmpty option on the reminder services). For
-// account_summary, which has no dynamic condition, the audience IS the
-// entire recipient list. The schema allows multiple audiences per template,
-// but the confirmed UI surface is one primary audience per template — see
+// A curated group of clients attached to a message template (Phase 18) —
+// as of the client QA corrections on 2026-08-18, only `overdue` and
+// `upcoming_due` actually use one. For those two, the audience is a
+// REQUIRED FILTER (originally additive/union — see
+// docs/phases/PHASE_18_MESSAGE_AUDIENCES.md "Extended after client QA"):
+// a client only gets that reminder if they BOTH dynamically qualify that
+// day AND are a member of the audience — an empty audience means nobody
+// is reminded, even if clients are overdue. `account_summary` has NO
+// audience at all anymore (dropped in the same round of corrections) —
+// it sends automatically to every client with an active loan. `new_loan`
+// never used the audience concept and now also has no cron job of any
+// kind — it's sent once, synchronously, at loan creation, with no
+// periodic sweep. The schema allows multiple audiences per template, but
+// the confirmed UI surface is one primary audience per template — see
 // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
 @Entity('message_audiences')
 export class MessageAudience {
