@@ -180,7 +180,12 @@ describe('ClientsService', () => {
     });
 
     it('rejects creating a client when consent is omitted entirely', async () => {
-      const { dataProcessingConsent: _omit, ...withoutConsent } = createDto;
+      const withoutConsent = {
+        firstName: createDto.firstName,
+        lastName: createDto.lastName,
+        documentNumber: createDto.documentNumber,
+        phoneNumber: createDto.phoneNumber,
+      };
 
       await expect(service.create(withoutConsent)).rejects.toThrow(
         BadRequestException,
@@ -205,7 +210,12 @@ describe('ClientsService', () => {
       repository.findOne.mockResolvedValue(null);
       repository.save.mockResolvedValue(mockClient);
 
-      const { dataProcessingConsent: _omit, ...withoutConsent } = createDto;
+      const withoutConsent = {
+        firstName: createDto.firstName,
+        lastName: createDto.lastName,
+        documentNumber: createDto.documentNumber,
+        phoneNumber: createDto.phoneNumber,
+      };
       await expect(
         service.create(withoutConsent, { requireConsent: false }),
       ).resolves.toEqual(mockClient);
