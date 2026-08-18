@@ -148,12 +148,43 @@ System users — Owner (Admin) and Collector roles, see `GLOSSARY.md`.
 | `document_number` | VARCHAR | national ID (cédula) — confirmed required, present in both source spreadsheets as `DOCUMENTO` |
 | `phone_number` | VARCHAR | E.164 format, e.g. `+573001234567` |
 | `credit_limit` | DECIMAL(12,2), nullable | maximum credit exposure ("cupo") enforced at loan creation. Nullable — unset means no cupo is enforced for this client, same "absence of a value means the rule doesn't apply" convention as `loans.description`. Added Phase 10, see "Changed after Phase 10" below. |
+| `document_type` | ENUM (`cedula_ciudadania`, `cedula_extranjeria`, `pasaporte`), nullable | Added Phase 21. Shared with `loans.co_debtor_document_type` via the same `DocumentType` enum. |
+| `date_of_birth` | DATE, nullable | Added Phase 21. |
+| `document_issue_place` | VARCHAR, nullable | Added Phase 21. |
+| `email` | VARCHAR, nullable | Added Phase 21. |
+| `alternate_phone_number` | VARCHAR, nullable | Added Phase 21. |
+| `home_address` | TEXT, nullable | Added Phase 21. |
+| `work_address` | TEXT, nullable | Added Phase 21. |
+| `neighborhood` | VARCHAR, nullable | Added Phase 21. |
+| `city` | VARCHAR, nullable | Added Phase 21. |
+| `occupation` | VARCHAR, nullable | Added Phase 21. |
+| `employer_name` | VARCHAR, nullable | Added Phase 21. |
+| `monthly_income` | DECIMAL(12,2), nullable | Added Phase 21. |
+| `id_document_front_url`, `id_document_back_url` | VARCHAR, nullable | Added Phase 21. Externally-hosted URLs only (image or PDF) — same convention as `payments.image_url` (Phase 12). The api never touches the file bytes. |
+| `selfie_image_url` | VARCHAR, nullable | Added Phase 21. Never enforced as required anywhere in the app — this is sensitive/biometric data under Ley 1581 de 2012, and no activity may be conditioned on a titular providing it. |
+| `data_processing_consent` | BOOLEAN, `NOT NULL DEFAULT false` | Added Phase 21. Enforced as required (must be `true`) in `ClientsService.create()` for interactively-created clients only — Excel-imported clients (`docs/phases/PHASE_8_EXCEL_IMPORT.md`) are exempt and default to `false`. The physical/in-person authorization is what actually authorizes the data processing under Colombian law; this column (plus the two below) only records that it happened — see `docs/phases/PHASE_21_CLIENT_PROFILE.md`. |
+| `consent_given_at` | TIMESTAMPTZ, nullable | Added Phase 21. Stamped server-side (not caller-supplied) the moment `data_processing_consent` transitions to `true`, on both create and update. |
+| `consent_document_url` | VARCHAR, nullable | Added Phase 21. Optional scan/photo of the signed physical authorization — evidence, not the authorization itself. Never enforced as required. |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
 **Changed after Phase 10 — cupo and mora-block rules confirmed with the client:**
 - **"Cupo usado" (credit used)** = capital + interest accrued to date across the client's *active* loans' still-pending installments — the same `totalDue`-based sum already computed per loan as `outstandingBalance` (see `loans` below), just aggregated across every active loan instead of one. Refinanced-away and paid-off loans don't count (their `status` is no longer `active`). Not a stored column — computed on read by `ClientsService.getCreditUsage`/`findOneDetail`, exposed as `creditUsed`/`creditAvailable` on `GET /clients/:id`.
 - **Mora block (+30 days)** is per-installment, not client-aggregate: a client is blocked from new loans as soon as *any single* pending installment across their active loans is more than 30 days overdue — not an average or the oldest one specifically. Computed on read by `ClientsService.hasMoraBlock`, exposed as `isMoraBlocked` on `GET /clients/:id`.
 - Both are checked by `LoansService.create()` before a new loan is persisted, reported as two distinct rejection reasons (over cupo vs. mora-blocked) — see `docs/phases/PHASE_10_CLIENT_CAPACITY.md`.
+
+### `client_references`
+
+Added Phase 21 — a personal or comercial reference for a client. A dynamic add-many list: no fixed minimum or maximum, confirmed with the business (they wanted an open "add another" flow rather than a fixed number of slots). See `docs/phases/PHASE_21_CLIENT_PROFILE.md` decision 2.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `client_id` | UUID | FK → `clients.id`, `ON DELETE CASCADE` — a client's references don't outlive the client |
+| `type` | ENUM (`personal`, `comercial`) | |
+| `full_name` | VARCHAR | |
+| `phone_number` | VARCHAR | |
+| `relationship` | VARCHAR | free text (e.g. "hermano", "vecino", "proveedor") — confirmed sufficient, no fixed catalog |
+| `created_at`, `updated_at` | TIMESTAMPTZ | **no `deleted_at`** — unlike every other table here, references are hard-removed by the "quitar" action in `ClientForm`; there's no "reactivate a reference" concept. Surviving the parent client's own soft-delete is automatic (soft-delete only sets `clients.deleted_at`, it never touches rows referencing it), so no special handling is needed here for that. |
 
 ### `loans`
 
@@ -175,7 +206,16 @@ Represents a *pagaré* — see `GLOSSARY.md`.
 | `usury_ceiling_exceeded_at_creation` | BOOLEAN, `NOT NULL DEFAULT false` | Added Phase 15 — a one-time snapshot of whether this loan's highest per-installment effective rate exceeded the usury ceiling in effect at creation/refinance time. Not recomputed on read (confirmed: creation-time enforcement only). A warning, not a rejection — the loan is still created either way. See `docs/phases/PHASE_15_USURY_RATE.md`. |
 | `usury_justification` | TEXT, nullable | Added Phase 15 — optional admin note explaining why the loan proceeded despite exceeding the ceiling. Only meaningful when the column above is `true`; never required. |
 | `new_loan_message_sent_at` | TIMESTAMPTZ, nullable | Added Phase 18 — set once the "new loan" WhatsApp message actually succeeds (synchronously at creation/refinance, or via the retry cron). Lets the `new_loan` cron find loans still needing their message directly (`IS NULL`), instead of string-matching message content. See `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md`. |
+| `co_debtor_full_name` | VARCHAR, nullable | Added Phase 21 — co-debtor (codeudor) belongs to the **loan**, not the client: whether a given loan has one varies per loan, confirmed with the business. At most one per loan, so plain nullable columns rather than a separate table. See `docs/phases/PHASE_21_CLIENT_PROFILE.md` decision 7. |
+| `co_debtor_document_type` | ENUM (`cedula_ciudadania`, `cedula_extranjeria`, `pasaporte`), nullable | Added Phase 21. Shares `clients.document_type`'s `DocumentType` enum. |
+| `co_debtor_document_number` | VARCHAR, nullable | Added Phase 21. |
+| `co_debtor_phone_number` | VARCHAR, nullable | Added Phase 21. |
+| `co_debtor_address` | TEXT, nullable | Added Phase 21. |
+| `co_debtor_relationship` | VARCHAR, nullable | Added Phase 21. Relationship to the primary debtor, free text. |
+| `co_debtor_id_document_url` | VARCHAR, nullable | Added Phase 21. Externally-hosted URL (image or PDF), same convention as the client's own document URLs. |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
+
+**On the co-debtor and refinancing:** `LoansService.refinance()` carries the old loan's co-debtor over to the new loan unchanged by default (`dto.field ?? oldLoan.field` per field) — the refinance dto's co-debtor fields are optional and only override what's explicitly sent, so refinancing doesn't silently drop an existing co-debtor. See `docs/phases/PHASE_21_CLIENT_PROFILE.md`.
 
 **On `interest_rate`:** confirmed from real data that the rate is **not** automatically tiered by amount, despite an informal rule mentioned by the client ("6% under 1 million, 5% over"). Actual historical data shows loans of the same amount range with rates of 4%, 5%, and 6%. The safest interpretation — **pending final confirmation with the client** — is that the rate is set manually per loan at creation time, defaulting to whatever the current standard rate is, but editable. Do not hardcode an automatic tiering rule based on this early analysis.
 
@@ -418,6 +458,7 @@ npm run migration:revert
 - `clients.phone_number` — for search and WhatsApp matching
 - `installments.due_date` and `installments.status` — the weekly CronJob queries heavily on both
 - `audit_logs (entity_type, entity_id)` and `audit_logs (actor_user_id, created_at)` — back "show me the history for this record" and "show me what this user did, most recent first", the two filters the audit log screen supports (see `docs/phasesClient/PHASE_11_AUDIT_LOG.md`)
+- `client_references.client_id` — every lookup is "give me this client's references"
 
 ## Open questions — confirm with client before finalizing
 
@@ -472,6 +513,14 @@ npm run migration:revert
 - `message_logs.retried_at`, `message_logs.retry_of_message_log_id` — manual retry tracking, append-only (a retry always creates a new row rather than editing the original); see "`message_logs`" above.
 - `loans.new_loan_message_sent_at` — lets the `new_loan` retry cron find loans still needing their message; see "`loans`" above.
 - All four message types (`new_loan`, `upcoming_due`, `overdue`, `account_summary`) now have a cron job, not just the two that were already scheduled — additive audiences for the three with a dynamic condition, audience-only for `account_summary`, which has none. See `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md` "Resolved".
+
+## Added in Phase 21
+
+- `clients` gained an extended KYC-style profile (document type/expiry-adjacent fields, address, employment, income, ID/selfie photo URLs) plus `data_processing_consent`, `consent_given_at`, `consent_document_url` — see "`clients`" above. All new profile columns are nullable; `data_processing_consent` is `NOT NULL DEFAULT false` but only *enforced* as required (via application logic, not a DB constraint) for interactively-created clients, not Excel imports.
+- `client_references` — a new table for personal/comercial references, a dynamic add-many list per client. See "`client_references`" above.
+- `loans` gained an optional co-debtor (codeudor): `co_debtor_full_name`, `co_debtor_document_type`, `co_debtor_document_number`, `co_debtor_phone_number`, `co_debtor_address`, `co_debtor_relationship`, `co_debtor_id_document_url`. Belongs to the loan rather than the client because whether a given loan has one varies per loan; at most one per loan. See "`loans`" above.
+- The pagaré-photo field proposed early in this phase's design was discarded — not implemented, not present in any table.
+- Legal basis and reasoning: Ley Estatutaria 1581 de 2012 + Decreto 1377 de 2013 ("Habeas Data"). The business owner is the "responsable del tratamiento"; this software is at most an "encargado" acting on instruction. The client's own authorization must happen physically/in person — the `data_processing_consent` checkbox in the app is staff-entered evidence that the physical authorization occurred, not the authorization itself, and sensitive/biometric data (`selfie_image_url`) is never made mandatory anywhere in the app, per the law's own restriction on conditioning any activity on a titular supplying sensitive data. See `docs/phases/PHASE_21_CLIENT_PROFILE.md` for the full decision log.
 
 ## Related documents
 
