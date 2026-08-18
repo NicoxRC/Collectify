@@ -63,6 +63,20 @@ export function useMarkLoanAsPaid() {
   });
 }
 
+// Not a useQuery — fetched on demand when the "Liquidar anticipadamente"
+// dialog opens (via .mutateAsync), same pattern as usePreviewSchedule.
+export function usePayoffQuote() {
+  return useMutation({ mutationFn: loansApi.getPayoffQuote });
+}
+
+export function usePayoffLoan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: loansApi.payoff,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['loans'] }),
+  });
+}
+
 export function useRefinanceLoan() {
   const queryClient = useQueryClient();
   return useMutation({

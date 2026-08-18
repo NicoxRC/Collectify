@@ -37,7 +37,11 @@ describe('LoansService', () => {
     save: jest.Mock;
     update: jest.Mock;
   };
-  let paymentsRepository: { find: jest.Mock };
+  let paymentsRepository: {
+    find: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+  };
   let loanInstallmentConceptsRepository: {
     create: jest.Mock;
     save: jest.Mock;
@@ -97,6 +101,8 @@ describe('LoansService', () => {
     };
     paymentsRepository = {
       find: jest.fn(),
+      create: jest.fn((dto: Partial<Payment>) => dto),
+      save: jest.fn((payments: unknown[]) => Promise.resolve(payments)),
     };
     loanInstallmentConceptsRepository = {
       create: jest.fn((dto: Partial<LoanInstallmentConcept>) => dto),
@@ -1199,6 +1205,159 @@ describe('LoansService', () => {
       loansRepository.findOneBy.mockResolvedValue(null);
 
       await expect(service.markAsPaid('missing-id')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('getPayoffQuote', () => {
+    function pendingInstallment(
+      overrides: Partial<Installment> = {},
+    ): Installment {
+      return {
+        id: 'inst-1',
+        loanId: mockLoan.id,
+        loan: mockLoan,
+        installmentNumber: 1,
+        amount: 300000,
+        principalPortion: 270000,
+        dueDate: '2026-01-01',
+        status: InstallmentStatus.Pending,
+        isInitial: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+        ...overrides,
+      };
+    }
+
+    beforeEach(() => {
+      loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
+    });
+
+    it('quotes only interest/principal for still-pending installments', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({ amount: 300000, principalPortion: 270000 }),
+      ]);
+
+      const quote = await service.getPayoffQuote(mockLoan.id);
+
+      expect(installmentsRepository.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            loanId: mockLoan.id,
+            status: InstallmentStatus.Pending,
+          },
+        }),
+      );
+      expect(quote.totalPrincipalOwed).toBe(270000);
+    });
+
+    it('throws NotFoundException when the loan does not exist', async () => {
+      loansRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.getPayoffQuote('missing-id')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('payoff', () => {
+    function pendingInstallment(
+      overrides: Partial<Installment> = {},
+    ): Installment {
+      return {
+        id: 'inst-1',
+        loanId: mockLoan.id,
+        loan: mockLoan,
+        installmentNumber: 1,
+        amount: 300000,
+        principalPortion: 270000,
+        dueDate: '2026-01-01',
+        status: InstallmentStatus.Pending,
+        isInitial: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+        ...overrides,
+      };
+    }
+
+    beforeEach(() => {
+      loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
+      loansRepository.findOne.mockResolvedValue(null); // no refinancedTo
+    });
+
+    it('registers a payment per pending installment for the quoted total', async () => {
+      // Far in the future — deterministic "not yet due", so the quoted
+      // amount is exactly principalPortion with zero interest, regardless
+      // of when this test actually runs.
+      const futureDueDate = new Date();
+      futureDueDate.setFullYear(futureDueDate.getFullYear() + 5);
+
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({
+          id: 'inst-1',
+          amount: 300000,
+          principalPortion: 270000,
+          dueDate: futureDueDate.toISOString().slice(0, 10),
+        }),
+      ]);
+
+      await service.payoff(mockLoan.id);
+
+      expect(paymentsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          installmentId: 'inst-1',
+          amountPaid: 270000,
+          observation: 'Liquidación anticipada',
+        }),
+      );
+      expect(paymentsRepository.save).toHaveBeenCalled();
+    });
+
+    it('marks every pending installment paid and the loan paid', async () => {
+      installmentsRepository.find.mockResolvedValue([pendingInstallment()]);
+
+      await service.payoff(mockLoan.id);
+
+      expect(installmentsRepository.update).toHaveBeenCalledWith(
+        { loanId: mockLoan.id, status: InstallmentStatus.Pending },
+        { status: InstallmentStatus.Paid },
+      );
+      expect(loansRepository.update).toHaveBeenCalledWith(
+        { id: mockLoan.id },
+        { status: LoanStatus.Paid },
+      );
+    });
+
+    it('rejects a loan that is already paid', async () => {
+      loansRepository.findOneBy.mockResolvedValue({
+        ...mockLoan,
+        status: LoanStatus.Paid,
+      });
+
+      await expect(service.payoff(mockLoan.id)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(paymentsRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects a loan that has already been refinanced', async () => {
+      loansRepository.findOneBy.mockResolvedValue({
+        ...mockLoan,
+        status: LoanStatus.Refinanced,
+      });
+
+      await expect(service.payoff(mockLoan.id)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('throws NotFoundException when the loan does not exist', async () => {
+      loansRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.payoff('missing-id')).rejects.toThrow(
         NotFoundException,
       );
     });

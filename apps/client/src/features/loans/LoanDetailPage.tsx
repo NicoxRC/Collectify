@@ -18,11 +18,13 @@ import {
 } from '@/features/loans/loanStatusDisplay';
 import { LoanStatus } from '@/features/loans/loansApi';
 import { MarkAsPaidDialog } from '@/features/loans/MarkAsPaidDialog';
+import { PayoffDialog } from '@/features/loans/PayoffDialog';
 import { RefinanceLoanForm } from '@/features/loans/RefinanceLoanForm';
 import {
   useLoan,
   useLoanPayments,
   useMarkLoanAsPaid,
+  usePayoffLoan,
   useRefinanceLoan,
   useUpdateLoan,
 } from '@/features/loans/useLoans';
@@ -59,6 +61,7 @@ export function LoanDetailPage() {
   const { data: payments } = useLoanPayments(id ?? '');
   const registerPayment = useRegisterPayment(id ?? '');
   const markAsPaid = useMarkLoanAsPaid();
+  const payoffLoan = usePayoffLoan();
   const updateLoan = useUpdateLoan();
   const refinanceLoan = useRefinanceLoan();
 
@@ -97,6 +100,7 @@ export function LoanDetailPage() {
   const [isChangingStatus, setIsChangingStatus] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isRefinancing, setIsRefinancing] = useState(false);
+  const [isPayingOff, setIsPayingOff] = useState(false);
   // Phase 12 — click-to-enlarge for a payment's receipt photo. No Figma
   // frame exists for this (see DESIGN_TOKENS.md); just the payment's own
   // imageUrl, no extra fetch needed.
@@ -226,6 +230,16 @@ export function LoanDetailPage() {
           >
             Registrar pago
           </button>
+          {isAdmin && (
+            <button
+              type="button"
+              disabled={loan.status !== LoanStatus.Active}
+              onClick={() => setIsPayingOff(true)}
+              className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Liquidar anticipadamente
+            </button>
+          )}
           {isAdmin && (
             <button
               type="button"
@@ -534,6 +548,15 @@ export function LoanDetailPage() {
           loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
           onClose={() => setIsChangingStatus(false)}
           onConfirm={() => markAsPaid.mutateAsync(loan.id)}
+        />
+      )}
+
+      {isPayingOff && (
+        <PayoffDialog
+          loanId={loan.id}
+          loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
+          onClose={() => setIsPayingOff(false)}
+          onConfirm={() => payoffLoan.mutateAsync(loan.id)}
         />
       )}
 

@@ -123,6 +123,12 @@ How often installments occur. Source data consistently shows `MENSUAL` (monthly)
 ### Tasa de usura / Usury rate
 Added Phase 15 — Colombia's legal ceiling on lending cost, certified monthly by the Superintendencia Financiera de Colombia (calculated as 1.5× the "Interés Bancario Corriente"). A single global value in this system (does not vary by credit modality), admin-entered each month since there's no free official API for it. Enforced as a warning, not a hard block, at loan creation/refinance time only — comparing the loan's maximum per-installment effective rate (see "Interest concept" above) against the current ceiling. Non-retroactive: a new month's rate never changes interest already caused under a prior month's rate. In code: `UsuryRate` entity, `usury_rates` table (historical, append-only), `UsuryRateService`. See `docs/phases/PHASE_15_USURY_RATE.md` and `DATABASE.md`'s `usury_rates` section.
 
+### Imputación del pago
+Added Phase 16 — the Colombian Civil Code rule (Art. 1653) that when both interest and principal are owed, a payment settles interest first, and only the excess reduces principal — a client can never be forced to pay interest that hasn't been caused yet. Confirmed for this system: "interest" means moratory interest **and** every Phase 14 concept baked into an installment's `amount` (everything above `principalPortion`), not just moratory interest alone. See "Liquidación anticipada" below and `docs/phases/PHASE_16_EARLY_PAYOFF.md`.
+
+### Liquidación anticipada / Early payoff
+Added Phase 16 — closing a loan out today for less than the sum of its remaining installment totals would suggest, because future (not-yet-due) installments are charged at principal face value with zero interest — none has been caused yet. A separate, explicit action from an ordinary payment (confirmed with the human — `registerPayment` and its one-payment-per-installment behavior are untouched); always settles the full quoted amount, no partial early payoff. In code: `calculatePayoff()` (pure function, `loans/payoff/calculatePayoff.ts`), `GET /loans/:id/payoff-quote`, `POST /loans/:id/payoff`. See `docs/phases/PHASE_16_EARLY_PAYOFF.md`.
+
 ## Roles
 
 ### Owner (Admin)
@@ -169,6 +175,14 @@ The following were open questions in an earlier version of this glossary, now re
 - ~~Whether the ceiling validates only nominal "interés" or the effective total cost~~ → Confirmed: the effective total cost — every Phase 14 concept plus moratory interest and fixed fees, not just a field literally named "interés." See "Tasa de usura" above.
 - ~~On violation: hard block or warning~~ → Confirmed: a warning the admin can proceed past, optionally with a justification note.
 - ~~Whether a rate change applies retroactively to interest already caused~~ → Confirmed: no, only forward from that point.
+
+## Resolved from Phase 16
+
+- ~~What counts as "interest" for imputación purposes~~ → Confirmed: moratory interest and every Phase 14 concept baked into an installment's `amount`, not just moratory interest alone. See "Imputación del pago" above.
+- ~~Multi-installment allocation: waterfall vs. global~~ → Confirmed: interest-globally-then-principal-globally, though within this phase's full-payoff-only scope both produce the same numbers — recorded for Phase 17's reuse of `calculatePayoff()`.
+- ~~Whether the payoff quote includes not-yet-due future installments~~ → Confirmed: yes, at principal face value with zero interest.
+- ~~How an initial installment factors into the payoff~~ → Confirmed: only as principal, never interest.
+- ~~Whether this becomes the new default behavior of every `registerPayment` call~~ → Confirmed: no — a separate, explicit "liquidar anticipadamente" flow for the full quoted amount only; `registerPayment` is untouched.
 
 ## Related documents
 

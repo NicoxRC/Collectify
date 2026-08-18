@@ -32,6 +32,7 @@ import {
   LoanSummary,
   SchedulePreview,
 } from './loans.service';
+import { PayoffQuote } from './payoff/calculatePayoff';
 
 @ApiTags('loans')
 @ApiBearerAuth()
@@ -158,6 +159,37 @@ export class LoansController {
   @ApiResponse({ status: 404, description: 'Loan not found.' })
   markAsPaid(@Param('id') id: string): Promise<LoanDetail> {
     return this.loansService.markAsPaid(id);
+  }
+
+  @Get(':id/payoff-quote')
+  @ApiOperation({
+    summary: 'Quote how much it costs to close this loan out today',
+    description:
+      "Never blindly sums remaining installment totals — implements the confirmed imputación rule (Colombian Civil Code Art. 1653, see docs/phases/PHASE_16_EARLY_PAYOFF.md). A matured installment (due today or already overdue) contributes its Phase 14 concept charges plus any moratory interest as 'interest', and its principalPortion as 'principal'. A not-yet-due installment contributes ONLY its principalPortion, at face value, with zero interest — no interest is ever charged for a period that hasn't happened yet. An initial installment (Phase 13) contributes only principal, never interest. Read-only; safe to call regardless of the loan's status.",
+  })
+  @ApiResponse({ status: 200, description: 'Returns the payoff quote.' })
+  @ApiResponse({ status: 404, description: 'Loan not found.' })
+  getPayoffQuote(@Param('id') id: string): Promise<PayoffQuote> {
+    return this.loansService.getPayoffQuote(id);
+  }
+
+  @Post(':id/payoff')
+  @Roles(UserRole.Admin)
+  @Audit('loan.payoff', 'loan')
+  @ApiOperation({
+    summary:
+      'Settle the loan today for its full payoff quote, closing it out (admin only)',
+    description:
+      "A separate, explicit flow from registering an ordinary payment — POST /installments/:id/payments and its one-payment-per-installment behavior are completely untouched. Always settles the FULL amount from GET /loans/:id/payoff-quote; there is no partial early payoff. Registers one real Payment row per still-pending installment (observation: 'Liquidación anticipada'), marks every installment and the loan 'paid'.",
+  })
+  @ApiResponse({ status: 200, description: 'The loan was paid off.' })
+  @ApiResponse({
+    status: 400,
+    description: 'The loan is not active (already paid or refinanced).',
+  })
+  @ApiResponse({ status: 404, description: 'Loan not found.' })
+  payoff(@Param('id') id: string): Promise<LoanDetail> {
+    return this.loansService.payoff(id);
   }
 
   @Get(':id/payments')

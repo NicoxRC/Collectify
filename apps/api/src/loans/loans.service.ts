@@ -35,6 +35,11 @@ import {
   enrichInstallment,
   InstallmentWithCalculated,
 } from './installments/enrichInstallment';
+import {
+  calculatePayoff,
+  PayoffInstallmentInput,
+  PayoffQuote,
+} from './payoff/calculatePayoff';
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
@@ -462,6 +467,72 @@ export class LoansService {
     return this.findOne(id);
   }
 
+  // How much it costs to close this loan out today, per
+  // docs/phases/PHASE_16_EARLY_PAYOFF.md — never blindly sums remaining
+  // installment totals; a not-yet-due installment contributes only
+  // principal, at face value, with zero interest (Colombian Civil Code
+  // Art. 1653, confirmed with the human). Read-only, safe to call on any
+  // loan regardless of status (an already-paid/refinanced loan simply has
+  // no pending installments, so the quote comes back empty).
+  async getPayoffQuote(id: string): Promise<PayoffQuote> {
+    const loan = await this.findLoanOrThrow(id);
+    const pending = await this.findPendingInstallments(id);
+    return calculatePayoff(
+      pending.map(toPayoffInstallmentInput),
+      loan.interestRate,
+    );
+  }
+
+  // Separate, explicit flow from registerPayment (confirmed with the
+  // human — see the phase doc's "Resolved" point 5): always settles the
+  // loan for its FULL quoted amount, closing it out entirely. Registers
+  // one real Payment row per still-pending installment (unlike
+  // markAsPaid(), which records no payment trail at all) so the payoff
+  // leaves the same kind of historical record an ordinary payment would.
+  async payoff(id: string): Promise<LoanDetail> {
+    const loan = await this.findLoanOrThrow(id);
+    if (loan.status !== LoanStatus.Active) {
+      throw new BadRequestException(
+        `Loan ${id} cannot be paid off because its status is '${loan.status}' — only active loans can be paid off this way`,
+      );
+    }
+
+    const pending = await this.findPendingInstallments(id);
+    const quote = calculatePayoff(
+      pending.map(toPayoffInstallmentInput),
+      loan.interestRate,
+    );
+
+    const paidAt = new Date().toISOString().slice(0, 10);
+    const payments = quote.installments.map((breakdown) =>
+      this.paymentsRepository.create({
+        installmentId: breakdown.installmentId,
+        amountPaid: breakdown.totalDue,
+        paidAt,
+        observation: 'Liquidación anticipada',
+        imageUrl: null,
+      }),
+    );
+    if (payments.length > 0) {
+      await this.paymentsRepository.save(payments);
+    }
+
+    await this.installmentsRepository.update(
+      { loanId: id, status: InstallmentStatus.Pending },
+      { status: InstallmentStatus.Paid },
+    );
+    await this.loansRepository.update({ id }, { status: LoanStatus.Paid });
+
+    return this.findOne(id);
+  }
+
+  private findPendingInstallments(loanId: string): Promise<Installment[]> {
+    return this.installmentsRepository.find({
+      where: { loanId, status: InstallmentStatus.Pending },
+      order: { installmentNumber: 'ASC' },
+    });
+  }
+
   // Added for the loan detail screen's "Historial de pagos" (F-19) — there
   // was previously no way to list a loan's payments at all, only register
   // one (POST /installments/:id/payments). Payments are stored per
@@ -765,6 +836,19 @@ export class LoansService {
     }
     return error;
   }
+}
+
+function toPayoffInstallmentInput(
+  installment: Installment,
+): PayoffInstallmentInput {
+  return {
+    installmentId: installment.id,
+    installmentNumber: installment.installmentNumber,
+    amount: installment.amount,
+    principalPortion: installment.principalPortion,
+    dueDate: installment.dueDate,
+    isInitial: installment.isInitial,
+  };
 }
 
 // Mirrors NULLIF(regexp_replace(promissory_note_number, '\D', '', 'g'),

@@ -8,15 +8,15 @@ Let the system tell a client exactly how much they owe if they pay off their loa
 
 Colombian Civil Code, Article 1653 ("Imputación del pago a intereses"): if both principal and interest are owed, a payment is applied **first to accrued interest**, and only the excess to principal — unless the creditor expressly consents to apply it to principal directly. Worked example from the research: capital 100, interest 30, a payment of 50 pays the 30 of interest first, and the remaining 20 goes to principal. This is the general rule this phase implements, but the exact mechanics of applying it across multiple installments in one payment (see "Before starting" below) are a design decision, not something the law specifies at that level of detail.
 
-## Before starting this phase — stop and confirm with the human
+## Resolved — confirmed directly with the human
 
-1. Confirm the allocation order precisely: interest first — does "interest" here mean moratory interest only, or the sum of all Phase 14 concepts? — then principal.
-2. When one payment covers multiple overdue installments: waterfall per-installment (oldest installment's interest and principal fully resolved before moving to the next), or interest-first-globally-then-principal-globally across all pending installments? Both are legitimate readings of Article 1653 and produce different numbers.
-3. Does the payoff quote include not-yet-due future installments (paying off the whole loan early), and if so, is future principal discounted at all, or charged at face value with zero future interest (since none has accrued yet)?
-4. How does an initial installment (Phase 13, exempt from mora) factor into this calculation if it's still unpaid?
-5. **Biggest question**: does this become the new default behavior of every `registerPayment` call (a single payment auto-splitting across multiple installments), or is it a separate, explicit "liquidar anticipadamente" flow that leaves today's one-payment-per-installment behavior untouched for ordinary partial payments? This determines whether `Payment.installment_id` needs to stop being a single required FK — a change with a large blast radius on the current data model.
+1. **What counts as "interest" for imputación purposes:** moratory interest **and** the sum of every Phase 14 concept baked into an installment's `amount` (everything above `principalPortion`) — not just moratory interest alone. This is what makes the rule meaningful given Phase 14's concepts exist specifically to cover costs beyond a single "interés" field (same reasoning as Phase 15's usury-ceiling scope).
+2. **Multi-installment allocation:** interest-first **globally** across all pending installments, then principal globally — not a per-installment waterfall. Within this phase's own scope (see point 5 below — payoff is always for the full quoted amount, never partial) this produces the same numbers as a waterfall would; the distinction is confirmed now specifically because `docs/phases/PHASE_17_REFINANCING_RECALC.md` reuses `calculatePayoff()` and may need it for a partial/different scenario — recorded here so that reuse doesn't have to re-ask this question.
+3. **Future, not-yet-due installments:** included in the quote, at **principal face value with zero interest** — no moratory interest (none has accrued) and no Phase 14 concept charges either, since those represent financing cost for a period that hasn't happened yet. Only installments that have matured (due today or already overdue) contribute their concept charges and any moratory interest.
+4. **Initial installment (Phase 13), if still unpaid:** contributes only its own amount as principal, **never** as interest — consistent with it never accruing mora in the first place.
+5. **Biggest question — scope of the change:** a **separate, explicit "liquidar anticipadamente" flow**. `registerPayment` and today's one-payment-per-installment behavior are completely untouched. The new flow only ever settles the loan for the **full** quoted amount (closing it out entirely) — there is no partial early-liquidation payment in this phase's scope, matching the client-side UI being a read-only summary plus a single confirm action, not an amount field. `Payment.installment_id` stays a required single FK; nothing about the existing data model changes.
 
-**Do not pick answers and build it — ask the human.** This is a real financial calculation affecting real people's debts, exactly the category `CLAUDE.md` says never to guess.
+These answers are final for this phase — do not revisit them without a new confirmation round with the human.
 
 ## Required reading before starting
 
@@ -25,28 +25,28 @@ Colombian Civil Code, Article 1653 ("Imputación del pago a intereses"): if both
 ## Scope (once the above is confirmed)
 
 ### Calculation module
-- [ ] `loans/payoff/calculatePayoff.ts` — pure function implementing the confirmed allocation rule, sibling to `installmentCalculations.ts`, unit-tested the same way as `installmentCalculations.spec.ts`.
+- [x] `loans/payoff/calculatePayoff.ts` — pure function implementing the confirmed allocation rule, sibling to `installmentCalculations.ts`, unit-tested the same way as `installmentCalculations.spec.ts`.
 
 ### Endpoint
-- [ ] `GET /api/v1/loans/:id/payoff-quote` — returns the amount due today to close out the loan, with a breakdown per installment (interest applied, principal applied).
-- [ ] Depending on the confirmed answer to question 5: either a new `POST /api/v1/loans/:id/payoff` endpoint that registers the correctly-split payments across multiple installments in one transaction, or a generalization of `registerPayment` to accept a payment spanning multiple installments.
+- [x] `GET /api/v1/loans/:id/payoff-quote` — returns the amount due today to close out the loan, with a breakdown per installment (interest applied, principal applied).
+- [x] `POST /api/v1/loans/:id/payoff` — per the confirmed answer to question 5, a new endpoint (not a `registerPayment` generalization) that registers one `Payment` row per still-pending installment for the full quoted amount, marks every installment `paid`, and the loan `paid`, in one transaction. No partial-amount payoff.
 
 ### Tests (mandatory)
-- [ ] `calculatePayoff()`: single overdue installment, multiple overdue installments, mix of overdue and not-yet-due, presence of an initial installment.
-- [ ] The chosen endpoint correctly registers the resulting split payments and updates installment/loan status accordingly.
+- [x] `calculatePayoff()`: single overdue installment, multiple overdue installments, mix of overdue and not-yet-due, presence of an initial installment, an installment due exactly today, the `principalPortion: null` legacy fallback, an empty installment list.
+- [x] The chosen endpoint correctly registers the resulting split payments and updates installment/loan status accordingly — plus rejects a non-active loan, matching `markAsPaid()`'s guard.
 
 ### Swagger
-- [ ] New endpoint(s) documented, including a clear explanation of the allocation rule in the description.
+- [x] New endpoint(s) documented, including a clear explanation of the allocation rule in the description.
 
 ## Definition of done for this phase
 
-- A loan's payoff quote reflects interest owed to date, not blindly summing remaining installment totals.
-- The confirmed allocation and scope-of-change answers are implemented exactly as agreed — not guessed.
-- All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
+- [x] A loan's payoff quote reflects interest owed to date, not blindly summing remaining installment totals.
+- [x] The confirmed allocation and scope-of-change answers are implemented exactly as agreed — not guessed.
+- [x] All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## After this phase
 
-Update `docs/GLOSSARY.md` with "Liquidación anticipada / Early payoff" and "Imputación del pago", and `docs/DATABASE.md` if `Payment`'s relationship to `Installment` changed.
+Added "Liquidación anticipada / Early payoff" and "Imputación del pago" to `docs/GLOSSARY.md`. `docs/DATABASE.md` did not need updating — `Payment`'s relationship to `Installment` is unchanged (confirmed answer 5: a separate flow, not a `registerPayment` generalization), `payoff()` just creates ordinary `Payment` rows the same way `registerPayment` always has.
 
 ## Related documents
 
