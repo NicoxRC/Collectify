@@ -6,19 +6,15 @@ import { Select } from '@/components/ui/Select';
 import { useAuth } from '@/features/auth/useAuth';
 import { MessageLogDrawer } from '@/features/messageLogs/MessageLogDrawer';
 import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
-import { useMessageLogs } from '@/features/messageLogs/useMessageLogs';
+import {
+  useMessageLogs,
+  useRetryMessageLog,
+} from '@/features/messageLogs/useMessageLogs';
 import {
   MESSAGE_TYPE_LABELS,
   MESSAGE_TYPE_ORDER,
 } from '@/features/messageTemplates/messageTemplatesApi';
-import {
-  useCronStatus,
-  usePauseCron,
-  usePauseUpcomingDueCron,
-  useResumeCron,
-  useResumeUpcomingDueCron,
-  useUpcomingDueCronStatus,
-} from '@/features/whatsapp/useWhatsapp';
+import { ApiError } from '@/lib/apiClient';
 import { formatPhoneNumber } from '@/lib/format';
 
 import type { MessageLog } from '@/features/messageLogs/messageLogsApi';
@@ -38,9 +34,13 @@ import type { ReactNode } from 'react';
 //     single dropdown — simpler than guessing what preset ranges the
 //     dropdown was meant to offer, and maps directly to the API's
 //     dateFrom/dateTo params.
-//   - Added: an admin-only pause/resume control for the weekly cron — the
-//     phase's own scope requires this, but no Figma frame shows where it
-//     goes, so it lives here (the page about automatic sends).
+//   - Added (Fase 5), then moved (Phase 18): an admin-only pause/resume
+//     control for the automatic sends used to live here, since no Figma
+//     frame shows where it goes. Phase 18 generalized it to all 4 message
+//     types and a per-template editable schedule, at which point it moved
+//     to MessageTemplatesPage.tsx — a schedule is a property of the
+//     template/type, not of this failed-sends list. This page keeps a
+//     "Reintentar" action per failed row instead.
 //   - Changed after go-live (confirmed with the client's colleague): this
 //     page used to have a Todos/Enviados/Fallidos filter defaulting to
 //     "Todos". It now always shows only failed/unsent messages — the
@@ -88,18 +88,7 @@ export function MessageLogsPage() {
     limit: 1,
   });
 
-  const { data: cronStatus } = useCronStatus();
-  const pauseCron = usePauseCron();
-  const resumeCron = useResumeCron();
-
-  // Fase 9 — Aviso's automatic-send status, same widget shape as the
-  // overdue reminder's above (mirrored per docs/phasesClient/
-  // PHASE_9_MESSAGE_TYPES.md), living here since this is already "the
-  // page about automatic sends" (see the Fase 5 comment on the block
-  // above).
-  const { data: upcomingDueCronStatus } = useUpcomingDueCronStatus();
-  const pauseUpcomingDueCron = usePauseUpcomingDueCron();
-  const resumeUpcomingDueCron = useResumeUpcomingDueCron();
+  const retryMessageLog = useRetryMessageLog();
 
   const logs = data?.items ?? [];
   const meta = data?.meta;
@@ -107,41 +96,18 @@ export function MessageLogsPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-between">
-        <Header
-          title="Historial de mensajes"
-          subtitle="Mensajes de WhatsApp que no se pudieron enviar"
-        />
-        {isAdmin && (cronStatus || upcomingDueCronStatus) && (
-          <div className="flex items-center gap-3">
-            {cronStatus && (
-              <CronStatusWidget
-                label="Recordatorio de mora · Lun, mié y vie, 9:00 a.m."
-                running={cronStatus.running}
-                onToggle={() =>
-                  cronStatus.running ? pauseCron.mutate() : resumeCron.mutate()
-                }
-                isPending={pauseCron.isPending || resumeCron.isPending}
-              />
-            )}
-            {upcomingDueCronStatus && (
-              <CronStatusWidget
-                label="Aviso · Diario, 8:00 a.m."
-                running={upcomingDueCronStatus.running}
-                onToggle={() =>
-                  upcomingDueCronStatus.running
-                    ? pauseUpcomingDueCron.mutate()
-                    : resumeUpcomingDueCron.mutate()
-                }
-                isPending={
-                  pauseUpcomingDueCron.isPending ||
-                  resumeUpcomingDueCron.isPending
-                }
-              />
-            )}
-          </div>
-        )}
-      </div>
+      <Header
+        title="Historial de mensajes"
+        subtitle="Mensajes de WhatsApp que no se pudieron enviar"
+      />
+
+      {retryMessageLog.isError && (
+        <p className="text-small text-red-400" role="alert">
+          {retryMessageLog.error instanceof ApiError
+            ? retryMessageLog.error.message
+            : 'No se pudo reintentar el mensaje.'}
+        </p>
+      )}
 
       <div className="flex h-10 items-center gap-3">
         <DatePicker
@@ -256,13 +222,36 @@ export function MessageLogsPage() {
                   {log.messageContent}
                 </Td>
                 <Td>
-                  <button
-                    type="button"
-                    onClick={() => setOpenLog(log)}
-                    className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-muted hover:text-white"
-                  >
-                    Ver completo
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setOpenLog(log)}
+                      className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-muted hover:text-white"
+                    >
+                      Ver completo
+                    </button>
+                    {isAdmin &&
+                      (log.retriedAt ? (
+                        <span className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-subtle">
+                          Reintentado
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => retryMessageLog.mutate(log.id)}
+                          disabled={
+                            retryMessageLog.isPending &&
+                            retryMessageLog.variables === log.id
+                          }
+                          className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-muted hover:text-white disabled:opacity-50"
+                        >
+                          {retryMessageLog.isPending &&
+                          retryMessageLog.variables === log.id
+                            ? 'Reintentando…'
+                            : 'Reintentar'}
+                        </button>
+                      ))}
+                  </div>
                 </Td>
               </tr>
             ))}
@@ -351,42 +340,6 @@ function EmptyRow({
         {children}
       </td>
     </tr>
-  );
-}
-
-// Fase 9: extracted so the overdue and Aviso automatic-send statuses can
-// be rendered side by side without duplicating this markup.
-function CronStatusWidget({
-  label,
-  running,
-  onToggle,
-  isPending,
-}: {
-  label: string;
-  running: boolean;
-  onToggle: () => void;
-  isPending: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-3.5 rounded border border-border bg-surface px-5 py-3.5">
-      <span
-        className={`size-2 shrink-0 rounded-full ${running ? 'bg-[#22c55e]' : 'bg-[#eab308]'}`}
-      />
-      <div className="flex flex-col gap-0.5">
-        <span className="text-small font-medium text-white">
-          Envío automático — {running ? 'Activo' : 'Pausado'}
-        </span>
-        <span className="text-meta text-muted">{label}</span>
-      </div>
-      <button
-        type="button"
-        onClick={onToggle}
-        disabled={isPending}
-        className="ml-2 rounded border border-border bg-input px-4 py-2 text-small text-muted hover:text-white disabled:opacity-50"
-      >
-        {running ? 'Pausar' : 'Reanudar'}
-      </button>
-    </div>
   );
 }
 

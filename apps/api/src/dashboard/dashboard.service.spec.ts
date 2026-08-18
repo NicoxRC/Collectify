@@ -56,6 +56,7 @@ describe('DashboardService', () => {
       description: null,
       usuryCeilingExceededAtCreation: false,
       usuryJustification: null,
+      newLoanMessageSentAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
       deletedAt: null,

@@ -96,15 +96,18 @@ Sent once, automatically, when a pagaré is created (or when a refinance creates
 The automated WhatsApp message sent as an installment approaches its due date, at a configurable set of day thresholds (default 5, 3, and 1 days before). Like the overdue reminder, it's consolidated **by client** across all their active loans. Unlike the overdue reminder, it has no grand total line (confirmed from the real "Aviso" message example) and doesn't include mora interest, since the installment isn't overdue yet. Added in Phase 9.
 
 ### Account summary / Estado de cuenta
-An on-demand (not scheduled) WhatsApp message listing **every pending installment** for a client — both overdue and not-yet-due — across all their active loans, with a grand total. This is the "full statement" version of the overdue reminder: the overdue reminder only ever includes installments already in mora, while the account summary includes everything still owed. Added in Phase 9.
+A WhatsApp message listing **every pending installment** for a client — both overdue and not-yet-due — across all their active loans, with a grand total. This is the "full statement" version of the overdue reminder: the overdue reminder only ever includes installments already in mora, while the account summary includes everything still owed. Added in Phase 9 as on-demand only; Phase 18 added a cron for it too, but — unlike the other three types — that cron has no dynamic "who qualifies" condition, so it sends only to the template's message audience (see below), not to every client with something pending. The on-demand `POST /whatsapp/clients/:clientId/send-account-summary` endpoint is unchanged.
 
 ### Message template / Plantilla de mensaje
 The fixed pattern used to generate a message. As of Phase 9, there is one template **per message type** (`new_loan`, `upcoming_due`, `overdue`, `account_summary`), not a single global template — `type` is unique, exactly one row per type. Because most of these messages include a **list** of installments (not just one value), the template needs to support a repeating block plus, for `overdue` and `account_summary`, a grand total — see `DATABASE.md` for the exact placeholder structure per type.
 
-**Not admin-editable** (changed after Phase 9 — see `DATABASE.md` "Changed after Phase 9"): WhatsApp only allows a business-initiated message outside the 24h reply window through a template Meta has pre-approved (see `CONFIGURACION_WHATSAPP_META.md`), so a freely-editable `content` field in our own database would misrepresent what can actually be changed without breaking delivery. The admin can view the current template per type (`GET /message-templates`); changing the content is a migration, matching whatever Meta has approved.
+**Content is not admin-editable** (changed after Phase 9 — see `DATABASE.md` "Changed after Phase 9"): WhatsApp only allows a business-initiated message outside the 24h reply window through a template Meta has pre-approved (see `CONFIGURACION_WHATSAPP_META.md`), so a freely-editable `content` field in our own database would misrepresent what can actually be changed without breaking delivery. The admin can view the current template per type (`GET /message-templates`); changing the content is a migration, matching whatever Meta has approved. **The send schedule IS admin-editable** (Phase 18) — see `cronExpression` below.
+
+### Message audience / Grupo de destinatarios
+A curated group of clients attached to one message template (Phase 18), on top of the four static types — one audience per template is the confirmed UI surface, even though the schema doesn't hard-restrict multiplicity. For `overdue`, `upcoming_due`, and `new_loan` — which already have their own dynamic "who qualifies today" logic (mora, cuotas próximas a vencer, préstamo recién creado) — the audience is **additive**: its members are always included in that run alongside whoever qualifies dynamically, even with nothing to report themselves, in which case they still receive a message rendered with an empty list and a $0 total rather than being skipped. For `account_summary`, which has no dynamic condition at all, the audience **is** the entire recipient list for its cron run. In code: `MessageAudience` entity, `message_audiences`/`message_audience_clients` tables; `GET`/`PUT /message-templates/:type/audience`.
 
 ### Message log
-A historical record of a reminder actually sent to a client — one row per client per week it was sent, **not** one row per installment. In code: `MessageLog` entity, `message_logs` table.
+A historical record of a reminder actually sent to a client — one row per client per week it was sent, **not** one row per installment. Append-only: a failed send is never edited or deleted, only manually retried (Phase 18), which creates a **new** log row (`retryOfMessageLogId` points back at the original) and stamps `retriedAt` on the original — the original always stays as the true record of that attempt. In code: `MessageLog` entity, `message_logs` table; `POST /message-logs/:id/retry`.
 
 ### Message log item
 A single installment's contribution to a sent message log — since one message covers several installments, this table records each one along with a **snapshot** of its overdue days and interest at the exact moment the message was sent (these values change daily, so the snapshot preserves what the client was actually told). In code: `MessageLogItem` entity, `message_log_items` table.
@@ -183,6 +186,14 @@ The following were open questions in an earlier version of this glossary, now re
 - ~~Whether the payoff quote includes not-yet-due future installments~~ → Confirmed: yes, at principal face value with zero interest.
 - ~~How an initial installment factors into the payoff~~ → Confirmed: only as principal, never interest.
 - ~~Whether this becomes the new default behavior of every `registerPayment` call~~ → Confirmed: no — a separate, explicit "liquidar anticipadamente" flow for the full quoted amount only; `registerPayment` is untouched.
+
+## Resolved from Phase 18
+
+- ~~Additive vs. restrictive audience~~ → Confirmed: additive — the curated group is added on top of whoever the dynamic logic already includes, never a filter that narrows it.
+- ~~Cron scope: just the 2 already-scheduled types, or all 4~~ → Confirmed: all 4, including `new_loan` and `account_summary`, which were previously on-demand/synchronous only.
+- ~~What happens to a curated audience member with nothing to report~~ → Confirmed: still sent, rendered with an empty list and $0 total — not skipped, not an error.
+- ~~`new_loan` cron mechanics (no natural "who qualifies today" query)~~ → Confirmed: a retry/backstop sweep over loans whose `newLoanMessageSentAt` is still null; the synchronous send at loan creation stays primary.
+- ~~`account_summary` cron mechanics (no dynamic condition at all)~~ → Confirmed: sends only to the template's curated audience, nothing else.
 
 ## Related documents
 

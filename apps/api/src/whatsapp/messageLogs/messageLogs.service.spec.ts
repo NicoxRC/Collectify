@@ -1,17 +1,29 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import { AccountSummaryService } from '../accountSummary.service';
 import { MessageLog, MessageLogStatus } from '../entities/messageLog.entity';
 import { MessageLogItem } from '../entities/messageLogItem.entity';
 import { MessageType } from '../messageType.enum';
+import { NewLoanReminderService } from '../newLoanReminder.service';
+import { OverdueReminderService } from '../overdueReminder.service';
+import { UpcomingDueReminderService } from '../upcomingDueReminder.service';
 
 import { MessageLogsService } from './messageLogs.service';
 
 describe('MessageLogsService', () => {
   let service: MessageLogsService;
-  let repository: { findAndCount: jest.Mock; findOneBy: jest.Mock };
-  let messageLogItemsRepository: { find: jest.Mock };
+  let repository: {
+    findAndCount: jest.Mock;
+    findOneBy: jest.Mock;
+    update: jest.Mock;
+  };
+  let messageLogItemsRepository: { find: jest.Mock; findOne: jest.Mock };
+  let overdueReminderService: { sendReminderForClient: jest.Mock };
+  let upcomingDueReminderService: { sendReminderForClient: jest.Mock };
+  let newLoanReminderService: { sendNewLoanMessage: jest.Mock };
+  let accountSummaryService: { sendAccountSummary: jest.Mock };
 
   const mockLog: MessageLog = {
     id: 'log-1',
@@ -22,6 +34,9 @@ describe('MessageLogsService', () => {
     messageContent: 'Hola...',
     status: MessageLogStatus.Sent,
     sentAt: new Date(),
+    retriedAt: null,
+    retryOfMessageLogId: null,
+    retryOfMessageLog: null,
     createdAt: new Date(),
   };
 
@@ -29,10 +44,16 @@ describe('MessageLogsService', () => {
     repository = {
       findAndCount: jest.fn(),
       findOneBy: jest.fn(),
+      update: jest.fn(),
     };
     messageLogItemsRepository = {
       find: jest.fn(),
+      findOne: jest.fn(),
     };
+    overdueReminderService = { sendReminderForClient: jest.fn() };
+    upcomingDueReminderService = { sendReminderForClient: jest.fn() };
+    newLoanReminderService = { sendNewLoanMessage: jest.fn() };
+    accountSummaryService = { sendAccountSummary: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -42,6 +63,16 @@ describe('MessageLogsService', () => {
           provide: getRepositoryToken(MessageLogItem),
           useValue: messageLogItemsRepository,
         },
+        {
+          provide: OverdueReminderService,
+          useValue: overdueReminderService,
+        },
+        {
+          provide: UpcomingDueReminderService,
+          useValue: upcomingDueReminderService,
+        },
+        { provide: NewLoanReminderService, useValue: newLoanReminderService },
+        { provide: AccountSummaryService, useValue: accountSummaryService },
       ],
     }).compile();
 
@@ -169,6 +200,121 @@ describe('MessageLogsService', () => {
         NotFoundException,
       );
       expect(messageLogItemsRepository.find).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('retry', () => {
+    it('throws NotFoundException when the message log does not exist', async () => {
+      repository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.retry('missing-id')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws BadRequestException when the message was not failed', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockLog,
+        status: MessageLogStatus.Sent,
+      });
+
+      await expect(service.retry('log-1')).rejects.toThrow(BadRequestException);
+      expect(
+        overdueReminderService.sendReminderForClient,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('re-sends an overdue reminder and links the retry to the original', async () => {
+      const failedLog = { ...mockLog, status: MessageLogStatus.Failed };
+      repository.findOneBy.mockResolvedValue(failedLog);
+      const newLog = { ...mockLog, id: 'log-2', status: MessageLogStatus.Sent };
+      overdueReminderService.sendReminderForClient.mockResolvedValue(newLog);
+
+      const result = await service.retry('log-1');
+
+      expect(overdueReminderService.sendReminderForClient).toHaveBeenCalledWith(
+        'client-1',
+        { allowEmpty: true },
+      );
+      expect(repository.update).toHaveBeenCalledWith(
+        { id: 'log-1' },
+        { retriedAt: expect.any(Date) as unknown },
+      );
+      expect(repository.update).toHaveBeenCalledWith(
+        { id: 'log-2' },
+        { retryOfMessageLogId: 'log-1' },
+      );
+      expect(result).toEqual(newLog);
+    });
+
+    it('re-sends an upcoming-due reminder', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockLog,
+        type: MessageType.UpcomingDue,
+        status: MessageLogStatus.Failed,
+      });
+      upcomingDueReminderService.sendReminderForClient.mockResolvedValue({
+        ...mockLog,
+        id: 'log-2',
+      });
+
+      await service.retry('log-1');
+
+      expect(
+        upcomingDueReminderService.sendReminderForClient,
+      ).toHaveBeenCalledWith('client-1', { allowEmpty: true });
+    });
+
+    it('re-sends an account summary', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockLog,
+        type: MessageType.AccountSummary,
+        status: MessageLogStatus.Failed,
+      });
+      accountSummaryService.sendAccountSummary.mockResolvedValue({
+        ...mockLog,
+        id: 'log-2',
+      });
+
+      await service.retry('log-1');
+
+      expect(accountSummaryService.sendAccountSummary).toHaveBeenCalledWith(
+        'client-1',
+        { allowEmpty: true },
+      );
+    });
+
+    it('re-sends a new-loan message using the loan found via the message items', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockLog,
+        type: MessageType.NewLoan,
+        status: MessageLogStatus.Failed,
+      });
+      messageLogItemsRepository.findOne.mockResolvedValue({
+        installment: { loanId: 'loan-1' },
+      });
+      newLoanReminderService.sendNewLoanMessage.mockResolvedValue({
+        ...mockLog,
+        id: 'log-2',
+      });
+
+      await service.retry('log-1');
+
+      expect(newLoanReminderService.sendNewLoanMessage).toHaveBeenCalledWith(
+        'loan-1',
+      );
+    });
+
+    it('throws BadRequestException for a new-loan message with no related items', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockLog,
+        type: MessageType.NewLoan,
+        status: MessageLogStatus.Failed,
+      });
+      messageLogItemsRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.retry('log-1')).rejects.toThrow(BadRequestException);
+      expect(newLoanReminderService.sendNewLoanMessage).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -6,7 +6,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
+import { Roles } from '../../auth/decorators/roles.decorator';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
+import { UserRole } from '../../users/entities/user.entity';
 import { MessageLog } from '../entities/messageLog.entity';
 import { MessageLogItem } from '../entities/messageLogItem.entity';
 
@@ -43,5 +45,22 @@ export class MessageLogsController {
   @ApiResponse({ status: 404, description: 'Message log not found.' })
   getItems(@Param('id') id: string): Promise<MessageLogItem[]> {
     return this.messageLogsService.getItems(id);
+  }
+
+  @Post(':id/retry')
+  @Roles(UserRole.Admin)
+  @ApiOperation({
+    summary: 'Manually retry a failed message (admin only)',
+    description:
+      'Re-sends the message and creates a new, separate log row pointing back at the original via retryOfMessageLogId — the original row is never edited, only stamped with retriedAt.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Returns the new message log created by the retry.',
+  })
+  @ApiResponse({ status: 400, description: 'The message log is not failed.' })
+  @ApiResponse({ status: 404, description: 'Message log not found.' })
+  retry(@Param('id') id: string): Promise<MessageLog> {
+    return this.messageLogsService.retry(id);
   }
 }

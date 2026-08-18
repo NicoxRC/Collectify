@@ -1,5 +1,12 @@
-import { Controller, Get, Param, Post } from '@nestjs/common';
-import { SchedulerRegistry } from '@nestjs/schedule';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseEnumPipe,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -11,11 +18,13 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../users/entities/user.entity';
 
 import { AccountSummaryService } from './accountSummary.service';
+import { UpdateCronScheduleDto } from './dto/updateCronSchedule.dto';
 import { MessageLog } from './entities/messageLog.entity';
-import { OverdueReminderCron } from './overdueReminder.cron';
+import { MessageTemplate } from './entities/messageTemplate.entity';
+import { MessageType } from './messageType.enum';
 import { OverdueReminderService } from './overdueReminder.service';
-import { UpcomingDueReminderCron } from './upcomingDueReminder.cron';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
+import { WhatsappCronService } from './whatsappCron.service';
 
 @ApiTags('whatsapp')
 @ApiBearerAuth()
@@ -26,81 +35,52 @@ export class WhatsappController {
     private readonly overdueReminderService: OverdueReminderService,
     private readonly upcomingDueReminderService: UpcomingDueReminderService,
     private readonly accountSummaryService: AccountSummaryService,
-    private readonly schedulerRegistry: SchedulerRegistry,
+    private readonly whatsappCronService: WhatsappCronService,
   ) {}
 
-  @Get('cron/status')
+  @Get('cron/:type/status')
   @ApiOperation({
-    summary: 'Whether the weekly overdue reminder job is running (admin only)',
+    summary: "Whether a message type's cron job is running (admin only)",
     description:
-      'Added for the Fase 5 client UI — pause/resume existed with no way to read current state.',
+      'All 4 message types have a cron job (Phase 18) — see docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.',
   })
   @ApiResponse({ status: 200, description: 'Returns the job running state.' })
-  getCronStatus(): { running: boolean } {
-    const job = this.schedulerRegistry.getCronJob(OverdueReminderCron.JOB_NAME);
-    // The `cron` package's CronJob exposes this as `isActive` (a getter),
-    // not `running` — confirmed in node_modules/cron/dist/job.d.ts.
-    return { running: job.isActive };
+  getCronStatus(
+    @Param('type', new ParseEnumPipe(MessageType)) type: MessageType,
+  ): { running: boolean } {
+    return this.whatsappCronService.getStatus(type);
   }
 
-  @Post('cron/pause')
-  @ApiOperation({
-    summary: 'Pause the weekly overdue reminder job (admin only)',
-  })
+  @Post('cron/:type/pause')
+  @ApiOperation({ summary: "Pause a message type's cron job (admin only)" })
   @ApiResponse({ status: 200, description: 'The job is paused.' })
-  async pauseCron(): Promise<{ paused: true }> {
-    await this.schedulerRegistry
-      .getCronJob(OverdueReminderCron.JOB_NAME)
-      .stop();
-    return { paused: true };
+  pauseCron(
+    @Param('type', new ParseEnumPipe(MessageType)) type: MessageType,
+  ): Promise<{ paused: true }> {
+    return this.whatsappCronService.pause(type);
   }
 
-  @Post('cron/resume')
-  @ApiOperation({
-    summary: 'Resume the weekly overdue reminder job (admin only)',
-  })
+  @Post('cron/:type/resume')
+  @ApiOperation({ summary: "Resume a message type's cron job (admin only)" })
   @ApiResponse({ status: 200, description: 'The job is running again.' })
-  resumeCron(): { paused: false } {
-    this.schedulerRegistry.getCronJob(OverdueReminderCron.JOB_NAME).start();
-    return { paused: false };
+  resumeCron(
+    @Param('type', new ParseEnumPipe(MessageType)) type: MessageType,
+  ): { paused: false } {
+    return this.whatsappCronService.resume(type);
   }
 
-  @Get('cron/upcoming-due/status')
+  @Patch('cron/:type/schedule')
   @ApiOperation({
-    summary:
-      'Whether the daily upcoming-due reminder job is running (admin only)',
+    summary: "Change a message type's cron schedule (admin only)",
     description:
-      'Mirrors GET /cron/status for the overdue reminder — added for the ' +
-      'Fase 9 client UI, which needs to render Pausar/Reanudar correctly.',
+      'Persists the new expression on MessageTemplate.cronExpression and reschedules the running job immediately, without a restart.',
   })
-  @ApiResponse({ status: 200, description: 'Returns the job running state.' })
-  getUpcomingDueCronStatus(): { running: boolean } {
-    const job = this.schedulerRegistry.getCronJob(
-      UpcomingDueReminderCron.JOB_NAME,
-    );
-    return { running: job.isActive };
-  }
-
-  @Post('cron/upcoming-due/pause')
-  @ApiOperation({
-    summary: 'Pause the daily upcoming-due reminder job (admin only)',
-  })
-  @ApiResponse({ status: 200, description: 'The job is paused.' })
-  async pauseUpcomingDueCron(): Promise<{ paused: true }> {
-    await this.schedulerRegistry
-      .getCronJob(UpcomingDueReminderCron.JOB_NAME)
-      .stop();
-    return { paused: true };
-  }
-
-  @Post('cron/upcoming-due/resume')
-  @ApiOperation({
-    summary: 'Resume the daily upcoming-due reminder job (admin only)',
-  })
-  @ApiResponse({ status: 200, description: 'The job is running again.' })
-  resumeUpcomingDueCron(): { paused: false } {
-    this.schedulerRegistry.getCronJob(UpcomingDueReminderCron.JOB_NAME).start();
-    return { paused: false };
+  @ApiResponse({ status: 200, description: 'Returns the updated template.' })
+  rescheduleCron(
+    @Param('type', new ParseEnumPipe(MessageType)) type: MessageType,
+    @Body() dto: UpdateCronScheduleDto,
+  ): Promise<MessageTemplate> {
+    return this.whatsappCronService.reschedule(type, dto.cronExpression);
   }
 
   @Post('clients/:clientId/send-reminder')
@@ -145,7 +125,7 @@ export class WhatsappController {
     summary:
       'Manually send the full account summary to one client (admin only)',
     description:
-      "Every pending installment across all of the client's active loans, overdue or not, ending in a grand total. On-demand only — no cron.",
+      "Every pending installment across all of the client's active loans, overdue or not, ending in a grand total. On-demand only — separate from the audience-only cron.",
   })
   @ApiResponse({ status: 201, description: 'Returns the created message log.' })
   @ApiResponse({

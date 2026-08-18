@@ -1,14 +1,20 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { validateCronExpression } from 'cron';
 import { Repository } from 'typeorm';
 
 import { MessageTemplate } from '../entities/messageTemplate.entity';
 import { MessageType } from '../messageType.enum';
 
-// Read-only by design — content is fixed per type, see
-// MessageTemplate's entity comment and docs/DATABASE.md "Changed after
-// Phase 9". Updating a template's content is a migration, not a service
-// method.
+// content is read-only by design — see MessageTemplate's entity comment
+// and docs/DATABASE.md "Changed after Phase 9". Updating a template's
+// content is a migration, not a service method. cronExpression IS
+// admin-editable (Phase 18) — see updateCronExpression and
+// WhatsappCronService.
 @Injectable()
 export class MessageTemplatesService {
   constructor(
@@ -30,5 +36,21 @@ export class MessageTemplatesService {
       );
     }
     return template;
+  }
+
+  async updateCronExpression(
+    type: MessageType,
+    cronExpression: string,
+  ): Promise<MessageTemplate> {
+    const { valid } = validateCronExpression(cronExpression);
+    if (!valid) {
+      throw new BadRequestException(
+        `'${cronExpression}' is not a valid cron expression`,
+      );
+    }
+
+    const template = await this.findByTypeOrThrow(type);
+    template.cronExpression = cronExpression;
+    return this.messageTemplatesRepository.save(template);
   }
 }

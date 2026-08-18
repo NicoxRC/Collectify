@@ -15,6 +15,7 @@ import {
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
+import { MessageAudiencesService } from './messageAudiences/messageAudiences.service';
 import { OverdueReminderService } from './overdueReminder.service';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { WhatsAppService } from './whatsapp.service';
@@ -26,6 +27,7 @@ describe('OverdueReminderService', () => {
   let messageLogsRepository: { create: jest.Mock; save: jest.Mock };
   let messageLogItemsRepository: { create: jest.Mock; save: jest.Mock };
   let messageTemplatesService: { findByTypeOrThrow: jest.Mock };
+  let messageAudiencesService: { getClientIdsForTemplateType: jest.Mock };
   let whatsAppService: { sendTextMessage: jest.Mock };
 
   const mockClient: Client = {
@@ -56,6 +58,7 @@ describe('OverdueReminderService', () => {
     description: null,
     usuryCeilingExceededAtCreation: false,
     usuryJustification: null,
+    newLoanMessageSentAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -95,6 +98,9 @@ describe('OverdueReminderService', () => {
       save: jest.fn((items: unknown[]) => Promise.resolve(items)),
     };
     messageTemplatesService = { findByTypeOrThrow: jest.fn() };
+    messageAudiencesService = {
+      getClientIdsForTemplateType: jest.fn().mockResolvedValue([]),
+    };
     whatsAppService = { sendTextMessage: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -114,6 +120,10 @@ describe('OverdueReminderService', () => {
           useValue: messageLogItemsRepository,
         },
         { provide: MessageTemplatesService, useValue: messageTemplatesService },
+        {
+          provide: MessageAudiencesService,
+          useValue: messageAudiencesService,
+        },
         { provide: WhatsAppService, useValue: whatsAppService },
       ],
     }).compile();
@@ -205,6 +215,19 @@ describe('OverdueReminderService', () => {
       expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
     });
 
+    it('sends an empty/$0 message instead of throwing when allowEmpty is true', async () => {
+      installmentsRepository.find.mockResolvedValue([]);
+      whatsAppService.sendTextMessage.mockResolvedValue(true);
+
+      const result = await service.sendReminderForClient(mockClient.id, {
+        allowEmpty: true,
+      });
+
+      expect(whatsAppService.sendTextMessage).toHaveBeenCalled();
+      expect(result.status).toBe(MessageLogStatus.Sent);
+      expect(messageLogItemsRepository.save).toHaveBeenCalledWith([]);
+    });
+
     // Phase 13 — docs/phases/PHASE_13_INITIAL_INSTALLMENT.md: a cuota
     // inicial never counts as overdue, so it must never trigger or appear
     // in the reminder message.
@@ -233,8 +256,27 @@ describe('OverdueReminderService', () => {
 
       await service.runWeeklyReminder();
 
-      expect(sendSpy).toHaveBeenCalledWith('client-1');
-      expect(sendSpy).toHaveBeenCalledWith('client-2');
+      expect(sendSpy).toHaveBeenCalledWith('client-1', { allowEmpty: true });
+      expect(sendSpy).toHaveBeenCalledWith('client-2', { allowEmpty: true });
+    });
+
+    it('additionally notifies audience members with nothing overdue', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        overdueInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
+      ]);
+      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([
+        'client-1',
+        'client-3',
+      ]);
+      const sendSpy = jest
+        .spyOn(service, 'sendReminderForClient')
+        .mockResolvedValue({} as MessageLog);
+
+      await service.runWeeklyReminder();
+
+      expect(sendSpy).toHaveBeenCalledTimes(2);
+      expect(sendSpy).toHaveBeenCalledWith('client-1', { allowEmpty: true });
+      expect(sendSpy).toHaveBeenCalledWith('client-3', { allowEmpty: true });
     });
 
     it('continues with the next client when one fails', async () => {

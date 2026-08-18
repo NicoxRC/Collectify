@@ -22,7 +22,11 @@ import { WhatsAppService } from './whatsapp.service';
 
 describe('NewLoanReminderService', () => {
   let service: NewLoanReminderService;
-  let loansRepository: { findOne: jest.Mock };
+  let loansRepository: {
+    findOne: jest.Mock;
+    find: jest.Mock;
+    update: jest.Mock;
+  };
   let installmentsRepository: { find: jest.Mock };
   let messageLogsRepository: { create: jest.Mock; save: jest.Mock };
   let messageLogItemsRepository: { create: jest.Mock; save: jest.Mock };
@@ -57,6 +61,7 @@ describe('NewLoanReminderService', () => {
     description: 'Compra de Apple MacBook Air M5',
     usuryCeilingExceededAtCreation: false,
     usuryJustification: null,
+    newLoanMessageSentAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -81,7 +86,11 @@ describe('NewLoanReminderService', () => {
   }
 
   beforeEach(async () => {
-    loansRepository = { findOne: jest.fn() };
+    loansRepository = {
+      findOne: jest.fn(),
+      find: jest.fn(),
+      update: jest.fn(),
+    };
     installmentsRepository = { find: jest.fn() };
     messageLogsRepository = {
       create: jest.fn((dto: Partial<MessageLog>) => dto),
@@ -183,6 +192,61 @@ describe('NewLoanReminderService', () => {
       await expect(service.sendNewLoanMessage('missing-id')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('runPendingNotifications', () => {
+    beforeEach(() => {
+      loansRepository.findOne.mockResolvedValue(mockLoan);
+      installmentsRepository.find.mockResolvedValue([installment()]);
+      messageTemplatesService.findByTypeOrThrow.mockResolvedValue({
+        content: 'Hola {{clientFullName}}, pagaré #{{promissoryNoteNumber}}',
+      });
+    });
+
+    it('queries loans whose new-loan message has not been sent yet', async () => {
+      loansRepository.find.mockResolvedValue([]);
+
+      await service.runPendingNotifications();
+
+      expect(loansRepository.find).toHaveBeenCalledWith({
+        where: { newLoanMessageSentAt: expect.anything() as unknown },
+      });
+    });
+
+    it('marks newLoanMessageSentAt only when the retry actually sends', async () => {
+      loansRepository.find.mockResolvedValue([mockLoan]);
+      whatsAppService.sendTextMessage.mockResolvedValue(true);
+
+      await service.runPendingNotifications();
+
+      expect(loansRepository.update).toHaveBeenCalledWith(
+        { id: mockLoan.id },
+        { newLoanMessageSentAt: expect.any(Date) as unknown },
+      );
+    });
+
+    it('does not mark newLoanMessageSentAt when the retry still fails', async () => {
+      loansRepository.find.mockResolvedValue([mockLoan]);
+      whatsAppService.sendTextMessage.mockResolvedValue(false);
+
+      await service.runPendingNotifications();
+
+      expect(loansRepository.update).not.toHaveBeenCalled();
+    });
+
+    it('continues with the next loan when one retry throws', async () => {
+      loansRepository.find.mockResolvedValue([
+        mockLoan,
+        { ...mockLoan, id: 'loan-2' },
+      ]);
+      const sendSpy = jest
+        .spyOn(service, 'sendNewLoanMessage')
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValueOnce({ status: MessageLogStatus.Sent } as MessageLog);
+
+      await expect(service.runPendingNotifications()).resolves.toBeUndefined();
+      expect(sendSpy).toHaveBeenCalledTimes(2);
     });
   });
 });

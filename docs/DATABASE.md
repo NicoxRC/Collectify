@@ -25,7 +25,7 @@ Tables and columns use **snake_case**; TypeORM maps this automatically to camelC
 
 ### Table names — plural, snake_case
 
-`clients`, `loans`, `installments`, `payments`, `message_templates`, `message_logs`, `message_log_items`, `users`, `audit_logs`.
+`clients`, `loans`, `installments`, `payments`, `message_templates`, `message_audiences`, `message_audience_clients`, `message_logs`, `message_log_items`, `users`, `audit_logs`.
 
 ### Timestamps — every table has them
 
@@ -174,6 +174,7 @@ Represents a *pagaré* — see `GLOSSARY.md`.
 | `description` | TEXT, nullable | free-text concept/reason for the loan (e.g. "Compra de Apple MacBook Air M5..."), used by the "new loan" WhatsApp message — see `docs/phases/PHASE_9_MESSAGE_TYPES.md`. Optional, same precedent as `payments.observation`. |
 | `usury_ceiling_exceeded_at_creation` | BOOLEAN, `NOT NULL DEFAULT false` | Added Phase 15 — a one-time snapshot of whether this loan's highest per-installment effective rate exceeded the usury ceiling in effect at creation/refinance time. Not recomputed on read (confirmed: creation-time enforcement only). A warning, not a rejection — the loan is still created either way. See `docs/phases/PHASE_15_USURY_RATE.md`. |
 | `usury_justification` | TEXT, nullable | Added Phase 15 — optional admin note explaining why the loan proceeded despite exceeding the ceiling. Only meaningful when the column above is `true`; never required. |
+| `new_loan_message_sent_at` | TIMESTAMPTZ, nullable | Added Phase 18 — set once the "new loan" WhatsApp message actually succeeds (synchronously at creation/refinance, or via the retry cron). Lets the `new_loan` cron find loans still needing their message directly (`IS NULL`), instead of string-matching message content. See `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md`. |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
 **On `interest_rate`:** confirmed from real data that the rate is **not** automatically tiered by amount, despite an informal rule mentioned by the client ("6% under 1 million, 5% over"). Actual historical data shows loans of the same amount range with rates of 4%, 5%, and 6%. The safest interpretation — **pending final confirmation with the client** — is that the rate is set manually per loan at creation time, defaulting to whatever the current standard rate is, but editable. Do not hardcode an automatic tiering rule based on this early analysis.
@@ -260,6 +261,7 @@ Added Phase 14 — one row per interest/fee concept applied to a specific instal
 | `name` | VARCHAR | |
 | `type` | ENUM (`new_loan`, `upcoming_due`, `overdue`, `account_summary`), **UNIQUE** | which message flow this template renders — exactly one row per type, see `docs/phases/PHASE_9_MESSAGE_TYPES.md` |
 | `content` | TEXT | supports placeholders — see below. **Not admin-editable — see "Changed after Phase 9" below.** |
+| `cron_expression` | VARCHAR, nullable | Added Phase 18 — admin-editable cron schedule for this type's job. `NULL` falls back to a per-type code default (env-configurable) — see `WhatsappCronService` and `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md`. |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
 **Template placeholders** — the per-installment line format is fixed per message type (matches the confirmed real message formats); the outer template (greeting, where the list/total go) is fixed too — see "Changed after Phase 9" below for why.
@@ -313,7 +315,31 @@ One row per reminder **actually sent to a client** — not per installment.
 | `message_content` | TEXT | the full rendered message, exactly as sent (all installments included, formatted) |
 | `status` | ENUM (`sent`, `failed`) | |
 | `sent_at` | TIMESTAMPTZ | |
+| `retried_at` | TIMESTAMPTZ, nullable | Added Phase 18 — set on the ORIGINAL (failed) row once it's manually retried. Still append-only: this is a stamp on the historical row, not an edit of what was actually sent. |
+| `retry_of_message_log_id` | UUID, nullable | Added Phase 18 — self-referencing FK → `message_logs.id`, `ON DELETE SET NULL`. Set on the NEW row created by a retry, pointing back at the original it retried. Both columns null on rows never retried; a retry that itself fails can be retried again, chaining further. |
 | `created_at` | TIMESTAMPTZ | append-only, no `updated_at`/`deleted_at` |
+
+### `message_audiences`
+
+Added Phase 18 — a curated group of clients attached to one `message_template`. See "Message audience" in `GLOSSARY.md` for the additive-vs-audience-only semantics per type.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `message_template_id` | UUID | FK → `message_templates.id`, `ON DELETE CASCADE` |
+| `name` | VARCHAR | |
+| `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
+
+The schema allows multiple audiences per template, but the confirmed UI/service surface is exactly one — `MessageAudiencesService` always operates on the most-recently-created audience for a template, creating it on first `PUT`.
+
+### `message_audience_clients`
+
+TypeORM-managed `@ManyToMany`/`@JoinTable` join table, no separate entity class — plain composite-PK shape.
+
+| Column | Type | Notes |
+|---|---|---|
+| `message_audience_id` | UUID | PK (composite), FK → `message_audiences.id`, `ON DELETE CASCADE` |
+| `client_id` | UUID | PK (composite), FK → `clients.id`, `ON DELETE CASCADE` |
 
 ### `message_log_items`
 
@@ -438,6 +464,14 @@ npm run migration:revert
 - `usury_rates` — historical, admin-entered monthly usury ceiling. See "`usury_rates`" above.
 - `loans.usury_ceiling_exceeded_at_creation`, `loans.usury_justification` — see "`loans`" above.
 - Enforcement is creation-time only, a warning rather than a block, and non-retroactive (a rate change never alters a past month's already-caused interest) — all confirmed with the human, see `docs/phases/PHASE_15_USURY_RATE.md` "Resolved".
+
+## Added in Phase 18
+
+- `message_templates.cron_expression` — admin-editable schedule per template; see "`message_templates`" above.
+- `message_audiences`, `message_audience_clients` — curated per-template client group; see "`message_audiences`" above and "Message audience" in `GLOSSARY.md`.
+- `message_logs.retried_at`, `message_logs.retry_of_message_log_id` — manual retry tracking, append-only (a retry always creates a new row rather than editing the original); see "`message_logs`" above.
+- `loans.new_loan_message_sent_at` — lets the `new_loan` retry cron find loans still needing their message; see "`loans`" above.
+- All four message types (`new_loan`, `upcoming_due`, `overdue`, `account_summary`) now have a cron job, not just the two that were already scheduled — additive audiences for the three with a dynamic condition, audience-only for `account_summary`, which has none. See `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md` "Resolved".
 
 ## Related documents
 

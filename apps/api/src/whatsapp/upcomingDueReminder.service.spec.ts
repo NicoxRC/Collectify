@@ -16,6 +16,7 @@ import {
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
+import { MessageAudiencesService } from './messageAudiences/messageAudiences.service';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
@@ -28,6 +29,7 @@ describe('UpcomingDueReminderService', () => {
   let messageLogsRepository: { create: jest.Mock; save: jest.Mock };
   let messageLogItemsRepository: { create: jest.Mock; save: jest.Mock };
   let messageTemplatesService: { findByTypeOrThrow: jest.Mock };
+  let messageAudiencesService: { getClientIdsForTemplateType: jest.Mock };
   let whatsAppService: { sendTextMessage: jest.Mock };
 
   const mockClient: Client = {
@@ -58,6 +60,7 @@ describe('UpcomingDueReminderService', () => {
     description: null,
     usuryCeilingExceededAtCreation: false,
     usuryJustification: null,
+    newLoanMessageSentAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -97,6 +100,9 @@ describe('UpcomingDueReminderService', () => {
       save: jest.fn((items: unknown[]) => Promise.resolve(items)),
     };
     messageTemplatesService = { findByTypeOrThrow: jest.fn() };
+    messageAudiencesService = {
+      getClientIdsForTemplateType: jest.fn().mockResolvedValue([]),
+    };
     whatsAppService = { sendTextMessage: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -116,6 +122,10 @@ describe('UpcomingDueReminderService', () => {
           useValue: messageLogItemsRepository,
         },
         { provide: MessageTemplatesService, useValue: messageTemplatesService },
+        {
+          provide: MessageAudiencesService,
+          useValue: messageAudiencesService,
+        },
         { provide: WhatsAppService, useValue: whatsAppService },
         {
           provide: ConfigService,
@@ -205,6 +215,19 @@ describe('UpcomingDueReminderService', () => {
       ).rejects.toThrow(BadRequestException);
       expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
     });
+
+    it('sends an empty message instead of throwing when allowEmpty is true', async () => {
+      installmentsRepository.find.mockResolvedValue([]);
+      whatsAppService.sendTextMessage.mockResolvedValue(true);
+
+      const result = await service.sendReminderForClient(mockClient.id, {
+        allowEmpty: true,
+      });
+
+      expect(whatsAppService.sendTextMessage).toHaveBeenCalled();
+      expect(result.status).toBe(MessageLogStatus.Sent);
+      expect(messageLogItemsRepository.save).toHaveBeenCalledWith([]);
+    });
   });
 
   describe('runDailyReminder', () => {
@@ -219,8 +242,27 @@ describe('UpcomingDueReminderService', () => {
 
       await service.runDailyReminder();
 
-      expect(sendSpy).toHaveBeenCalledWith('client-1');
-      expect(sendSpy).toHaveBeenCalledWith('client-2');
+      expect(sendSpy).toHaveBeenCalledWith('client-1', { allowEmpty: true });
+      expect(sendSpy).toHaveBeenCalledWith('client-2', { allowEmpty: true });
+    });
+
+    it('additionally notifies audience members with nothing upcoming', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
+      ]);
+      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([
+        'client-1',
+        'client-3',
+      ]);
+      const sendSpy = jest
+        .spyOn(service, 'sendReminderForClient')
+        .mockResolvedValue({} as MessageLog);
+
+      await service.runDailyReminder();
+
+      expect(sendSpy).toHaveBeenCalledTimes(2);
+      expect(sendSpy).toHaveBeenCalledWith('client-1', { allowEmpty: true });
+      expect(sendSpy).toHaveBeenCalledWith('client-3', { allowEmpty: true });
     });
 
     it('continues with the next client when one fails', async () => {

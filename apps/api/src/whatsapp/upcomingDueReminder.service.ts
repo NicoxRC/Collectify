@@ -20,6 +20,7 @@ import { calculateDaysUntilDue } from '../loans/installments/installmentCalculat
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
+import { MessageAudiencesService } from './messageAudiences/messageAudiences.service';
 import { renderUpcomingDueMessage } from './messageRenderer';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
@@ -43,19 +44,30 @@ export class UpcomingDueReminderService {
     @InjectRepository(MessageLogItem)
     private readonly messageLogItemsRepository: Repository<MessageLogItem>,
     private readonly messageTemplatesService: MessageTemplatesService,
+    private readonly messageAudiencesService: MessageAudiencesService,
     private readonly whatsAppService: WhatsAppService,
     private readonly configService: ConfigService<Configuration, true>,
   ) {}
 
+  // The curated audience is additive: its members are always notified
+  // alongside whoever dynamically qualifies, even with nothing approaching
+  // due date themselves (allowEmpty). See
+  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
   async runDailyReminder(): Promise<void> {
-    const clientIds = await this.findClientIdsWithUpcomingInstallments();
+    const [dynamicClientIds, audienceClientIds] = await Promise.all([
+      this.findClientIdsWithUpcomingInstallments(),
+      this.messageAudiencesService.getClientIdsForTemplateType(
+        MessageType.UpcomingDue,
+      ),
+    ]);
+    const clientIds = [...new Set([...dynamicClientIds, ...audienceClientIds])];
     this.logger.log(
       `Daily upcoming-due reminder: ${clientIds.length} client(s) to notify`,
     );
 
     for (const clientId of clientIds) {
       try {
-        await this.sendReminderForClient(clientId);
+        await this.sendReminderForClient(clientId, { allowEmpty: true });
       } catch (error) {
         this.logger.error(
           `Failed to send upcoming-due reminder to client ${clientId}`,
@@ -65,7 +77,15 @@ export class UpcomingDueReminderService {
     }
   }
 
-  async sendReminderForClient(clientId: string): Promise<MessageLog> {
+  // allowEmpty (default false, unchanged for the manual on-demand controller
+  // endpoint): the daily cron passes true for audience members who don't
+  // dynamically qualify, so they still get a message — rendered with an
+  // empty list — instead of being skipped. See
+  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
+  async sendReminderForClient(
+    clientId: string,
+    options?: { allowEmpty?: boolean },
+  ): Promise<MessageLog> {
     const client = await this.clientsRepository.findOneBy({ id: clientId });
     if (!client) {
       throw new NotFoundException(`Client with id ${clientId} not found`);
@@ -73,7 +93,7 @@ export class UpcomingDueReminderService {
 
     const upcomingInstallments =
       await this.gatherUpcomingInstallments(clientId);
-    if (upcomingInstallments.length === 0) {
+    if (upcomingInstallments.length === 0 && !options?.allowEmpty) {
       throw new BadRequestException(
         `Client ${clientId} has no installments approaching their due date across their active loans`,
       );

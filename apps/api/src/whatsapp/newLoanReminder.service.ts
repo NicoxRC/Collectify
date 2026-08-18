@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 
 import { Installment } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
@@ -34,6 +34,39 @@ export class NewLoanReminderService {
     private readonly messageTemplatesService: MessageTemplatesService,
     private readonly whatsAppService: WhatsAppService,
   ) {}
+
+  // Retry/backstop cron (Phase 18) — the synchronous send at loan creation
+  // is primary; this sweeps up loans whose synchronous send never marked
+  // newLoanMessageSentAt (it failed, or the process crashed before it
+  // could). No natural periodic candidate list exists for "new loan" the
+  // way overdue/upcoming-due have one, so newLoanMessageSentAt IS NULL is
+  // both the candidate query and the completion marker. See
+  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
+  async runPendingNotifications(): Promise<void> {
+    const loans = await this.loansRepository.find({
+      where: { newLoanMessageSentAt: IsNull() },
+    });
+    this.logger.log(
+      `New-loan retry: ${loans.length} loan(s) pending notification`,
+    );
+
+    for (const loan of loans) {
+      try {
+        const messageLog = await this.sendNewLoanMessage(loan.id);
+        if (messageLog.status === MessageLogStatus.Sent) {
+          await this.loansRepository.update(
+            { id: loan.id },
+            { newLoanMessageSentAt: new Date() },
+          );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Failed to retry new-loan message for loan ${loan.id}`,
+          error,
+        );
+      }
+    }
+  }
 
   async sendNewLoanMessage(loanId: string): Promise<MessageLog> {
     const loan = await this.loansRepository.findOne({

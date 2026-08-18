@@ -16,6 +16,7 @@ import {
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
+import { MessageAudiencesService } from './messageAudiences/messageAudiences.service';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
 import { WhatsAppService } from './whatsapp.service';
@@ -27,6 +28,7 @@ describe('AccountSummaryService', () => {
   let messageLogsRepository: { create: jest.Mock; save: jest.Mock };
   let messageLogItemsRepository: { create: jest.Mock; save: jest.Mock };
   let messageTemplatesService: { findByTypeOrThrow: jest.Mock };
+  let messageAudiencesService: { getClientIdsForTemplateType: jest.Mock };
   let whatsAppService: { sendTextMessage: jest.Mock };
 
   const mockClient: Client = {
@@ -57,6 +59,7 @@ describe('AccountSummaryService', () => {
     description: null,
     usuryCeilingExceededAtCreation: false,
     usuryJustification: null,
+    newLoanMessageSentAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -96,6 +99,9 @@ describe('AccountSummaryService', () => {
       save: jest.fn((items: unknown[]) => Promise.resolve(items)),
     };
     messageTemplatesService = { findByTypeOrThrow: jest.fn() };
+    messageAudiencesService = {
+      getClientIdsForTemplateType: jest.fn().mockResolvedValue([]),
+    };
     whatsAppService = { sendTextMessage: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -115,6 +121,10 @@ describe('AccountSummaryService', () => {
           useValue: messageLogItemsRepository,
         },
         { provide: MessageTemplatesService, useValue: messageTemplatesService },
+        {
+          provide: MessageAudiencesService,
+          useValue: messageAudiencesService,
+        },
         { provide: WhatsAppService, useValue: whatsAppService },
       ],
     }).compile();
@@ -186,6 +196,53 @@ describe('AccountSummaryService', () => {
         BadRequestException,
       );
       expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
+    });
+
+    it('sends an empty/$0 message instead of throwing when allowEmpty is true', async () => {
+      installmentsRepository.find.mockResolvedValue([]);
+      whatsAppService.sendTextMessage.mockResolvedValue(true);
+
+      const result = await service.sendAccountSummary(mockClient.id, {
+        allowEmpty: true,
+      });
+
+      expect(whatsAppService.sendTextMessage).toHaveBeenCalled();
+      expect(result.status).toBe(MessageLogStatus.Sent);
+      expect(messageLogItemsRepository.save).toHaveBeenCalledWith([]);
+    });
+  });
+
+  describe('runAudienceSummaries', () => {
+    it('sends only to the curated audience, with allowEmpty', async () => {
+      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([
+        'client-1',
+        'client-2',
+      ]);
+      const sendSpy = jest
+        .spyOn(service, 'sendAccountSummary')
+        .mockResolvedValue({} as MessageLog);
+
+      await service.runAudienceSummaries();
+
+      expect(
+        messageAudiencesService.getClientIdsForTemplateType,
+      ).toHaveBeenCalledWith(MessageType.AccountSummary);
+      expect(sendSpy).toHaveBeenCalledWith('client-1', { allowEmpty: true });
+      expect(sendSpy).toHaveBeenCalledWith('client-2', { allowEmpty: true });
+    });
+
+    it('continues with the next client when one fails', async () => {
+      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([
+        'client-1',
+        'client-2',
+      ]);
+      const sendSpy = jest
+        .spyOn(service, 'sendAccountSummary')
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockResolvedValueOnce({} as MessageLog);
+
+      await expect(service.runAudienceSummaries()).resolves.toBeUndefined();
+      expect(sendSpy).toHaveBeenCalledTimes(2);
     });
   });
 });
