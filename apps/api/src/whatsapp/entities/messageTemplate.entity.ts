@@ -33,7 +33,7 @@ export class MessageTemplate {
   // Admin-editable schedule for this type's cron job (Phase 18) — nullable,
   // falling back to a per-type code default when unset. See
   // WhatsappCronService and docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   cronExpression!: string | null;
 
   @CreateDateColumn()
