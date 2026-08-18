@@ -13,8 +13,12 @@ import {
 import { Loan, LoanStatus } from '../loans/entities/loan.entity';
 
 import { parseClientsWorkbook } from './clientsImportParser';
-import { Client } from './entities/client.entity';
 import { ClientsService } from './clients.service';
+import { Client, DocumentType } from './entities/client.entity';
+import {
+  ClientReference,
+  ClientReferenceType,
+} from './entities/clientReference.entity';
 
 jest.mock('./clientsImportParser');
 
@@ -33,6 +37,13 @@ describe('ClientsService', () => {
   };
   let loansRepository: { count: jest.Mock; find: jest.Mock };
   let installmentsRepository: { find: jest.Mock };
+  let clientReferencesRepository: {
+    create: jest.Mock;
+    save: jest.Mock;
+    find: jest.Mock;
+    findOneBy: jest.Mock;
+    remove: jest.Mock;
+  };
 
   const mockClient: Client = {
     id: 'client-1',
@@ -41,6 +52,24 @@ describe('ClientsService', () => {
     documentNumber: '1234567890',
     phoneNumber: '+573001234567',
     creditLimit: null,
+    documentType: null,
+    dateOfBirth: null,
+    documentIssuePlace: null,
+    email: null,
+    alternatePhoneNumber: null,
+    homeAddress: null,
+    workAddress: null,
+    neighborhood: null,
+    city: null,
+    occupation: null,
+    employerName: null,
+    monthlyIncome: null,
+    idDocumentFrontUrl: null,
+    idDocumentBackUrl: null,
+    selfieImageUrl: null,
+    dataProcessingConsent: true,
+    consentGivenAt: new Date(),
+    consentDocumentUrl: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -75,6 +104,13 @@ describe('ClientsService', () => {
       find: jest.fn(),
     };
     installmentsRepository = { find: jest.fn() };
+    clientReferencesRepository = {
+      create: jest.fn((dto: Partial<ClientReference>) => dto),
+      save: jest.fn(),
+      find: jest.fn().mockResolvedValue([]),
+      findOneBy: jest.fn(),
+      remove: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -84,6 +120,10 @@ describe('ClientsService', () => {
         {
           provide: getRepositoryToken(Installment),
           useValue: installmentsRepository,
+        },
+        {
+          provide: getRepositoryToken(ClientReference),
+          useValue: clientReferencesRepository,
         },
       ],
     }).compile();
@@ -104,6 +144,7 @@ describe('ClientsService', () => {
       lastName: 'Pérez',
       documentNumber: '1234567890',
       phoneNumber: '+573001234567',
+      dataProcessingConsent: true,
     };
 
     it('creates a client when the document number is not in use', async () => {
@@ -126,6 +167,58 @@ describe('ClientsService', () => {
         ConflictException,
       );
       expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    // Phase 21 — dataProcessingConsent is required through this path
+    // (ClientsController.create), never through importFromExcel. See
+    // docs/phases/PHASE_21_CLIENT_PROFILE.md decision 6.
+    it('rejects creating a client without data-processing consent', async () => {
+      await expect(
+        service.create({ ...createDto, dataProcessingConsent: false }),
+      ).rejects.toThrow(BadRequestException);
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects creating a client when consent is omitted entirely', async () => {
+      const withoutConsent = {
+        firstName: createDto.firstName,
+        lastName: createDto.lastName,
+        documentNumber: createDto.documentNumber,
+        phoneNumber: createDto.phoneNumber,
+      };
+
+      await expect(service.create(withoutConsent)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('stamps consentGivenAt with the server clock when consent is given', async () => {
+      repository.findOne.mockResolvedValue(null);
+      repository.save.mockImplementation((client: Partial<Client>) =>
+        Promise.resolve({ ...mockClient, ...client }),
+      );
+
+      await service.create(createDto);
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ consentGivenAt: FIXED_NOW }),
+      );
+    });
+
+    it('does not require consent when explicitly opted out (Excel import path)', async () => {
+      repository.findOne.mockResolvedValue(null);
+      repository.save.mockResolvedValue(mockClient);
+
+      const withoutConsent = {
+        firstName: createDto.firstName,
+        lastName: createDto.lastName,
+        documentNumber: createDto.documentNumber,
+        phoneNumber: createDto.phoneNumber,
+      };
+      await expect(
+        service.create(withoutConsent, { requireConsent: false }),
+      ).resolves.toEqual(mockClient);
     });
   });
 
@@ -182,6 +275,43 @@ describe('ClientsService', () => {
         service.update(mockClient.id, { documentNumber: '9999999999' }),
       ).rejects.toThrow(ConflictException);
       expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    // Phase 21 — consentGivenAt is stamped with the server clock only when
+    // consent actually transitions to true, not on every unrelated update.
+    it('stamps consentGivenAt when consent newly transitions to true', async () => {
+      repository.findOneBy.mockResolvedValue({
+        ...mockClient,
+        dataProcessingConsent: false,
+        consentGivenAt: null,
+      });
+      repository.save.mockImplementation((client: Client) =>
+        Promise.resolve(client),
+      );
+
+      const result = await service.update(mockClient.id, {
+        dataProcessingConsent: true,
+      });
+
+      expect(result.consentGivenAt).toEqual(FIXED_NOW);
+    });
+
+    it('does not touch consentGivenAt when consent was already true', async () => {
+      const alreadyGivenAt = new Date('2026-01-01T00:00:00Z');
+      repository.findOneBy.mockResolvedValue({
+        ...mockClient,
+        dataProcessingConsent: true,
+        consentGivenAt: alreadyGivenAt,
+      });
+      repository.save.mockImplementation((client: Client) =>
+        Promise.resolve(client),
+      );
+
+      const result = await service.update(mockClient.id, {
+        firstName: 'Juanita',
+      });
+
+      expect(result.consentGivenAt).toEqual(alreadyGivenAt);
     });
   });
 
@@ -640,7 +770,7 @@ describe('ClientsService', () => {
   });
 
   describe('findOneDetail', () => {
-    it('includes creditUsed, creditAvailable and isMoraBlocked alongside the client fields', async () => {
+    it('includes creditUsed, creditAvailable, isMoraBlocked and references alongside the client fields', async () => {
       repository.findOneBy.mockResolvedValue({
         ...mockClient,
         creditLimit: 1000,
@@ -657,12 +787,29 @@ describe('ClientsService', () => {
           status: InstallmentStatus.Pending,
         },
       ]);
+      const mockReference: ClientReference = {
+        id: 'reference-1',
+        clientId: mockClient.id,
+        client: {} as never,
+        type: ClientReferenceType.Personal,
+        fullName: 'Carlos Gómez',
+        phoneNumber: '+573001112233',
+        relationship: 'Hermano',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      clientReferencesRepository.find.mockResolvedValue([mockReference]);
 
       const result = await service.findOneDetail(mockClient.id);
 
       expect(result.id).toBe(mockClient.id);
       expect(result.creditAvailable).toBeLessThan(1000);
       expect(result.isMoraBlocked).toBe(true);
+      expect(result.references).toEqual([mockReference]);
+      expect(clientReferencesRepository.find).toHaveBeenCalledWith({
+        where: { clientId: mockClient.id },
+        order: { createdAt: 'ASC' },
+      });
     });
 
     it('throws NotFoundException when the client does not exist', async () => {
@@ -671,6 +818,103 @@ describe('ClientsService', () => {
       await expect(service.findOneDetail('missing-id')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  // Phase 21 — a dynamic add/remove list, no fixed min/max. See
+  // docs/phases/PHASE_21_CLIENT_PROFILE.md.
+  describe('references', () => {
+    const referenceDto = {
+      type: ClientReferenceType.Personal,
+      fullName: 'Carlos Gómez',
+      phoneNumber: '+573001112233',
+      relationship: 'Hermano',
+    };
+    const mockReference: ClientReference = {
+      id: 'reference-1',
+      clientId: mockClient.id,
+      client: {} as never,
+      ...referenceDto,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    describe('addReference', () => {
+      it('adds a reference to an existing client', async () => {
+        repository.findOneBy.mockResolvedValue(mockClient);
+        clientReferencesRepository.save.mockResolvedValue(mockReference);
+
+        const result = await service.addReference(mockClient.id, referenceDto);
+
+        expect(result).toEqual(mockReference);
+        expect(clientReferencesRepository.create).toHaveBeenCalledWith({
+          ...referenceDto,
+          clientId: mockClient.id,
+        });
+      });
+
+      it('throws NotFoundException when the client does not exist', async () => {
+        repository.findOneBy.mockResolvedValue(null);
+
+        await expect(
+          service.addReference('missing-id', referenceDto),
+        ).rejects.toThrow(NotFoundException);
+        expect(clientReferencesRepository.save).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('updateReference', () => {
+      it('updates a reference that belongs to the given client', async () => {
+        clientReferencesRepository.findOneBy.mockResolvedValue(mockReference);
+        clientReferencesRepository.save.mockResolvedValue({
+          ...mockReference,
+          fullName: 'Carlos Andrés Gómez',
+        });
+
+        const result = await service.updateReference(
+          mockClient.id,
+          mockReference.id,
+          { fullName: 'Carlos Andrés Gómez' },
+        );
+
+        expect(result.fullName).toBe('Carlos Andrés Gómez');
+        expect(clientReferencesRepository.findOneBy).toHaveBeenCalledWith({
+          id: mockReference.id,
+          clientId: mockClient.id,
+        });
+      });
+
+      it('throws NotFoundException when the reference does not exist for that client', async () => {
+        clientReferencesRepository.findOneBy.mockResolvedValue(null);
+
+        await expect(
+          service.updateReference(mockClient.id, 'missing-reference', {
+            fullName: 'X',
+          }),
+        ).rejects.toThrow(NotFoundException);
+        expect(clientReferencesRepository.save).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('removeReference', () => {
+      it('removes a reference that belongs to the given client', async () => {
+        clientReferencesRepository.findOneBy.mockResolvedValue(mockReference);
+
+        await service.removeReference(mockClient.id, mockReference.id);
+
+        expect(clientReferencesRepository.remove).toHaveBeenCalledWith(
+          mockReference,
+        );
+      });
+
+      it('throws NotFoundException when the reference does not exist for that client', async () => {
+        clientReferencesRepository.findOneBy.mockResolvedValue(null);
+
+        await expect(
+          service.removeReference(mockClient.id, 'missing-reference'),
+        ).rejects.toThrow(NotFoundException);
+        expect(clientReferencesRepository.remove).not.toHaveBeenCalled();
+      });
     });
   });
 

@@ -7,6 +7,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { ClientsService } from '../clients/clients.service';
+import { DocumentType } from '../clients/entities/client.entity';
 import {
   ConceptCalculationType,
   InterestConceptType,
@@ -81,6 +82,13 @@ describe('LoansService', () => {
     usuryCeilingExceededAtCreation: false,
     usuryJustification: null,
     newLoanMessageSentAt: null,
+    coDebtorFullName: null,
+    coDebtorDocumentType: null,
+    coDebtorDocumentNumber: null,
+    coDebtorPhoneNumber: null,
+    coDebtorAddress: null,
+    coDebtorRelationship: null,
+    coDebtorIdDocumentUrl: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -247,6 +255,50 @@ describe('LoansService', () => {
 
       expect(loansRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({ totalInstallments: 3 }),
+      );
+    });
+
+    // Phase 21 — optional co-debtor (codeudor), passed straight through
+    // from the dto to persistLoanWithInstallments. See
+    // docs/phases/PHASE_21_CLIENT_PROFILE.md.
+    it('persists the co-debtor fields when the dto includes one', async () => {
+      await service.create({
+        ...createDto,
+        coDebtorFullName: 'Carlos Gómez',
+        coDebtorDocumentType: DocumentType.CedulaCiudadania,
+        coDebtorDocumentNumber: '1122334455',
+        coDebtorPhoneNumber: '+573007778899',
+        coDebtorAddress: 'Cra 10 #20-30',
+        coDebtorRelationship: 'Hermano del deudor',
+        coDebtorIdDocumentUrl: 'https://example.com/codeudor.pdf',
+      });
+
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          coDebtorFullName: 'Carlos Gómez',
+          coDebtorDocumentType: DocumentType.CedulaCiudadania,
+          coDebtorDocumentNumber: '1122334455',
+          coDebtorPhoneNumber: '+573007778899',
+          coDebtorAddress: 'Cra 10 #20-30',
+          coDebtorRelationship: 'Hermano del deudor',
+          coDebtorIdDocumentUrl: 'https://example.com/codeudor.pdf',
+        }),
+      );
+    });
+
+    it('persists null co-debtor fields when the dto omits one', async () => {
+      await service.create(createDto);
+
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          coDebtorFullName: null,
+          coDebtorDocumentType: null,
+          coDebtorDocumentNumber: null,
+          coDebtorPhoneNumber: null,
+          coDebtorAddress: null,
+          coDebtorRelationship: null,
+          coDebtorIdDocumentUrl: null,
+        }),
       );
     });
 
@@ -584,6 +636,85 @@ describe('LoansService', () => {
 
       expect(newLoanReminderService.sendNewLoanMessage).toHaveBeenCalledWith(
         'loan-2',
+      );
+    });
+
+    // Phase 21 — the new loan carries over the old loan's co-debtor by
+    // default, unless the refinance dto explicitly overrides a field. See
+    // docs/phases/PHASE_21_CLIENT_PROFILE.md.
+    it("carries over the old loan's co-debtor when the refinance dto omits it", async () => {
+      loansRepository.findOneBy.mockReset();
+      loansRepository.findOneBy
+        .mockResolvedValueOnce({
+          ...mockLoan,
+          coDebtorFullName: 'Carlos Gómez',
+          coDebtorDocumentType: DocumentType.CedulaCiudadania,
+          coDebtorDocumentNumber: '1122334455',
+          coDebtorPhoneNumber: '+573007778899',
+          coDebtorAddress: 'Cra 10 #20-30',
+          coDebtorRelationship: 'Hermano del deudor',
+          coDebtorIdDocumentUrl: 'https://example.com/codeudor.pdf',
+        })
+        .mockResolvedValueOnce(newLoanRecord);
+
+      await service.refinance(mockLoan.id, refinanceDto);
+
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          coDebtorFullName: 'Carlos Gómez',
+          coDebtorDocumentType: DocumentType.CedulaCiudadania,
+          coDebtorDocumentNumber: '1122334455',
+          coDebtorPhoneNumber: '+573007778899',
+          coDebtorAddress: 'Cra 10 #20-30',
+          coDebtorRelationship: 'Hermano del deudor',
+          coDebtorIdDocumentUrl: 'https://example.com/codeudor.pdf',
+        }),
+      );
+    });
+
+    it('overrides the co-debtor field-by-field when the refinance dto provides one', async () => {
+      loansRepository.findOneBy.mockReset();
+      loansRepository.findOneBy
+        .mockResolvedValueOnce({
+          ...mockLoan,
+          coDebtorFullName: 'Carlos Gómez',
+          coDebtorDocumentType: DocumentType.CedulaCiudadania,
+          coDebtorDocumentNumber: '1122334455',
+          coDebtorPhoneNumber: '+573007778899',
+          coDebtorAddress: 'Cra 10 #20-30',
+          coDebtorRelationship: 'Hermano del deudor',
+          coDebtorIdDocumentUrl: 'https://example.com/codeudor.pdf',
+        })
+        .mockResolvedValueOnce(newLoanRecord);
+
+      await service.refinance(mockLoan.id, {
+        ...refinanceDto,
+        coDebtorFullName: 'Andrés Ruiz',
+      });
+
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          coDebtorFullName: 'Andrés Ruiz',
+          // Untouched fields still carry over from the old loan.
+          coDebtorDocumentType: DocumentType.CedulaCiudadania,
+          coDebtorDocumentNumber: '1122334455',
+        }),
+      );
+    });
+
+    it('leaves the new loan without a co-debtor when the old loan had none and the dto omits it', async () => {
+      await service.refinance(mockLoan.id, refinanceDto);
+
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          coDebtorFullName: null,
+          coDebtorDocumentType: null,
+          coDebtorDocumentNumber: null,
+          coDebtorPhoneNumber: null,
+          coDebtorAddress: null,
+          coDebtorRelationship: null,
+          coDebtorIdDocumentUrl: null,
+        }),
       );
     });
 

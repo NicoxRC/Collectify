@@ -1,69 +1,92 @@
 # Phase 21 — Extended Client Profile (KYC)
 
+**Status: scope and field list confirmed (2026-08-18) — ready for implementation.** The open questions from the original scoping pass are resolved below, in agreement with the business owner and the dev team. A companion one-page legal summary on data-protection obligations (Ley 1581 de 2012 / Decreto 1377 de 2013) was shared separately with the business owner and is not duplicated here.
+
 ## Goal
 
-Capture significantly more information per client at signup — identification detail, contact/address data, employment info, personal and commercial references, and photo documentation (ID scan, selfie) — so the business has real collateral information on file for a lending relationship, not just enough to send a WhatsApp reminder. Requested directly by the client (see message excerpt below); not previously scoped in `docs/PROJECT_ROADMAP.md`.
+Capture significantly more information per client at signup — identification detail, contact/address data, employment info, personal and commercial references, and photo documentation (ID scan, selfie) — so the business has real collateral information on file for a lending relationship, not just enough to send a WhatsApp reminder. Requested directly by the client; not previously scoped in `docs/PROJECT_ROADMAP.md`.
 
-> Client's own words: "hay que incluir la mayor cantidad de datos posible, incluido también un campo para fotografías del documento, carga de archivos en caso de que este escaneado y también foto selfie de la persona cuando este en el local. Direcciones, correos, números alternos, referencias comerciales o referencias personales, dirección de vivienda, dirección de trabajo... mientras mas información se recolecte hay mas seguridad."
+## Decisions (resolving the original "before starting" open questions)
 
-## Before starting this phase — stop and confirm with the human
-
-This phase is unusually open-ended for how much it touches the core `Client` entity and onboarding flow. **Do not guess at any of the below — confirm with the client before writing migrations.**
-
-1. **Final field list.** The proposed list under "Scope" below is a starting point assembled from the client's message plus standard microcredit KYC practice (flagged inline as `[inferred, not explicitly requested]`). Needs an explicit yes/no per field, not an assumption that "more is better" applies to every candidate.
-2. **References: how many, and what shape?** "Referencias personales" and "referencias comerciales" are inherently one-to-many (a client typically gives 2-3 personal references, 1-2 commercial) — this needs a new related table (`client_references`), not flat columns on `Client`. Confirm: minimum/maximum count enforced by the form, and what fields per reference (name + phone + relationship is the minimum; commercial references may also want a business name).
-3. **Document photos: how many, and what exactly?** A cédula has a front and back — is one combined photo enough, or two separate uploads? Is the selfie a single photo, or does the business want it captured with a timestamp/liveness check (out of scope for now if so — flag explicitly if the client wants this later)?
-4. **Where does the scanned pagaré photo belong?** The client mentioned this in the same breath as the ID/selfie, but a pagaré is generated per **loan**, not per client — a client can have several. This almost certainly belongs on `Loan`, not `Client`, as its own `image_url` (mirroring `Payment.imageUrl` from Phase 12), not bundled into this phase's client-profile fields. Confirm this reading is correct before scoping it into either this phase or a follow-up one.
-5. **Employment/income fields — in scope or not?** The client didn't explicitly ask for occupation/employer/monthly income, but it's the single most standard piece of information missing for actual credit risk assessment. Worth asking directly: does the business already informally collect this before lending, and if so, do they want it captured in the system?
-6. **Mandatory vs. optional at creation.** `docs/phases/PHASE_8_EXCEL_IMPORT.md` onboards clients in bulk with only the current minimal field set (name, document, phone). If most of this phase's new fields become required, bulk import either needs a matching update or these fields stay optional and get filled in later via the client's profile page. Confirm which.
+1. **Final field list** — confirmed below under "Scope."
+2. **References** — built as their own `client_references` table (not flat columns), presented as a dynamic add/remove list in the UI (an "agregar referencia" button that reveals a new blank set of fields each time, editable afterward). No fixed minimum or maximum count, for both `personal` and `comercial` types.
+3. **Document photos** — two nullable fields, front and back. Each accepts either an image or a PDF (e.g. if the business already has a combined scan), reusing the existing Cloudinary upload pattern with the resource type widened from image-only to `auto`.
+4. **Scanned pagaré photo** — discarded from scope entirely, on either `Client` or `Loan` (see `docs/PROJECT_ROADMAP.md` Phase 21 note).
+5. **Employment/income fields** — in scope: `occupation`, `employer_name`, `monthly_income` on `Client`.
+6. **Mandatory vs. optional** — every new `Client` KYC column stays nullable/optional, including at Excel bulk import (`docs/phases/PHASE_8_EXCEL_IMPORT.md` is unaffected). The one exception is `dataProcessingConsent`, required specifically on the interactive `ClientForm` creation flow — Excel-imported clients are exempt (default `false`) and get it filled in later from the client's profile page.
+7. **Co-debtor (codeudor)** — belongs to `Loan`, not `Client`: confirmed with the business that whether a loan has a co-debtor varies per loan, not per client. Modeled as nullable columns directly on `Loan` (max one co-debtor per loan — no separate table needed).
+8. **Data-processing consent** — `dataProcessingConsent` (boolean, required to create a client through `ClientForm`), `consentGivenAt` (timestamp, set when the checkbox is confirmed), `consentDocumentUrl` (optional — photo or PDF of the physically signed authorization, same externally-hosted-URL pattern as everything else). The actual authorization is obtained on paper/in person at the point of sale, outside the software — the system only records that it happened and optionally stores the scanned evidence. Confirmed as a deliberate CYA measure: the field exists and is available, its use by the business is the business's own choice.
 
 ## Required reading before starting
 
-`docs/GLOSSARY.md`, `docs/DATABASE.md` (`clients` table), `docs/phases/PHASE_3_CLIENTS.md` (existing CRUD this phase extends), `docs/phases/PHASE_8_EXCEL_IMPORT.md` (bulk import this phase may affect), `docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md` (the image-hosting pattern this phase reuses as-is — same provider, same "api only stores the URL" rule, no new decision needed there).
+`docs/GLOSSARY.md`, `docs/DATABASE.md` (`clients` and `loans` tables), `docs/phases/PHASE_3_CLIENTS.md` (existing CRUD this phase extends), `docs/phases/PHASE_8_EXCEL_IMPORT.md` (bulk import — unaffected per decision 6 above), `docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md` (the image-hosting pattern this phase reuses, widened to accept PDFs for document fields).
 
-## Scope (once the above is confirmed)
+## Scope
 
-### `Client` entity — proposed new columns, all nullable unless noted
-- [ ] `document_type` (ENUM: `cedula_ciudadania`, `cedula_extranjeria`, `pasaporte`) — currently only a bare `document_number` with no type.
-- [ ] `date_of_birth` (DATE) `[inferred, not explicitly requested]`
-- [ ] `document_issue_place` (VARCHAR) `[inferred, not explicitly requested]`
+### `Client` entity — new columns, all nullable unless noted
+- [ ] `document_type` (ENUM: `cedula_ciudadania`, `cedula_extranjeria`, `pasaporte`)
+- [ ] `date_of_birth` (DATE)
+- [ ] `document_issue_place` (VARCHAR)
 - [ ] `email` (VARCHAR)
 - [ ] `alternate_phone_number` (VARCHAR)
 - [ ] `home_address` (TEXT)
 - [ ] `work_address` (TEXT)
-- [ ] `neighborhood` / `city` — separate from the free-text address fields above, for collections field work `[inferred, not explicitly requested]`
-- [ ] `occupation`, `employer_name`, `monthly_income` (DECIMAL) — only if confirmed in scope per open question 5 above `[inferred, not explicitly requested]`
-- [ ] `id_document_image_url`, `selfie_image_url` (VARCHAR, nullable) — same externally-hosted-URL-only pattern as `Payment.imageUrl` (Phase 12); one column each unless open question 3 resolves to needing front/back as two images
+- [ ] `neighborhood` (VARCHAR), `city` (VARCHAR)
+- [ ] `occupation` (VARCHAR), `employer_name` (VARCHAR), `monthly_income` (DECIMAL)
+- [ ] `id_document_front_url`, `id_document_back_url` (VARCHAR) — image or PDF, same URL-only pattern as `Payment.imageUrl`
+- [ ] `selfie_image_url` (VARCHAR) — never mandatory; this is sensitive/biometric data under Ley 1581, and no activity can be conditioned on providing it
+- [ ] `data_processing_consent` (BOOLEAN, NOT NULL, default `false`) — required at creation via `ClientForm`; not enforced for Excel-imported clients
+- [ ] `consent_given_at` (TIMESTAMP, nullable)
+- [ ] `consent_document_url` (VARCHAR, nullable) — optional photo/PDF of the signed physical authorization
 
-### New entity: `client_references` (pending confirmation of open question 2)
-- [ ] `ClientReference` entity: `id`, `client_id` (FK), `type` (`personal` | `comercial`), `full_name`, `phone_number`, `relationship` (free text, e.g. "hermano", "vecino", "proveedor"), timestamps.
+### New entity: `client_references`
+- [ ] `ClientReference`: `id`, `client_id` (FK), `type` (`personal` | `comercial`), `full_name`, `phone_number`, `relationship` (free text), timestamps.
 - [ ] Migration `CreateClientReferencesTable`.
-- [ ] `POST/PATCH/DELETE` under `/clients/:id/references` or embedded in the client create/update payload — pick whichever matches how `ClientForm` naturally submits (confirm with client-side scope before deciding).
+- [ ] `POST`/`PATCH`/`DELETE` under `/clients/:id/references` (confirm exact shape against how `ClientForm` submits once built).
 
-### Migration
-- [ ] `AddExtendedProfileFieldsToClients` (or split into multiple small migrations per `docs/DATABASE.md`'s migration conventions — one column group per logical concern is fine here).
+### `Loan` entity — new columns, all nullable
+- [ ] `co_debtor_full_name` (VARCHAR)
+- [ ] `co_debtor_document_type` (ENUM, same values as `Client.documentType`)
+- [ ] `co_debtor_document_number` (VARCHAR)
+- [ ] `co_debtor_phone_number` (VARCHAR)
+- [ ] `co_debtor_address` (TEXT)
+- [ ] `co_debtor_relationship` (VARCHAR) — relación con el deudor principal
+- [ ] `co_debtor_id_document_url` (VARCHAR, nullable) — optional
+- [ ] No income/employment fields for the co-debtor — identification and contact only, confirmed sufficient for the business's purpose (locating/contacting them if needed), not a full credit evaluation.
+
+### Migrations
+- [ ] `AddExtendedProfileFieldsToClients` (may split into smaller migrations per logical group, per `docs/DATABASE.md`'s conventions).
+- [ ] `CreateClientReferencesTable`.
+- [ ] `AddCoDebtorFieldsToLoans`.
+
+### Uploads
+- [ ] `apps/client/src/lib/imageUpload.ts` — widen from the hardcoded `image/upload` Cloudinary endpoint to `auto` so document/consent fields can accept a PDF as well as an image. No new provider or backend upload code needed.
 
 ### Tests (mandatory)
-- [ ] New nullable columns don't break any existing `ClientsService` test (create/update with and without the new fields).
-- [ ] `ClientReference` CRUD, if built as its own table: create/list/delete references for a client, cascade behavior on client deletion (soft-delete should almost certainly leave references intact, mirroring the rest of this project's soft-delete conventions — but confirm, don't assume).
+- [ ] New nullable columns on `Client` and `Loan` don't break any existing `ClientsService`/`LoansService` test (create/update with and without the new fields).
+- [ ] `ClientReference` CRUD: create/list/delete references for a client; cascade behavior on client soft-delete leaves references intact (mirrors the project's soft-delete conventions elsewhere — confirmed, not assumed).
+- [ ] `dataProcessingConsent` is enforced (rejected) as required on the manual client-creation endpoint, and *not* enforced on the Excel-import path.
+- [ ] Loan co-debtor fields: created/updated correctly, no validation forcing their presence (a loan without a co-debtor is still valid).
 
 ### Swagger
-- [ ] All new/changed endpoints and DTOs documented.
+- [ ] All new/changed endpoints and DTOs documented, including the front/back document fields' PDF-or-image acceptance and the consent requirement on `POST /clients`.
 
 ## Definition of done for this phase
 
-- Every field confirmed in "Before starting this phase" is captured on `Client` (or `ClientReference`), stored, and returned by `GET /clients/:id`.
-- Image fields follow the exact same api-never-touches-bytes rule as `Payment.imageUrl`.
-- The confirmed mandatory/optional split from open question 6 is implemented exactly as agreed, including any matching update to Excel import.
+- Every field listed above is captured on `Client`, `Loan`, or `ClientReference`, stored, and returned by the relevant `GET` endpoints.
+- Image/PDF fields follow the exact same api-never-touches-bytes rule as `Payment.imageUrl`.
+- `dataProcessingConsent` is required on the interactive client-creation flow and exempt on Excel import, exactly as decided.
+- The co-debtor fields live on `Loan`, not `Client`.
 - All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## After this phase
 
-Update `docs/DATABASE.md` (`clients` table plus new `client_references` table if built) and `docs/GLOSSARY.md` with the confirmed field list and any new terms (e.g. "referencia comercial" if it needs its own definition).
+Update `docs/DATABASE.md` (`clients`, `loans`, and the new `client_references` table) and `docs/GLOSSARY.md` with the confirmed field list and any new terms (e.g. "codeudor," "referencia comercial"). Separately from this codebase: the business owner should formalize, with legal counsel, an otrosí/addendum to the existing development contract clarifying data-controller roles, plus the business's own Política de Tratamiento de Datos Personales and Aviso de Privacidad — see the one-page summary already shared.
 
 ## Related documents
 
 - `docs/phases/PHASE_3_CLIENTS.md` — existing client CRUD this phase extends
-- `docs/phases/PHASE_8_EXCEL_IMPORT.md` — bulk import that may need matching changes
+- `docs/phases/PHASE_4_LOANS_INSTALLMENTS.md` — the `Loan` entity the co-debtor fields extend
+- `docs/phases/PHASE_8_EXCEL_IMPORT.md` — bulk import, confirmed unaffected
 - `docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md` — the image-hosting pattern reused here
 - `docs/DATABASE.md`, `docs/GLOSSARY.md`

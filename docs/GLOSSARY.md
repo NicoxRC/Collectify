@@ -5,7 +5,16 @@ This document defines the business vocabulary used throughout the codebase, data
 ## Core entities
 
 ### Client
-A person who has received one or more loans from the company. In code: `Client` entity, `clients` table. Identified by full name, national ID (`document_number`), and phone number.
+A person who has received one or more loans from the company. In code: `Client` entity, `clients` table. Identified by full name, national ID (`document_number`), and phone number. Added Phase 21: an extended profile (address, employment, income, ID/selfie photo URLs) and a data-processing consent record — see "Data-processing consent" and "Referencia (personal / comercial)" below.
+
+### Referencia (personal / comercial)
+A personal or business contact the client provides as a reference — a dynamic, add-many list per client with no fixed minimum or maximum (Phase 21). In code: `ClientReference` entity, `client_references` table, `type` of either `personal` or `comercial`.
+
+### Codeudor / Co-debtor
+A person who co-signs a specific loan alongside the primary client, jointly responsible for it. Belongs to the **loan**, not the client, because whether a given loan has one varies per loan (Phase 21) — at most one per loan. In code: the `co_debtor_*` columns on `Loan`. On refinancing, the new loan carries the old loan's co-debtor over by default unless the refinance request explicitly overrides a field.
+
+### Data-processing consent
+Whether the client has authorized the business to collect and process their personal data, per Colombia's Ley Estatutaria 1581 de 2012 ("Habeas Data"). The actual authorization must happen physically/in person — this software only records that it happened (a checkbox in `ClientForm`, required for interactively-created clients, exempt for Excel imports), stamped with a server-side timestamp. In code: `Client.dataProcessingConsent`, `Client.consentGivenAt`, `Client.consentDocumentUrl`. See `docs/phases/PHASE_21_CLIENT_PROFILE.md` for the full legal reasoning.
 
 ### Cupo (credit limit)
 The maximum credit exposure a client is allowed to carry at once. Optional — a client with no cupo set has no limit enforced. In code: `Client.credit_limit`, nullable.
@@ -194,6 +203,14 @@ The following were open questions in an earlier version of this glossary, now re
 - ~~What happens to a curated audience member with nothing to report~~ → Confirmed: still sent, rendered with an empty list and $0 total — not skipped, not an error.
 - ~~`new_loan` cron mechanics (no natural "who qualifies today" query)~~ → Confirmed: a retry/backstop sweep over loans whose `newLoanMessageSentAt` is still null; the synchronous send at loan creation stays primary.
 - ~~`account_summary` cron mechanics (no dynamic condition at all)~~ → Confirmed: sends only to the template's curated audience, nothing else.
+
+## Resolved from Phase 21
+
+- ~~Which profile fields to collect, and how many~~ → Confirmed after independent review (not the client's original "collect everything" instinct, nor a bank-grade KYC proposal): a right-sized set of address/employment/income/ID fields, an open-ended references list, and an optional co-debtor per loan. Pagaré photo discarded entirely. See `docs/phases/PHASE_21_CLIENT_PROFILE.md`.
+- ~~Whether the consent checkbox is mandatory~~ → Confirmed: mandatory for interactively-created clients, exempt for Excel imports. See "Data-processing consent" above.
+- ~~Whether an evidence photo of the signed authorization is required~~ → Confirmed: optional, kept available regardless of expected low usage ("we gave them the tool").
+- ~~Whether codeudor belongs to the client or the loan~~ → Confirmed: the loan — whether a loan has one varies per loan.
+- ~~Whether a loan can have more than one codeudor~~ → Confirmed: at most one, no separate table needed.
 
 ## Related documents
 

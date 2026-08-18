@@ -8,14 +8,17 @@ import {
   IsNotEmpty,
   IsNumber,
   IsOptional,
+  IsPhoneNumber,
   IsPositive,
   IsString,
+  IsUrl,
   IsUUID,
   Max,
   Min,
   ValidateNested,
 } from 'class-validator';
 
+import { DocumentType } from '../../clients/entities/client.entity';
 import { InstallmentFrequency } from '../entities/loan.entity';
 
 import {
@@ -109,4 +112,45 @@ export class CreateLoanDto {
   @IsOptional()
   @IsString()
   usuryJustification?: string;
+
+  // --- Optional co-debtor (codeudor), Phase 21 — at most one per loan,
+  // confirmed with the business. See
+  // docs/phases/PHASE_21_CLIENT_PROFILE.md. ---
+
+  @ApiPropertyOptional({ example: 'Carlos Gómez' })
+  @IsOptional()
+  @IsString()
+  coDebtorFullName?: string;
+
+  @ApiPropertyOptional({ enum: DocumentType })
+  @IsOptional()
+  @IsEnum(DocumentType)
+  coDebtorDocumentType?: DocumentType;
+
+  @ApiPropertyOptional({ example: '1122334455' })
+  @IsOptional()
+  @IsString()
+  coDebtorDocumentNumber?: string;
+
+  @ApiPropertyOptional({ example: '+573007778899' })
+  @IsOptional()
+  @IsPhoneNumber('CO')
+  coDebtorPhoneNumber?: string;
+
+  @ApiPropertyOptional({ example: 'Cra 10 #20-30' })
+  @IsOptional()
+  @IsString()
+  coDebtorAddress?: string;
+
+  @ApiPropertyOptional({ example: 'Hermano del deudor' })
+  @IsOptional()
+  @IsString()
+  coDebtorRelationship?: string;
+
+  @ApiPropertyOptional({
+    description: 'Externally-hosted URL (image or PDF), optional.',
+  })
+  @IsOptional()
+  @IsUrl()
+  coDebtorIdDocumentUrl?: string;
 }

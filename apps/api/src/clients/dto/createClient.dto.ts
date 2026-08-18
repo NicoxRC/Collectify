@@ -1,11 +1,18 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsBoolean,
+  IsDateString,
+  IsEmail,
+  IsEnum,
   IsNotEmpty,
   IsOptional,
   IsPhoneNumber,
   IsPositive,
   IsString,
+  IsUrl,
 } from 'class-validator';
+
+import { DocumentType } from '../entities/client.entity';
 
 export class CreateClientDto {
   @ApiProperty({ example: 'Juana' })
@@ -36,4 +43,112 @@ export class CreateClientDto {
   @IsOptional()
   @IsPositive()
   creditLimit?: number;
+
+  // --- Extended profile (KYC), Phase 21 — all optional here at the DTO
+  // level, including dataProcessingConsent: Excel-imported clients build
+  // this same DTO without it (see clientsImportParser.ts /
+  // ClientsService.importFromExcel), so it can't be a class-validator
+  // requirement without breaking that path. Requiring it for the manual
+  // creation flow is enforced as a business rule in
+  // ClientsService.create() instead — see that method's comment. ---
+
+  @ApiPropertyOptional({ enum: DocumentType })
+  @IsOptional()
+  @IsEnum(DocumentType)
+  documentType?: DocumentType;
+
+  @ApiPropertyOptional({ example: '1998-04-12' })
+  @IsOptional()
+  @IsDateString()
+  dateOfBirth?: string;
+
+  @ApiPropertyOptional({ example: 'Bogotá D.C.' })
+  @IsOptional()
+  @IsString()
+  documentIssuePlace?: string;
+
+  @ApiPropertyOptional({ example: 'juana.perez@example.com' })
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @ApiPropertyOptional({ example: '+573009876543' })
+  @IsOptional()
+  @IsPhoneNumber('CO')
+  alternatePhoneNumber?: string;
+
+  @ApiPropertyOptional({ example: 'Cra 45 #12-30, Barrio Centro' })
+  @IsOptional()
+  @IsString()
+  homeAddress?: string;
+
+  @ApiPropertyOptional({ example: 'Av. Siempre Viva 742' })
+  @IsOptional()
+  @IsString()
+  workAddress?: string;
+
+  @ApiPropertyOptional({ example: 'Centro' })
+  @IsOptional()
+  @IsString()
+  neighborhood?: string;
+
+  @ApiPropertyOptional({ example: 'Medellín' })
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @ApiPropertyOptional({ example: 'Comerciante' })
+  @IsOptional()
+  @IsString()
+  occupation?: string;
+
+  @ApiPropertyOptional({ example: 'Almacén La Economía' })
+  @IsOptional()
+  @IsString()
+  employerName?: string;
+
+  @ApiPropertyOptional({ example: 1800000 })
+  @IsOptional()
+  @IsPositive()
+  monthlyIncome?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Externally-hosted URL (image or PDF) — same api-never-touches-bytes rule as Payment.imageUrl.',
+  })
+  @IsOptional()
+  @IsUrl()
+  idDocumentFrontUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Externally-hosted URL (image or PDF).' })
+  @IsOptional()
+  @IsUrl()
+  idDocumentBackUrl?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Externally-hosted URL. Never required — sensitive/biometric data under Ley 1581 de 2012.',
+  })
+  @IsOptional()
+  @IsUrl()
+  selfieImageUrl?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Whether the client signed the data-processing authorization. Required (enforced in ' +
+      'ClientsService, not by this decorator) when creating a client through the interactive ' +
+      'form; not enforced for Excel-imported clients.',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  dataProcessingConsent?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Optional evidence of the signed physical authorization (photo or PDF) — never required.',
+  })
+  @IsOptional()
+  @IsUrl()
+  consentDocumentUrl?: string;
 }
