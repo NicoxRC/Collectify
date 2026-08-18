@@ -10,6 +10,7 @@ import { MessageAudience } from './entities/messageAudience.entity';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageTemplate } from './entities/messageTemplate.entity';
+import { MessageAudiencesService } from './messageAudiences/messageAudiences.service';
 import { MessageLogsController } from './messageLogs/messageLogs.controller';
 import { MessageLogsService } from './messageLogs/messageLogs.service';
 import { MessageTemplatesController } from './messageTemplates/messageTemplates.controller';
@@ -42,6 +43,7 @@ import { WhatsAppService } from './whatsapp.service';
   providers: [
     WhatsAppService,
     MessageTemplatesService,
+    MessageAudiencesService,
     MessageLogsService,
     OverdueReminderService,
     OverdueReminderCron,
