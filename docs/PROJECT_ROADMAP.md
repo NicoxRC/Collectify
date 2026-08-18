@@ -153,6 +153,8 @@ Phase 5 only covered the weekly overdue reminder. Real usage requires three more
 
 ## Phase 19 — User management UI
 
+**Backend: done.** Confirmed complete — all endpoints, Swagger docs, and test coverage already met the bar since Phase 2 (verified 2026-08-18, see `docs/phases/PHASE_19_USER_MANAGEMENT.md`). **Frontend: pending.**
+
 - Frontend for the company user management the API has supported since Phase 2 but never had a panel for: create, deactivate, reactivate collector/admin accounts
 
 **Exit criteria:** an admin can manage company user accounts entirely through the panel.
