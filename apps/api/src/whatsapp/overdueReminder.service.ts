@@ -42,10 +42,14 @@ export class OverdueReminderService {
   ) {}
 
   // Weekly job entry point — one client at a time, so one client's failure
-  // doesn't stop the rest from being reminded. The curated audience is
-  // additive: its members are always notified alongside whoever dynamically
-  // qualifies, even with nothing overdue themselves (allowEmpty). See
-  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
+  // doesn't stop the rest from being reminded. The curated audience is a
+  // required filter, not additive (reopened and corrected after client QA,
+  // 2026-08-18 — originally additive, see docs/phases/PHASE_18_MESSAGE_AUDIENCES.md
+  // "Extended after client QA"): only clients who BOTH dynamically qualify
+  // (have an overdue installment) AND are members of this template's
+  // audience get reminded. An empty/unpopulated audience means nobody is
+  // reminded, even if clients are overdue — the admin must explicitly
+  // enroll every client this job should ever reach.
   async runWeeklyReminder(): Promise<void> {
     const [dynamicClientIds, audienceClientIds] = await Promise.all([
       this.findClientIdsWithOverdueInstallments(),
@@ -53,14 +57,15 @@ export class OverdueReminderService {
         MessageType.Overdue,
       ),
     ]);
-    const clientIds = [...new Set([...dynamicClientIds, ...audienceClientIds])];
+    const audienceSet = new Set(audienceClientIds);
+    const clientIds = dynamicClientIds.filter((id) => audienceSet.has(id));
     this.logger.log(
       `Weekly overdue reminder: ${clientIds.length} client(s) to notify`,
     );
 
     for (const clientId of clientIds) {
       try {
-        await this.sendReminderForClient(clientId, { allowEmpty: true });
+        await this.sendReminderForClient(clientId);
       } catch (error) {
         this.logger.error(
           `Failed to send overdue reminder to client ${clientId}`,
@@ -75,9 +80,11 @@ export class OverdueReminderService {
   // per the grouping rule in docs/phases/PHASE_5_WHATSAPP.md.
   //
   // allowEmpty (default false, unchanged for the manual on-demand
-  // controller endpoint): the weekly cron passes true for audience members
-  // who don't dynamically qualify, so they still get a message — rendered
-  // with an empty list/$0 — instead of being skipped. See
+  // controller endpoint): every client the weekly cron now calls this with
+  // already dynamically qualifies (the audience filter only narrows, never
+  // adds), so it never needs allowEmpty. Still used by the manual "retry a
+  // failed message" flow (MessageLogsService), which resends regardless of
+  // the client's current mora status. See
   // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
   async sendReminderForClient(
     clientId: string,
@@ -139,7 +146,6 @@ export class OverdueReminderService {
       where: {
         status: InstallmentStatus.Pending,
         dueDate: LessThan(today),
-        isInitial: false,
         loan: { clientId, status: LoanStatus.Active },
       },
       relations: { loan: true },
@@ -159,7 +165,6 @@ export class OverdueReminderService {
       where: {
         status: InstallmentStatus.Pending,
         dueDate: LessThan(today),
-        isInitial: false,
         loan: { status: LoanStatus.Active },
       },
       relations: { loan: true },
