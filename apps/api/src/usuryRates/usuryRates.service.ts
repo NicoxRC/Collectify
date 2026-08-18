@@ -34,8 +34,12 @@ export class UsuryRateService {
   ) {}
 
   async getCurrentRate(): Promise<CurrentUsuryRate | null> {
-    const latest = await this.repository.findOne({
+    // findOne() requires a `where` clause in this TypeORM version — find()
+    // with take: 1 is the correct way to fetch "the single most recent row"
+    // with no filter.
+    const [latest] = await this.repository.find({
       order: { effectiveMonth: 'DESC' },
+      take: 1,
     });
     if (!latest) return null;
 
