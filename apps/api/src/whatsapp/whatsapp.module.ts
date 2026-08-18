@@ -6,6 +6,7 @@ import { Installment } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
 
 import { AccountSummaryService } from './accountSummary.service';
+import { MessageAudience } from './entities/messageAudience.entity';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageTemplate } from './entities/messageTemplate.entity';
@@ -25,6 +26,7 @@ import { WhatsAppService } from './whatsapp.service';
   imports: [
     TypeOrmModule.forFeature([
       MessageTemplate,
+      MessageAudience,
       MessageLog,
       MessageLogItem,
       Client,
