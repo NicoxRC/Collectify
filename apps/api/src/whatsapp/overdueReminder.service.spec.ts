@@ -206,6 +206,19 @@ describe('OverdueReminderService', () => {
       expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
     });
 
+    it('sends an empty/$0 message instead of throwing when allowEmpty is true', async () => {
+      installmentsRepository.find.mockResolvedValue([]);
+      whatsAppService.sendTextMessage.mockResolvedValue(true);
+
+      const result = await service.sendReminderForClient(mockClient.id, {
+        allowEmpty: true,
+      });
+
+      expect(whatsAppService.sendTextMessage).toHaveBeenCalled();
+      expect(result.status).toBe(MessageLogStatus.Sent);
+      expect(messageLogItemsRepository.save).toHaveBeenCalledWith([]);
+    });
+
     // Phase 13 — docs/phases/PHASE_13_INITIAL_INSTALLMENT.md: a cuota
     // inicial never counts as overdue, so it must never trigger or appear
     // in the reminder message.

@@ -43,14 +43,22 @@ export class AccountSummaryService {
     private readonly whatsAppService: WhatsAppService,
   ) {}
 
-  async sendAccountSummary(clientId: string): Promise<MessageLog> {
+  // allowEmpty (default false, unchanged for the manual on-demand controller
+  // endpoint): the audience-only cron passes true, since account_summary has
+  // no dynamic qualifying condition at all — every audience member is sent
+  // a message, rendered with an empty list/$0 if they have nothing pending.
+  // See docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
+  async sendAccountSummary(
+    clientId: string,
+    options?: { allowEmpty?: boolean },
+  ): Promise<MessageLog> {
     const client = await this.clientsRepository.findOneBy({ id: clientId });
     if (!client) {
       throw new NotFoundException(`Client with id ${clientId} not found`);
     }
 
     const pendingInstallments = await this.gatherPendingInstallments(clientId);
-    if (pendingInstallments.length === 0) {
+    if (pendingInstallments.length === 0 && !options?.allowEmpty) {
       throw new BadRequestException(
         `Client ${clientId} has no pending installments across their active loans`,
       );

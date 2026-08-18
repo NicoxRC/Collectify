@@ -206,6 +206,19 @@ describe('UpcomingDueReminderService', () => {
       ).rejects.toThrow(BadRequestException);
       expect(whatsAppService.sendTextMessage).not.toHaveBeenCalled();
     });
+
+    it('sends an empty message instead of throwing when allowEmpty is true', async () => {
+      installmentsRepository.find.mockResolvedValue([]);
+      whatsAppService.sendTextMessage.mockResolvedValue(true);
+
+      const result = await service.sendReminderForClient(mockClient.id, {
+        allowEmpty: true,
+      });
+
+      expect(whatsAppService.sendTextMessage).toHaveBeenCalled();
+      expect(result.status).toBe(MessageLogStatus.Sent);
+      expect(messageLogItemsRepository.save).toHaveBeenCalledWith([]);
+    });
   });
 
   describe('runDailyReminder', () => {
