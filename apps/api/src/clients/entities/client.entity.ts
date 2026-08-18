@@ -10,6 +10,15 @@ import {
 
 import { decimalTransformer } from '../../database/decimal.transformer';
 
+// Shared with Loan.coDebtorDocumentType (Phase 21) — a co-debtor is
+// identified the same way a client is, so both reuse this enum instead of
+// duplicating it.
+export enum DocumentType {
+  CedulaCiudadania = 'cedula_ciudadania',
+  CedulaExtranjeria = 'cedula_extranjeria',
+  Pasaporte = 'pasaporte',
+}
+
 @Entity('clients')
 export class Client {
   @PrimaryGeneratedColumn('uuid')
@@ -41,6 +50,88 @@ export class Client {
     transformer: decimalTransformer,
   })
   creditLimit!: number | null;
+
+  // --- Extended profile (KYC), Phase 21 — all nullable; see
+  // docs/phases/PHASE_21_CLIENT_PROFILE.md for the confirmed field list
+  // and the reasoning behind each decision below. ---
+
+  @Column({ type: 'enum', enum: DocumentType, nullable: true })
+  documentType!: DocumentType | null;
+
+  @Column({ type: 'date', nullable: true })
+  dateOfBirth!: string | null;
+
+  @Column({ nullable: true })
+  documentIssuePlace!: string | null;
+
+  @Column({ nullable: true })
+  email!: string | null;
+
+  @Column({ nullable: true })
+  alternatePhoneNumber!: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  homeAddress!: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  workAddress!: string | null;
+
+  @Column({ nullable: true })
+  neighborhood!: string | null;
+
+  @Column({ nullable: true })
+  city!: string | null;
+
+  @Column({ nullable: true })
+  occupation!: string | null;
+
+  @Column({ nullable: true })
+  employerName!: string | null;
+
+  @Column({
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+    transformer: decimalTransformer,
+  })
+  monthlyIncome!: number | null;
+
+  // Externally-hosted URL only — the api never touches image/PDF bytes,
+  // same rule as Payment.imageUrl (Phase 12). Accepts either an image or a
+  // PDF (e.g. an already-combined scan) — enforced client-side, not here.
+  @Column({ nullable: true })
+  idDocumentFrontUrl!: string | null;
+
+  @Column({ nullable: true })
+  idDocumentBackUrl!: string | null;
+
+  // Never enforced as required, anywhere — this is sensitive/biometric
+  // data under Ley 1581 de 2012, and no activity may be conditioned on a
+  // titular providing it. See the Phase 21 legal summary shared with the
+  // business owner.
+  @Column({ nullable: true })
+  selfieImageUrl!: string | null;
+
+  // Required (enforced in ClientsService.create, not here — see that
+  // file's comment) when a client is created through the interactive
+  // ClientForm; deliberately NOT enforced for Excel-imported clients
+  // (docs/phases/PHASE_8_EXCEL_IMPORT.md), which default to false and get
+  // this filled in later from the client's profile. The actual
+  // authorization happens on paper/in person, outside this software —
+  // this column and the two below only record that it happened.
+  @Column({ default: false })
+  dataProcessingConsent!: boolean;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  consentGivenAt!: Date | null;
+
+  // Optional photo/PDF of the signed physical authorization — evidence,
+  // not the authorization itself. Confirmed with the business owner as a
+  // "give them the tool, whether they use it is their call" field: never
+  // enforced as required.
+  @Column({ nullable: true })
+  consentDocumentUrl!: string | null;
 
   @CreateDateColumn()
   createdAt!: Date;
