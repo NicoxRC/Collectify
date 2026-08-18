@@ -599,6 +599,33 @@ describe('LoansService', () => {
       ]);
     });
 
+    it('flags a refinance whose new concepts exceed the current usury ceiling (Phase 17: no new code needed, existing check applies)', async () => {
+      usuryRateService.getCurrentRate.mockResolvedValue({
+        id: 'rate-1',
+        effectiveMonth: '2026-01-01',
+        ratePercentage: 1,
+        createdBy: null,
+        createdByUser: null,
+        createdAt: new Date(),
+        isStale: false,
+      });
+
+      await service.refinance(mockLoan.id, {
+        ...refinanceDto,
+        concepts: [
+          {
+            conceptTypeId: mockConceptType.id,
+            calculationType: ConceptCalculationType.Percentage,
+            value: 5,
+          },
+        ],
+      });
+
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ usuryCeilingExceededAtCreation: true }),
+      );
+    });
+
     it('rejects refinancing an already-paid loan', async () => {
       loansRepository.findOneBy.mockReset();
       loansRepository.findOneBy.mockResolvedValueOnce({
