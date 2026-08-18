@@ -2,28 +2,52 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { whatsappApi } from '@/features/whatsapp/whatsappApi';
 
-export function useCronStatus() {
+import type { MessageType } from '@/features/messageTemplates/messageTemplatesApi';
+
+// Phase 18 — parametrized by type since all 4 message types now have a
+// cron job, sharing one status/pause/resume/reschedule contract. Replaces
+// the old one-off overdue/upcoming-due-specific hooks.
+export function useCronStatus(type: MessageType) {
   return useQuery({
-    queryKey: ['whatsapp', 'cronStatus'],
-    queryFn: whatsappApi.getCronStatus,
+    queryKey: ['whatsapp', 'cronStatus', type],
+    queryFn: () => whatsappApi.getCronStatus(type),
   });
 }
 
-export function usePauseCron() {
+export function usePauseCron(type: MessageType) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: whatsappApi.pauseCron,
+    mutationFn: () => whatsappApi.pauseCron(type),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['whatsapp', 'cronStatus'] }),
+      queryClient.invalidateQueries({
+        queryKey: ['whatsapp', 'cronStatus', type],
+      }),
   });
 }
 
-export function useResumeCron() {
+export function useResumeCron(type: MessageType) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: whatsappApi.resumeCron,
+    mutationFn: () => whatsappApi.resumeCron(type),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['whatsapp', 'cronStatus'] }),
+      queryClient.invalidateQueries({
+        queryKey: ['whatsapp', 'cronStatus', type],
+      }),
+  });
+}
+
+export function useUpdateCronSchedule(type: MessageType) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (cronExpression: string) =>
+      whatsappApi.updateCronSchedule(type, cronExpression),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['whatsapp', 'cronStatus', type],
+        }),
+        queryClient.invalidateQueries({ queryKey: ['messageTemplates'] }),
+      ]),
   });
 }
 
@@ -38,37 +62,6 @@ export function useSendReminder() {
   });
 }
 
-// Fase 9 — Aviso (upcoming-due reminder). Mirrors the overdue reminder's
-// hooks above exactly.
-export function useUpcomingDueCronStatus() {
-  return useQuery({
-    queryKey: ['whatsapp', 'upcomingDueCronStatus'],
-    queryFn: whatsappApi.getUpcomingDueCronStatus,
-  });
-}
-
-export function usePauseUpcomingDueCron() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: whatsappApi.pauseUpcomingDueCron,
-    onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: ['whatsapp', 'upcomingDueCronStatus'],
-      }),
-  });
-}
-
-export function useResumeUpcomingDueCron() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: whatsappApi.resumeUpcomingDueCron,
-    onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: ['whatsapp', 'upcomingDueCronStatus'],
-      }),
-  });
-}
-
 export function useSendUpcomingDueReminder() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -78,7 +71,6 @@ export function useSendUpcomingDueReminder() {
   });
 }
 
-// Fase 9 — Estado de cuenta. On-demand only, no cron.
 export function useSendAccountSummary() {
   const queryClient = useQueryClient();
   return useMutation({

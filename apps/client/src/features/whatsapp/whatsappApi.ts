@@ -1,25 +1,43 @@
 import { apiClient } from '@/lib/apiClient';
 
 import type { MessageLog } from '@/features/messageLogs/messageLogsApi';
+import type {
+  MessageTemplate,
+  MessageType,
+} from '@/features/messageTemplates/messageTemplatesApi';
 
-// Matches apps/api/src/whatsapp/whatsapp.controller.ts. GET /cron/status
-// was added in Fase 5 (announced first) — pause/resume already existed
-// with no way to read current state, which the pause/resume toggle needs
-// to render correctly.
+// Matches apps/api/src/whatsapp/whatsapp.controller.ts. Phase 18 replaced
+// the old hardcoded per-type routes (/cron/status, /cron/upcoming-due/
+// status, ...) with one parametrized set — all 4 message types now have a
+// cron job, not just overdue/upcoming-due. See
+// docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
 export const whatsappApi = {
-  getCronStatus: async (): Promise<{ running: boolean }> => {
+  getCronStatus: async (type: MessageType): Promise<{ running: boolean }> => {
     const { data } = await apiClient.get<{ running: boolean }>(
-      '/whatsapp/cron/status',
+      `/whatsapp/cron/${type}/status`,
     );
     return data;
   },
 
-  pauseCron: async (): Promise<void> => {
-    await apiClient.post<{ paused: true }>('/whatsapp/cron/pause');
+  pauseCron: async (type: MessageType): Promise<void> => {
+    await apiClient.post<{ paused: true }>(`/whatsapp/cron/${type}/pause`);
   },
 
-  resumeCron: async (): Promise<void> => {
-    await apiClient.post<{ paused: false }>('/whatsapp/cron/resume');
+  resumeCron: async (type: MessageType): Promise<void> => {
+    await apiClient.post<{ paused: false }>(`/whatsapp/cron/${type}/resume`);
+  },
+
+  // Persists on MessageTemplate.cronExpression and reschedules the running
+  // job immediately, no restart needed.
+  updateCronSchedule: async (
+    type: MessageType,
+    cronExpression: string,
+  ): Promise<MessageTemplate> => {
+    const { data } = await apiClient.patch<MessageTemplate>(
+      `/whatsapp/cron/${type}/schedule`,
+      { cronExpression },
+    );
+    return data;
   },
 
   // Same grouping/rendering as the weekly job, triggered on demand for one
@@ -31,26 +49,6 @@ export const whatsappApi = {
     return data;
   },
 
-  // Fase 9 — Aviso (upcoming-due reminder). GET /cron/upcoming-due/status
-  // was added this phase (announced first, mirrors GET /cron/status —
-  // the original endpoint only ever read the overdue cron's job by name).
-  getUpcomingDueCronStatus: async (): Promise<{ running: boolean }> => {
-    const { data } = await apiClient.get<{ running: boolean }>(
-      '/whatsapp/cron/upcoming-due/status',
-    );
-    return data;
-  },
-
-  pauseUpcomingDueCron: async (): Promise<void> => {
-    await apiClient.post<{ paused: true }>('/whatsapp/cron/upcoming-due/pause');
-  },
-
-  resumeUpcomingDueCron: async (): Promise<void> => {
-    await apiClient.post<{ paused: false }>(
-      '/whatsapp/cron/upcoming-due/resume',
-    );
-  },
-
   // 400 if the client has no installments approaching due date across
   // their active loans.
   sendUpcomingDueReminder: async (clientId: string): Promise<MessageLog> => {
@@ -60,8 +58,8 @@ export const whatsappApi = {
     return data;
   },
 
-  // Fase 9 — Estado de cuenta. On-demand only, no cron/pause-resume. 400
-  // if the client has no pending installments across their active loans.
+  // On-demand only — separate from the audience-only cron. 400 if the
+  // client has no pending installments across their active loans.
   sendAccountSummary: async (clientId: string): Promise<MessageLog> => {
     const { data } = await apiClient.post<MessageLog>(
       `/whatsapp/clients/${clientId}/send-account-summary`,
