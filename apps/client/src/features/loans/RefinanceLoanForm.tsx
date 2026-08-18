@@ -3,7 +3,12 @@ import { useEffect, useState } from 'react';
 import { CloseButton } from '@/components/ui/CloseButton';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { DatePicker } from '@/components/ui/DatePicker';
+import { FileUploadField } from '@/components/ui/FileUploadField';
 import { Select } from '@/components/ui/Select';
+import {
+  DOCUMENT_TYPE_LABELS,
+  DocumentType,
+} from '@/features/clients/clientsApi';
 import { InterestConceptTypeForm } from '@/features/interestConceptTypes/InterestConceptTypeForm';
 import { ConceptCalculationType } from '@/features/interestConceptTypes/interestConceptTypesApi';
 import {
@@ -21,9 +26,11 @@ import {
 } from '@/features/loans/useLoans';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatDateOnly } from '@/lib/format';
+import { ImageUploadError, uploadDocument } from '@/lib/imageUpload';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type {
+  Loan,
   LoanConceptAssignment,
   RefinanceLoanInput,
   RefinanceQuote,
@@ -31,10 +38,25 @@ import type {
 } from '@/features/loans/loansApi';
 import type { FormEvent } from 'react';
 
+// The fields carried over from the loan being refinanced — pre-fill the
+// codeudor section from these, same shape as what LoanDetailPage.tsx
+// already has loaded on `loan`. See docs/phasesClient/PHASE_21_CLIENT_PROFILE.md.
+type OldLoanCoDebtor = Pick<
+  Loan,
+  | 'coDebtorFullName'
+  | 'coDebtorDocumentType'
+  | 'coDebtorDocumentNumber'
+  | 'coDebtorPhoneNumber'
+  | 'coDebtorAddress'
+  | 'coDebtorRelationship'
+  | 'coDebtorIdDocumentUrl'
+>;
+
 interface RefinanceLoanFormProps {
   oldLoanId: string;
   oldLoanLabel: string;
   oldLoanOutstandingBalance: number;
+  oldLoanCoDebtor: OldLoanCoDebtor;
   onSubmit: (input: RefinanceLoanInput) => Promise<unknown>;
   onClose: () => void;
 }
@@ -49,8 +71,17 @@ type FieldName =
   | 'interestRate'
   | 'firstDueDate'
   | 'totalInstallments'
-  | 'concepts';
+  | 'concepts'
+  | 'coDebtorFullName';
 type FieldErrors = Partial<Record<FieldName, string>>;
+
+const CO_DEBTOR_DOCUMENT_TYPE_OPTIONS = [
+  { value: '', label: 'Sin especificar' },
+  ...Object.values(DocumentType).map((type) => ({
+    value: type,
+    label: DOCUMENT_TYPE_LABELS[type],
+  })),
+];
 
 let nextRowId = 0;
 function makeRowId(): string {
@@ -73,6 +104,7 @@ export function RefinanceLoanForm({
   oldLoanId,
   oldLoanLabel,
   oldLoanOutstandingBalance,
+  oldLoanCoDebtor,
   onSubmit,
   onClose,
 }: RefinanceLoanFormProps) {
@@ -92,9 +124,40 @@ export function RefinanceLoanForm({
   // docs/phases/PHASE_15_USURY_RATE.md ("warning, not a hard block").
   const [usuryJustification, setUsuryJustification] = useState('');
 
+  // Phase 21 — pre-filled from the loan being refinanced (oldLoanCoDebtor)
+  // but fully editable, same as the backend's own
+  // `dto.field ?? oldLoan.field` carry-over in LoansService#refinance: if
+  // the admin leaves these untouched, submitting sends the same values the
+  // backend would've defaulted to anyway. See
+  // docs/phasesClient/PHASE_21_CLIENT_PROFILE.md.
+  const [hasCoDebtor, setHasCoDebtor] = useState(
+    Boolean(oldLoanCoDebtor.coDebtorFullName),
+  );
+  const [coDebtorFullName, setCoDebtorFullName] = useState(
+    oldLoanCoDebtor.coDebtorFullName ?? '',
+  );
+  const [coDebtorDocumentType, setCoDebtorDocumentType] = useState(
+    oldLoanCoDebtor.coDebtorDocumentType ?? '',
+  );
+  const [coDebtorDocumentNumber, setCoDebtorDocumentNumber] = useState(
+    oldLoanCoDebtor.coDebtorDocumentNumber ?? '',
+  );
+  const [coDebtorPhoneNumber, setCoDebtorPhoneNumber] = useState(
+    oldLoanCoDebtor.coDebtorPhoneNumber ?? '',
+  );
+  const [coDebtorAddress, setCoDebtorAddress] = useState(
+    oldLoanCoDebtor.coDebtorAddress ?? '',
+  );
+  const [coDebtorRelationship, setCoDebtorRelationship] = useState(
+    oldLoanCoDebtor.coDebtorRelationship ?? '',
+  );
+  const [coDebtorIdDocumentFile, setCoDebtorIdDocumentFile] =
+    useState<File | null>(null);
+
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [showNewConceptTypeForm, setShowNewConceptTypeForm] = useState(false);
   const [preview, setPreview] = useState<SchedulePreview | null>(null);
   const [refinanceQuote, setRefinanceQuote] = useState<RefinanceQuote | null>(
@@ -208,6 +271,10 @@ export function RefinanceLoanForm({
     if (concepts.some((row) => !row.conceptTypeId)) {
       errors.concepts = 'Selecciona un tipo para cada concepto agregado.';
     }
+    if (hasCoDebtor && !coDebtorFullName.trim()) {
+      errors.coDebtorFullName =
+        'El nombre del codeudor es obligatorio si se marca esta sección.';
+    }
     return errors;
   };
 
@@ -256,6 +323,30 @@ export function RefinanceLoanForm({
       return;
     }
     setFieldErrors({});
+
+    // Deferred upload, same pattern as LoanForm.tsx/ClientForm.tsx — only
+    // actually sent once the rest of the form has passed validation. If
+    // the admin never picks a replacement, coDebtorIdDocumentUrl stays
+    // undefined here and the backend's own carry-over
+    // (`dto.coDebtorIdDocumentUrl ?? oldLoan.coDebtorIdDocumentUrl`) keeps
+    // the old loan's document on the new one.
+    let coDebtorIdDocumentUrl: string | undefined;
+    if (hasCoDebtor && coDebtorIdDocumentFile) {
+      setIsUploading(true);
+      try {
+        coDebtorIdDocumentUrl = await uploadDocument(coDebtorIdDocumentFile);
+      } catch (err) {
+        setFormError(
+          err instanceof ImageUploadError
+            ? err.message
+            : 'No se pudo subir el documento del codeudor. Intenta de nuevo.',
+        );
+        setIsUploading(false);
+        return;
+      }
+      setIsUploading(false);
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -271,6 +362,27 @@ export function RefinanceLoanForm({
         usuryJustification: preview?.usuryWarning
           ? usuryJustification.trim() || undefined
           : undefined,
+        ...(hasCoDebtor
+          ? {
+              coDebtorFullName: coDebtorFullName.trim(),
+              ...(coDebtorDocumentType
+                ? { coDebtorDocumentType: coDebtorDocumentType as DocumentType }
+                : {}),
+              ...(coDebtorDocumentNumber.trim()
+                ? { coDebtorDocumentNumber: coDebtorDocumentNumber.trim() }
+                : {}),
+              ...(coDebtorPhoneNumber.trim()
+                ? { coDebtorPhoneNumber: coDebtorPhoneNumber.trim() }
+                : {}),
+              ...(coDebtorAddress.trim()
+                ? { coDebtorAddress: coDebtorAddress.trim() }
+                : {}),
+              ...(coDebtorRelationship.trim()
+                ? { coDebtorRelationship: coDebtorRelationship.trim() }
+                : {}),
+              ...(coDebtorIdDocumentUrl ? { coDebtorIdDocumentUrl } : {}),
+            }
+          : {}),
       });
       onClose();
     } catch (err) {
@@ -628,6 +740,110 @@ export function RefinanceLoanForm({
             />
           </Field>
 
+          {/* Phase 21 — pre-filled from the loan being refinanced, still
+              editable. See docs/phasesClient/PHASE_21_CLIENT_PROFILE.md. */}
+          <div className="flex flex-col gap-3.5 rounded border border-border bg-input p-3">
+            <label className="flex items-center gap-2.5">
+              <input
+                type="checkbox"
+                checked={hasCoDebtor}
+                onChange={(event) => {
+                  setHasCoDebtor(event.target.checked);
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    coDebtorFullName: undefined,
+                  }));
+                }}
+                className="size-4 shrink-0 rounded border-border bg-background accent-white"
+              />
+              <span className="text-control text-white">
+                Este préstamo tiene codeudor
+              </span>
+            </label>
+
+            {hasCoDebtor && (
+              <div className="flex flex-col gap-3">
+                <Field
+                  label="Nombre completo"
+                  error={fieldErrors.coDebtorFullName}
+                >
+                  <input
+                    value={coDebtorFullName}
+                    onChange={(event) => {
+                      setCoDebtorFullName(event.target.value);
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        coDebtorFullName: undefined,
+                      }));
+                    }}
+                    placeholder="Ej: Carlos Gómez"
+                    className={inputClassName(
+                      Boolean(fieldErrors.coDebtorFullName),
+                    )}
+                  />
+                </Field>
+                <div className="flex gap-4">
+                  <Field label="Tipo de documento (opcional)">
+                    <Select
+                      value={coDebtorDocumentType}
+                      onChange={setCoDebtorDocumentType}
+                      options={CO_DEBTOR_DOCUMENT_TYPE_OPTIONS}
+                      className="w-full"
+                    />
+                  </Field>
+                  <Field label="N° de documento (opcional)">
+                    <input
+                      value={coDebtorDocumentNumber}
+                      onChange={(event) =>
+                        setCoDebtorDocumentNumber(event.target.value)
+                      }
+                      placeholder="Ej: 1122334455"
+                      className={inputClassName(false)}
+                    />
+                  </Field>
+                </div>
+                <div className="flex gap-4">
+                  <Field label="Teléfono (opcional)">
+                    <input
+                      value={coDebtorPhoneNumber}
+                      onChange={(event) =>
+                        setCoDebtorPhoneNumber(event.target.value)
+                      }
+                      placeholder="Ej: +573007778899"
+                      className={inputClassName(false)}
+                    />
+                  </Field>
+                  <Field label="Relación con el deudor (opcional)">
+                    <input
+                      value={coDebtorRelationship}
+                      onChange={(event) =>
+                        setCoDebtorRelationship(event.target.value)
+                      }
+                      placeholder="Ej: Hermano del deudor"
+                      className={inputClassName(false)}
+                    />
+                  </Field>
+                </div>
+                <Field label="Dirección (opcional)">
+                  <input
+                    value={coDebtorAddress}
+                    onChange={(event) => setCoDebtorAddress(event.target.value)}
+                    placeholder="Ej: Cra 10 #20-30"
+                    className={inputClassName(false)}
+                  />
+                </Field>
+                <Field label="Documento de identidad (opcional)">
+                  <FileUploadField
+                    file={coDebtorIdDocumentFile}
+                    onFileChange={setCoDebtorIdDocumentFile}
+                    existingUrl={oldLoanCoDebtor.coDebtorIdDocumentUrl}
+                    disabled={isSubmitting || isUploading}
+                  />
+                </Field>
+              </div>
+            )}
+          </div>
+
           {formError && (
             <p className="text-small text-red-400" role="alert">
               {formError}
@@ -646,10 +862,14 @@ export function RefinanceLoanForm({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isUploading}
               className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting ? 'Refinanciando…' : 'Refinanciar préstamo'}
+              {isUploading
+                ? 'Subiendo archivo…'
+                : isSubmitting
+                  ? 'Refinanciando…'
+                  : 'Refinanciar préstamo'}
             </button>
           </div>
         </form>
