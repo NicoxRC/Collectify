@@ -1,0 +1,20 @@
+# Railway config-as-code for the `api` service. This file must live inside
+# apps/api because Railway's "Root Directory" for this service is set to
+# apps/api in a monorepo — Railway reads config relative to that root.
+# See the staging section of docs/ENVIRONMENT_VARIABLES.md for the full
+# deploy walkthrough (env vars, Postgres plugin wiring, etc.).
+
+[build]
+builder = "NIXPACKS"
+buildCommand = "npm run build"
+
+[deploy]
+# migration:run is idempotent (TypeORM skips migrations already recorded in
+# the `migrations` table), so running it before every start is safe and
+# keeps the deployed schema from ever drifting out of sync with a merge to
+# main — see docs/DATABASE.md on migrations-only schema changes.
+startCommand = "npm run migration:run && npm run start:prod"
+healthcheckPath = "/api/v1/health"
+healthcheckTimeout = 100
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
