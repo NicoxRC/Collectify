@@ -138,6 +138,19 @@ System users — Owner (Admin) and Collector roles, see `GLOSSARY.md`.
 | `is_active` | BOOLEAN | disable login without deleting |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
+### `user_module_permissions`
+
+Added Phase 20 — per-user, per-module access grants, going beyond the binary `admin`/`collector` role. See `GLOSSARY.md` "Module permission".
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `user_id` | UUID | FK → `users.id`, `ON DELETE CASCADE` |
+| `module` | ENUM (`clients`, `loans`, `messages`, `message_templates`, `interest_concept_types`, `audit_log`, `usury_rates`, `users`) | matches the sidebar's top-level menu items, confirmed with the human — no separate "view" vs. "edit" granularity |
+| `created_at` | TIMESTAMPTZ | standard |
+
+Unique on (`user_id`, `module`). **Row presence is the grant — there's no boolean column.** Only ever populated for a `collector` account: an `admin` has full system access unconditionally, and `ModulePermissionsGuard` never even queries this table for one. A collector without a row for a given module simply can't reach it; an empty result set for a brand-new collector means no access anywhere until an admin grants some. The migration that created this table (`CreateUserModulePermissionsTable`) also seeded `clients`/`loans`/`messages` for every collector that existed at the time — those three were never behind the old `@Roles(UserRole.Admin)` guard, so seeding them was the zero-behavior-change starting point; nothing else was granted automatically.
+
 ### `clients`
 
 | Column | Type | Notes |
