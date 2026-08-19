@@ -11,16 +11,22 @@ interface UserRowProps {
   isOwnAccount: boolean;
   onDeactivate: () => void;
   onReactivate: () => void;
+  onEditPermissions: () => void;
 }
 
 // No "Ver detalle"/"Editar" actions — unlike ClientRow.tsx, there's no
 // GET /users/:id or PATCH /users/:id on the backend, only create,
 // deactivate, and reactivate. See docs/phases/PHASE_19_USER_MANAGEMENT.md.
+//
+// "Permisos" (Phase 20) only shows for an active collector — an admin has
+// full access unconditionally, so there's nothing to edit for one. See
+// docs/phasesClient/PHASE_20_MODULE_PERMISSIONS.md.
 export function UserRow({
   user,
   isOwnAccount,
   onDeactivate,
   onReactivate,
+  onEditPermissions,
 }: UserRowProps) {
   return (
     <tr className="border-t border-border">
@@ -40,13 +46,18 @@ export function UserRow({
       </Td>
       <Td>
         {user.isActive ? (
-          isOwnAccount ? (
-            <span className="text-meta text-mid">Tu cuenta</span>
-          ) : (
-            <RowAction onClick={onDeactivate} tone="subtle">
-              Desactivar
-            </RowAction>
-          )
+          <div className="flex gap-2">
+            {user.role === 'collector' && (
+              <RowAction onClick={onEditPermissions}>Permisos</RowAction>
+            )}
+            {isOwnAccount ? (
+              <span className="text-meta text-mid">Tu cuenta</span>
+            ) : (
+              <RowAction onClick={onDeactivate} tone="subtle">
+                Desactivar
+              </RowAction>
+            )}
+          </div>
         ) : (
           <RowAction onClick={onReactivate}>Reactivar</RowAction>
         )}

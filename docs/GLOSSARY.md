@@ -147,7 +147,10 @@ Added Phase 16 — closing a loan out today for less than the sum of its remaini
 The business owner. Full system access — manages clients, loans, installments, templates, users, and configuration.
 
 ### Collector / Cobrador
-Both a business role and a system role. In the business, whoever follows up on overdue clients — could be the owner or a dedicated person. In the system, `role: 'collector'` — can view clients, loans, installments, and mora status, and trigger manual reminders, but has restricted access to system configuration (exact permission boundaries to be finalized during development — see `DATABASE.md` roles note).
+Both a business role and a system role. In the business, whoever follows up on overdue clients — could be the owner or a dedicated person. In the system, `role: 'collector'` — can always view Clientes, Préstamos, and Mensajes, and trigger manual reminders. Access to everything else (Plantillas, Conceptos de interés, Auditoría, Tasa de usura, Usuarios) is granted per individual collector, not by role — see "Module permission" below. ~~Exact permission boundaries to be finalized during development~~ — resolved by Phase 20.
+
+### Module permission
+Added Phase 20 — per-collector, per-module access control, going beyond the binary admin/collector role. An admin has full system access unconditionally, always, regardless of any row here (confirmed with the human: an admin's access is never restricted by this table). A collector, by contrast, needs an explicit grant to reach any module beyond the three every collector already has — a row's mere *presence* is the grant, there's no separate boolean. Confirmed with the human: permissions are assigned **per individual user**, not per role with exceptions, so two collectors can have entirely different access. Enforced by `ModulePermissionsGuard`, which sits alongside the older `RolesGuard` and is migrated onto one controller at a time — see `docs/phases/PHASE_20_MODULE_PERMISSIONS.md` for which controllers have migrated so far. In code: `UserModulePermission` entity, `user_module_permissions` table; `PUT /users/:id/permissions`.
 
 ## Administration
 

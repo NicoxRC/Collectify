@@ -3,13 +3,20 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '@/features/auth/useAuth';
 import { getInitials } from '@/lib/format';
 
-import type { UserRole } from '@/features/auth/authApi';
+import type { AppModule, UserRole } from '@/features/auth/authApi';
 
 interface NavItem {
   label: string;
   to: string;
-  // Omitted = visible to every role.
+  // Omitted = visible to every role. Mutually exclusive with `module` in
+  // practice — an item migrated to Phase 20's permissions uses `module`
+  // instead, not both.
   roles?: UserRole[];
+  // Phase 20 — visible if the current user is an admin, or has been
+  // granted this module. Set only for a route whose backend controller has
+  // migrated to @RequireModule() — see
+  // docs/phases/PHASE_20_MODULE_PERMISSIONS.md.
+  module?: AppModule;
 }
 
 // Full nav per the Figma "Design System" file (sidebar in frame 40:3) has 8
@@ -23,7 +30,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Clientes', to: '/clientes' },
   { label: 'Préstamos', to: '/prestamos' },
   { label: 'Mensajes', to: '/mensajes' },
-  { label: 'Plantillas', to: '/plantillas', roles: ['admin'] },
+  { label: 'Plantillas', to: '/plantillas', module: 'message_templates' },
   {
     label: 'Conceptos de interés',
     to: '/conceptos-de-interes',
@@ -44,9 +51,17 @@ const NAV_ITEMS: NavItem[] = [
 export function Sidebar() {
   const { user, logout } = useAuth();
 
-  const visibleItems = NAV_ITEMS.filter(
-    (item) => !item.roles || (user && item.roles.includes(user.role)),
-  );
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    if (item.roles) {
+      return Boolean(user && item.roles.includes(user.role));
+    }
+    if (item.module) {
+      return Boolean(
+        user && (user.role === 'admin' || user.modules.includes(item.module)),
+      );
+    }
+    return true;
+  });
 
   return (
     <aside className="flex w-[220px] shrink-0 flex-col border-r border-border bg-surface">

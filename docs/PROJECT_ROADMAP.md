@@ -161,9 +161,9 @@ Phase 5 only covered the weekly overdue reminder. Real usage requires three more
 
 ## Phase 20 — Module permissions matrix
 
-- Granular, per-employee control over which modules of the panel they can access, beyond the current binary admin/collector role
+**Mechanism done; controller migration in progress.** Granular, per-employee control over which modules of the panel they can access, beyond the current binary admin/collector role — resolves the "exact permission boundaries" open note in `docs/GLOSSARY.md`. The permission model, guard, and UI (built 2026-08-18, see `docs/phases/PHASE_20_MODULE_PERMISSIONS.md`) are all in place and working end-to-end for one controller (`MessageTemplatesController`) migrated as the initial low-risk proof, per that phase's own incremental-migration requirement. The remaining admin-only controllers (`InterestConceptTypesController`, audit log, usury rates, `UsersController`) are still on the older binary role check and each need their own small follow-up to migrate — see that doc's "Guard and enforcement" section for the exact list.
 
-**Exit criteria:** an admin can control module-level access per employee, resolving the "exact permission boundaries" open note in `docs/GLOSSARY.md`.
+**Exit criteria:** an admin can control module-level access per employee. *(Met for the mechanism and for one module; full coverage across every previously admin-only module is the remaining follow-up work listed above.)*
 
 ## Phase 21 — Extended client profile (KYC)
 

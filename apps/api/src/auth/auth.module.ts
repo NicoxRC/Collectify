@@ -10,6 +10,7 @@ import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwtAuth.guard';
+import { ModulePermissionsGuard } from './guards/modulePermissions.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
@@ -28,9 +29,13 @@ import { JwtStrategy } from './strategies/jwt.strategy';
   providers: [
     AuthService,
     JwtStrategy,
-    // Order matters: JwtAuthGuard populates req.user before RolesGuard reads it.
+    // Order matters: JwtAuthGuard populates req.user before RolesGuard and
+    // ModulePermissionsGuard read it. The latter two are independent — see
+    // ModulePermissionsGuard's doc comment for why running both is safe
+    // during Phase 20's incremental migration.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: ModulePermissionsGuard },
   ],
 })
 export class AuthModule {}

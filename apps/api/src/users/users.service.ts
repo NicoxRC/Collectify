@@ -10,7 +10,9 @@ import { Repository } from 'typeorm';
 
 import { CreateUserDto } from './dto/createUser.dto';
 import { QueryUsersDto } from './dto/queryUsers.dto';
-import { User } from './entities/user.entity';
+import { User, UserRole } from './entities/user.entity';
+import { AppModule } from './entities/userModulePermission.entity';
+import { UserModulePermissionsService } from './userModulePermissions.service';
 
 const BCRYPT_SALT_ROUNDS = 10;
 const POSTGRES_UNIQUE_VIOLATION = '23505';
@@ -24,13 +26,18 @@ const PUBLIC_USER_FIELDS = [
   'updatedAt',
 ] as const;
 
-export type PublicUser = Omit<User, 'passwordHash'>;
+// modules added Phase 20 — always [] for an admin (see
+// UserModulePermission's doc comment); for a collector, the modules
+// they've been explicitly granted. See
+// docs/phases/PHASE_20_MODULE_PERMISSIONS.md.
+export type PublicUser = Omit<User, 'passwordHash'> & { modules: AppModule[] };
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    private readonly userModulePermissionsService: UserModulePermissionsService,
   ) {}
 
   findByEmail(email: string): Promise<User | null> {
@@ -41,14 +48,24 @@ export class UsersService {
     return this.usersRepository.findOneBy({ id });
   }
 
-  findAll(query: QueryUsersDto): Promise<PublicUser[]> {
+  async findAll(query: QueryUsersDto): Promise<PublicUser[]> {
     const isActive = query.isActive ?? true;
 
-    return this.usersRepository.find({
+    const users = await this.usersRepository.find({
       where: { isActive },
       select: [...PUBLIC_USER_FIELDS],
       order: { createdAt: 'DESC' },
     });
+
+    const modulesByUserId =
+      await this.userModulePermissionsService.getModulesForUsers(
+        users.map((user) => user.id),
+      );
+
+    return users.map((user) => ({
+      ...user,
+      modules: modulesByUserId.get(user.id) ?? [],
+    }));
   }
 
   // Per docs/PROJECT_ROADMAP.md Phase 8 — the human confirmed self-registration
@@ -72,7 +89,7 @@ export class UsersService {
       throw this.mapUniqueViolation(error);
     }
 
-    return this.toPublicUser(saved);
+    return await this.toPublicUser(saved);
   }
 
   // Deactivating locks the account out of login (see AuthService.login),
@@ -92,6 +109,28 @@ export class UsersService {
     await this.usersRepository.update({ id }, { passwordHash });
   }
 
+  // Rejects for an admin account rather than silently accepting and
+  // discarding — an admin's module permissions are never consulted (see
+  // UserModulePermission's doc comment), so setting them would be
+  // misleading about what actually controls that account's access.
+  async setModulePermissions(
+    id: string,
+    modules: AppModule[],
+  ): Promise<PublicUser> {
+    const user = await this.usersRepository.findOneBy({ id });
+    if (!user) {
+      throw new NotFoundException(`User with id ${id} not found`);
+    }
+    if (user.role === UserRole.Admin) {
+      throw new BadRequestException(
+        'An admin account always has full access — module permissions only apply to collector accounts',
+      );
+    }
+
+    await this.userModulePermissionsService.setModulesForUser(id, modules);
+    return this.toPublicUser(user);
+  }
+
   private async setActive(id: string, isActive: boolean): Promise<PublicUser> {
     const user = await this.usersRepository.findOneBy({ id });
     if (!user) {
@@ -100,10 +139,19 @@ export class UsersService {
 
     user.isActive = isActive;
     const saved = await this.usersRepository.save(user);
-    return this.toPublicUser(saved);
+    return await this.toPublicUser(saved);
   }
 
-  private toPublicUser(user: User): PublicUser {
+  // A freshly created user has no rows yet (an empty array is exactly
+  // right); deactivate/reactivate don't touch the rows at all, so this
+  // still needs a real fetch to report a deactivated collector's modules
+  // accurately.
+  private async toPublicUser(user: User): Promise<PublicUser> {
+    const modules =
+      user.role === UserRole.Admin
+        ? []
+        : await this.userModulePermissionsService.getModulesForUser(user.id);
+
     return {
       id: user.id,
       fullName: user.fullName,
@@ -113,6 +161,7 @@ export class UsersService {
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       deletedAt: user.deletedAt,
+      modules,
     };
   }
 
