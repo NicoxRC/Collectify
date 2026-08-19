@@ -459,6 +459,19 @@ export class ClientsService {
     return reference;
   }
 
+  // Used by ClientLoanImportService to implement "one row = one credit":
+  // a repeated cédula across import rows must find the already-existing
+  // (or already-imported-this-batch) client instead of colliding with
+  // assertDocumentNumberIsUnique. withDeleted so a soft-deleted client's
+  // number still counts as taken, matching assertDocumentNumberIsUnique's
+  // own check below.
+  async findByDocumentNumber(documentNumber: string): Promise<Client | null> {
+    return this.clientsRepository.findOne({
+      where: { documentNumber },
+      withDeleted: true,
+    });
+  }
+
   private async assertDocumentNumberIsUnique(
     documentNumber: string,
   ): Promise<void> {
