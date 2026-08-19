@@ -555,25 +555,10 @@ function ClientPickerModal({
 
           {!isLoading && pageClients.length > 0 && (
             <div className="flex shrink-0 items-center gap-3">
-              <button
-                type="button"
-                onClick={addAllOnPage}
-                className="flex items-center gap-1 text-meta text-muted hover:text-white"
-              >
-                <svg
-                  className="size-2.5 shrink-0"
-                  viewBox="0 0 20 20"
-                  fill="none"
-                  stroke="currentColor"
-                >
-                  <path
-                    d="M10 4v12M4 10h12"
-                    strokeWidth="1.75"
-                    strokeLinecap="round"
-                  />
-                </svg>
+              <ChipButton onClick={addAllOnPage}>
+                <PlusIcon />
                 Agregar todos en esta página
-              </button>
+              </ChipButton>
               <button
                 type="button"
                 onClick={removeAllOnPage}
@@ -672,5 +657,38 @@ function PageButton({
     >
       {children}
     </button>
+  );
+}
+
+// Same chip treatment used in LoanForm.tsx/RefinanceLoanForm.tsx/LoanQuotePage.tsx —
+// a bordered, backgrounded button instead of bare colored text.
+function ChipButton({
+  onClick,
+  children,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1.5 rounded border border-border bg-input px-3 py-1.5 text-meta text-muted hover:border-subtle hover:text-white"
+    >
+      {children}
+    </button>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      className="size-2.5 shrink-0"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+    >
+      <path d="M10 4v12M4 10h12" strokeWidth="1.75" strokeLinecap="round" />
+    </svg>
   );
 }
