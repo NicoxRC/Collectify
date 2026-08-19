@@ -14,6 +14,7 @@ import { LoanDetailPage } from '@/features/loans/LoanDetailPage';
 import { LoansListPage } from '@/features/loans/LoansListPage';
 import { MessageLogsPage } from '@/features/messageLogs/MessageLogsPage';
 import { MessageTemplatesPage } from '@/features/messageTemplates/MessageTemplatesPage';
+import { UsersListPage } from '@/features/users/UsersListPage';
 import { UsuryRatesPage } from '@/features/usuryRates/UsuryRatesPage';
 
 // Grows with each phase: Phase 4+ add one route block per feature, nesting
@@ -93,6 +94,13 @@ export const router = createBrowserRouter([
                 // docs/phases/PHASE_15_USURY_RATE.md.
                 path: 'tasa-de-usura',
                 element: <UsuryRatesPage />,
+              },
+              {
+                // UsersController is admin-only server-side
+                // (@Roles(UserRole.Admin)) — see
+                // docs/phasesClient/PHASE_19_USER_MANAGEMENT.md.
+                path: 'usuarios',
+                element: <UsersListPage />,
               },
             ],
           },
