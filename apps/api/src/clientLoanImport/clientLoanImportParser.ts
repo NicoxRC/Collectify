@@ -44,6 +44,11 @@ export interface ClientLoanParseResult {
   errors: RowError[];
 }
 
+// Row 1 = headers, row 2 = fill-in instructions — every workbook this
+// module accepts (the downloaded template and the errors-export file
+// alike) has this same fixed shape, so real data always starts here.
+const FIRST_DATA_ROW = 3;
+
 // Same unwrapping rules as clientsImportParser.ts's cellText — ExcelJS
 // hands back rich-text/formula cells as objects, not plain values.
 function cellText(value: unknown): string {
@@ -125,7 +130,11 @@ export async function parseClientLoanWorkbook(
   const errors: RowError[] = [];
 
   sheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) {
+    // Row 1 = headers, row 2 = the fill-in instructions/examples row
+    // (clientLoanImportTemplate.ts addInstructionsRow) — always skipped,
+    // regardless of what ends up written there, so a stray value someone
+    // typed into it is never mistaken for a real row. Data starts at row 3.
+    if (rowNumber < FIRST_DATA_ROW) {
       return;
     }
 

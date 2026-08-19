@@ -35,6 +35,13 @@ async function buildWorkbook(
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Clientes y créditos');
   sheet.addRow(headers);
+  // Row 2 is always the fill-in-instructions row in the real generated
+  // template (clientLoanImportTemplate.ts) — parseClientLoanWorkbook skips
+  // it unconditionally, so every fixture here reproduces that same
+  // structural shape (data starts at row 3), even though its content
+  // doesn't matter for these tests. See the dedicated test below for
+  // proof that non-blank content in row 2 is still ignored.
+  sheet.addRow(headers.map(() => ''));
   for (const row of rows) {
     sheet.addRow(row);
   }
@@ -183,5 +190,20 @@ describe('parseClientLoanWorkbook', () => {
     const result = await parseClientLoanWorkbook(buffer);
 
     expect(result.rows[0].loan.installmentFrequency).toBe('biweekly');
+  });
+
+  it("ignores row 2 (reserved for the template's fill-in instructions) even when it has content", async () => {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Clientes y créditos');
+    sheet.addRow(REQUIRED_HEADERS);
+    sheet.addRow(REQUIRED_HEADERS.map(() => 'Ej: instrucción de ejemplo'));
+    sheet.addRow(REQUIRED_ROW);
+    const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+    const result = await parseClientLoanWorkbook(buffer);
+
+    expect(result.errors).toEqual([]);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].client.firstName).toBe('Juana');
   });
 });
