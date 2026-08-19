@@ -144,6 +144,7 @@ describe('ClientsService', () => {
       lastName: 'Pérez',
       documentNumber: '1234567890',
       phoneNumber: '+573001234567',
+      documentType: DocumentType.CedulaCiudadania,
       dataProcessingConsent: true,
     };
 
@@ -191,6 +192,41 @@ describe('ClientsService', () => {
         BadRequestException,
       );
       expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    // Client requested this be mandatory on the interactive create path,
+    // same requireX/Excel-exempt pattern as dataProcessingConsent above.
+    it('rejects creating a client without a document type', async () => {
+      const withoutDocumentType = {
+        firstName: createDto.firstName,
+        lastName: createDto.lastName,
+        documentNumber: createDto.documentNumber,
+        phoneNumber: createDto.phoneNumber,
+        dataProcessingConsent: createDto.dataProcessingConsent,
+      };
+
+      await expect(service.create(withoutDocumentType)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('does not require a document type when explicitly opted out (Excel import path)', async () => {
+      repository.findOne.mockResolvedValue(null);
+      repository.save.mockResolvedValue(mockClient);
+
+      const withoutDocumentType = {
+        firstName: createDto.firstName,
+        lastName: createDto.lastName,
+        documentNumber: createDto.documentNumber,
+        phoneNumber: createDto.phoneNumber,
+      };
+      await expect(
+        service.create(withoutDocumentType, {
+          requireConsent: false,
+          requireDocumentType: false,
+        }),
+      ).resolves.toEqual(mockClient);
     });
 
     it('stamps consentGivenAt with the server clock when consent is given', async () => {
