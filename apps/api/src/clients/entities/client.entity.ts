@@ -61,13 +61,13 @@ export class Client {
   @Column({ type: 'date', nullable: true })
   dateOfBirth!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   documentIssuePlace!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   email!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   alternatePhoneNumber!: string | null;
 
   @Column({ type: 'text', nullable: true })
@@ -76,16 +76,16 @@ export class Client {
   @Column({ type: 'text', nullable: true })
   workAddress!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   neighborhood!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   city!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   occupation!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   employerName!: string | null;
 
   @Column({
@@ -100,17 +100,17 @@ export class Client {
   // Externally-hosted URL only — the api never touches image/PDF bytes,
   // same rule as Payment.imageUrl (Phase 12). Accepts either an image or a
   // PDF (e.g. an already-combined scan) — enforced client-side, not here.
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   idDocumentFrontUrl!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   idDocumentBackUrl!: string | null;
 
   // Never enforced as required, anywhere — this is sensitive/biometric
   // data under Ley 1581 de 2012, and no activity may be conditioned on a
   // titular providing it. See the Phase 21 legal summary shared with the
   // business owner.
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   selfieImageUrl!: string | null;
 
   // Required (enforced in ClientsService.create, not here — see that
@@ -130,7 +130,7 @@ export class Client {
   // not the authorization itself. Confirmed with the business owner as a
   // "give them the tool, whether they use it is their call" field: never
   // enforced as required.
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   consentDocumentUrl!: string | null;
 
   @CreateDateColumn()

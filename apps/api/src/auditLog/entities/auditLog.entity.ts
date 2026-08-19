@@ -26,7 +26,7 @@ export class AuditLog {
   // actions stay in the trail with no resolvable actor, rather than being
   // deleted along with the user, which would defeat the point of an audit
   // trail.
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   actorUserId!: string | null;
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })

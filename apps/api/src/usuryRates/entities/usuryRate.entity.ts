@@ -39,7 +39,7 @@ export class UsuryRate {
   // Nullable + SET NULL, same reasoning as audit_logs.actorUserId: keep the
   // historical rate row (and the record that someone entered it) even after
   // the acting user is deleted.
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   createdBy!: string | null;
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
