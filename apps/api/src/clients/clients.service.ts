@@ -41,11 +41,16 @@ export interface ImportClientsResult {
 }
 
 // Distinguishes the two paths that build a Client from a CreateClientDto:
-// the interactive ClientForm (consent required — see ClientsService.create)
-// and Excel bulk import (consent deliberately not enforced — see
+// the interactive ClientForm (consent + document type required — see
+// ClientsService.create) and Excel bulk import (neither enforced — see
 // importFromExcel and docs/phases/PHASE_21_CLIENT_PROFILE.md decision 6).
+// requireDocumentType follows the client's own request that a new client
+// always have a document type on file — same reasoning and same
+// Excel-import exemption as requireConsent, so it's kept as an
+// independent flag rather than folded into requireConsent.
 interface CreateClientOptions {
   requireConsent?: boolean;
+  requireDocumentType?: boolean;
 }
 
 // "Cupo usado" = capital + interés acumulado across the client's active
@@ -79,21 +84,29 @@ export class ClientsService {
     private readonly clientReferencesRepository: Repository<ClientReference>,
   ) {}
 
-  // requireConsent defaults to true (the interactive ClientsController.create
-  // path) — importFromExcel is the one caller that explicitly opts out,
-  // since bulk-onboarded clients never had a chance to sign anything through
-  // this software and get the consent recorded later from their profile.
-  // See docs/phases/PHASE_21_CLIENT_PROFILE.md decision 6, and the legal
-  // summary shared with the business owner for why this can't simply be a
-  // DTO-level validator (it would then also reject every imported row).
+  // requireConsent/requireDocumentType both default to true (the
+  // interactive ClientsController.create path) — importFromExcel is the
+  // one caller that explicitly opts out of both, since bulk-onboarded
+  // clients never had a chance to sign anything or hand over an ID
+  // through this software, and both get filled in later from their
+  // profile. See docs/phases/PHASE_21_CLIENT_PROFILE.md decision 6, and
+  // the legal summary shared with the business owner for why this can't
+  // simply be a DTO-level validator (it would then also reject every
+  // imported row).
   async create(
     dto: CreateClientDto,
-    options: CreateClientOptions = { requireConsent: true },
+    options: CreateClientOptions = {
+      requireConsent: true,
+      requireDocumentType: true,
+    },
   ): Promise<Client> {
     if (options.requireConsent && dto.dataProcessingConsent !== true) {
       throw new BadRequestException(
         'El cliente debe autorizar el tratamiento de datos personales antes de guardarlo.',
       );
+    }
+    if (options.requireDocumentType && !dto.documentType) {
+      throw new BadRequestException('El tipo de documento es obligatorio.');
     }
     await this.assertDocumentNumberIsUnique(dto.documentNumber);
 
@@ -374,7 +387,10 @@ export class ClientsService {
       }
 
       try {
-        await this.create(dto, { requireConsent: false });
+        await this.create(dto, {
+          requireConsent: false,
+          requireDocumentType: false,
+        });
         created += 1;
       } catch (error) {
         if (error instanceof ConflictException) {

@@ -235,6 +235,11 @@ export function ClientDetailPage() {
           docs/phasesClient/PHASE_21_CLIENT_PROFILE.md. */}
       <div className="flex flex-col gap-4">
         <DetailSection title="DATOS PERSONALES">
+          {/* Repeats the cédula already shown in the header above — per
+              client feedback, seeing it again here next to the rest of
+              the identification fields (tipo, fechas, lugar) is more
+              useful than making them scroll up to cross-reference it. */}
+          <DetailField label="Cédula" value={client.documentNumber} />
           <DetailField
             label="Documento"
             value={
@@ -247,6 +252,14 @@ export function ClientDetailPage() {
             label="Fecha de nacimiento"
             value={
               client.dateOfBirth ? formatDateOnly(client.dateOfBirth) : null
+            }
+          />
+          <DetailField
+            label="Fecha de expedición"
+            value={
+              client.documentIssueDate
+                ? formatDateOnly(client.documentIssueDate)
+                : null
             }
           />
           <DetailField
@@ -266,6 +279,13 @@ export function ClientDetailPage() {
         </DetailSection>
 
         <DetailSection title="CONTACTO">
+          {/* Repeats the celular already shown in the header above — same
+              reasoning as the Cédula repeat in DATOS PERSONALES: right
+              next to "Celular alterno" is more useful than the header. */}
+          <DetailField
+            label="Celular"
+            value={formatPhoneNumber(client.phoneNumber)}
+          />
           <DetailField
             label="Celular alterno"
             value={

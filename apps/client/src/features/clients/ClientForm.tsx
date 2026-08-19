@@ -43,10 +43,31 @@ type FieldName =
   | 'firstName'
   | 'lastName'
   | 'documentNumber'
+  | 'documentType'
   | 'phoneNumber'
+  | 'alternatePhoneNumber'
   | 'dataProcessingConsent'
   | 'references';
 type FieldErrors = Partial<Record<FieldName, string>>;
+
+// Top-to-bottom order the fields actually appear in the form below —
+// used only to pick which one to scroll to first when several are
+// invalid at once (see the fieldErrors effect further down). Keep this
+// in sync with the Field/FormSection order if fields are rearranged.
+const FIELD_ORDER: FieldName[] = [
+  'firstName',
+  'lastName',
+  'documentNumber',
+  'documentType',
+  'phoneNumber',
+  'alternatePhoneNumber',
+  'references',
+  'dataProcessingConsent',
+];
+
+// Element id prefix for each field's wrapper — see the `id` passed to
+// each relevant <Field>/section below.
+const fieldElementId = (name: FieldName) => `client-form-field-${name}`;
 
 // Mirrors apps/api's CreateClientDto: @IsPhoneNumber('CO') requires a
 // Colombian number. This is a client-side approximation (the backend, via
@@ -54,8 +75,11 @@ type FieldErrors = Partial<Record<FieldName, string>>;
 // obvious mistake of typing a bare local number without +57.
 const CO_PHONE_REGEX = /^\+57\d{10}$/;
 
+// No "Sin especificar" option — documentType is required per the client's
+// request, so an unselected Select shows the placeholder text passed at
+// the call site below instead of offering an explicit "none" choice that
+// would immediately trip the required-field validation.
 const DOCUMENT_TYPE_OPTIONS = [
-  { value: '', label: 'Sin especificar' },
   ...Object.values(DocumentType).map((type) => ({
     value: type,
     label: DOCUMENT_TYPE_LABELS[type],
@@ -125,6 +149,9 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
   const [documentIssuePlace, setDocumentIssuePlace] = useState(
     client?.documentIssuePlace ?? '',
   );
+  const [documentIssueDate, setDocumentIssueDate] = useState(
+    client?.documentIssueDate ?? '',
+  );
   const [occupation, setOccupation] = useState(client?.occupation ?? '');
   const [employerName, setEmployerName] = useState(client?.employerName ?? '');
   const [monthlyIncome, setMonthlyIncome] = useState(
@@ -192,6 +219,27 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
 
   useEscapeKey(onClose);
 
+  // Jumps to whichever invalid field appears first in the form —
+  // without this, a validation failure on a field near the top (e.g.
+  // "Tipo de documento") was completely silent if the admin had already
+  // scrolled down to "Guardar cliente": nothing visibly happened, since
+  // the only feedback was an inline message on a field that's off-screen.
+  // Called explicitly right after `setFieldErrors` at each spot in
+  // handleSubmit below that can produce a fresh set of errors — NOT
+  // wired up as a useEffect on fieldErrors, since onChange handlers also
+  // clear individual field errors as the admin types (see
+  // updateReferenceRow etc.), and re-scrolling on every one of those
+  // would yank the page out from under whatever they're currently fixing.
+  const scrollToFirstError = (errors: FieldErrors) => {
+    const firstInvalidField = FIELD_ORDER.find((name) => errors[name]);
+    if (!firstInvalidField) {
+      return;
+    }
+    document
+      .getElementById(fieldElementId(firstInvalidField))
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
   const addReferenceRow = () => {
     setReferenceRows((prev) => [
       ...prev,
@@ -235,10 +283,24 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
     if (!documentNumber.trim()) {
       errors.documentNumber = 'La cédula es obligatoria.';
     }
+    if (!documentType) {
+      errors.documentType = 'El tipo de documento es obligatorio.';
+    }
     if (!phoneNumber.trim()) {
       errors.phoneNumber = 'El celular es obligatorio.';
     } else if (!CO_PHONE_REGEX.test(phoneNumber.trim())) {
       errors.phoneNumber =
+        'Debe ser un número colombiano válido, ej: +573001234567.';
+    }
+    // Optional — unlike phoneNumber above, an empty alternatePhoneNumber
+    // is fine. But if the admin does fill it in, hold it to the same
+    // Colombian-number format for consistency (per client feedback —
+    // previously any text was accepted here).
+    if (
+      alternatePhoneNumber.trim() &&
+      !CO_PHONE_REGEX.test(alternatePhoneNumber.trim())
+    ) {
+      errors.alternatePhoneNumber =
         'Debe ser un número colombiano válido, ej: +573001234567.';
     }
     if (!dataProcessingConsent) {
@@ -255,6 +317,18 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
     ) {
       errors.references =
         'Completa nombre, teléfono y relación de cada referencia agregada, o quítala.';
+    } else if (
+      // Same format check as alternatePhoneNumber — every row is already
+      // required to have SOME phone number (checked above); this just
+      // holds whatever they typed to the same Colombian format.
+      referenceRows.some(
+        (row) =>
+          row.phoneNumber.trim() &&
+          !CO_PHONE_REGEX.test(row.phoneNumber.trim()),
+      )
+    ) {
+      errors.references =
+        'El teléfono de una de las referencias no tiene un formato colombiano válido, ej: +573001234567.';
     }
 
     return errors;
@@ -362,6 +436,14 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
     const errors = validate();
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
+      // Without this pair, clicking "Guardar cliente" with an invalid
+      // field scrolled out of view did nothing visible at all — the
+      // admin had no way to tell a validation error from a dead button
+      // or a lost connection.
+      setFormError(
+        'Hay campos obligatorios sin completar o con errores — revisa lo marcado en rojo.',
+      );
+      scrollToFirstError(errors);
       return;
     }
     setFieldErrors({});
@@ -394,6 +476,7 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
         ...(documentIssuePlace.trim()
           ? { documentIssuePlace: documentIssuePlace.trim() }
           : {}),
+        ...(documentIssueDate ? { documentIssueDate } : {}),
         ...(email.trim() ? { email: email.trim() } : {}),
         ...(alternatePhoneNumber.trim()
           ? { alternatePhoneNumber: alternatePhoneNumber.trim() }
@@ -431,14 +514,18 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
         // X already exists") for a duplicate cédula — surface that next to
         // the Cédula field instead of as a raw banner message, per Phase 3.
         if (err.statusCode === 409 && /document number/i.test(err.message)) {
-          setFieldErrors({
+          const errors: FieldErrors = {
             documentNumber: 'Ya existe un cliente registrado con esta cédula.',
-          });
+          };
+          setFieldErrors(errors);
+          scrollToFirstError(errors);
         } else if (err.statusCode === 400 && /consent/i.test(err.message)) {
-          setFieldErrors({
+          const errors: FieldErrors = {
             dataProcessingConsent:
               'El cliente debe autorizar el tratamiento de datos personales antes de guardar.',
-          });
+          };
+          setFieldErrors(errors);
+          scrollToFirstError(errors);
         } else {
           setFormError(err.message);
         }
@@ -473,7 +560,11 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
         <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-6">
           <FormSection title="Datos personales">
             <div className="flex gap-4">
-              <Field label="Nombre" error={fieldErrors.firstName}>
+              <Field
+                label="Nombre"
+                error={fieldErrors.firstName}
+                id={fieldElementId('firstName')}
+              >
                 <input
                   required
                   value={firstName}
@@ -488,7 +579,11 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
                   className={inputClassName(Boolean(fieldErrors.firstName))}
                 />
               </Field>
-              <Field label="Apellido" error={fieldErrors.lastName}>
+              <Field
+                label="Apellido"
+                error={fieldErrors.lastName}
+                id={fieldElementId('lastName')}
+              >
                 <input
                   required
                   value={lastName}
@@ -506,7 +601,11 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
             </div>
 
             <div className="flex gap-4">
-              <Field label="Cédula" error={fieldErrors.documentNumber}>
+              <Field
+                label="Cédula"
+                error={fieldErrors.documentNumber}
+                id={fieldElementId('documentNumber')}
+              >
                 <input
                   required
                   value={documentNumber}
@@ -523,11 +622,22 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
                   )}
                 />
               </Field>
-              <Field label="Tipo de documento (opcional)">
+              <Field
+                label="Tipo de documento"
+                error={fieldErrors.documentType}
+                id={fieldElementId('documentType')}
+              >
                 <Select
                   value={documentType}
-                  onChange={setDocumentType}
+                  onChange={(value) => {
+                    setDocumentType(value);
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      documentType: undefined,
+                    }));
+                  }}
                   options={DOCUMENT_TYPE_OPTIONS}
+                  placeholder="Selecciona un tipo"
                   className="w-full"
                 />
               </Field>
@@ -538,6 +648,13 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
                 <DatePicker
                   value={dateOfBirth}
                   onChange={setDateOfBirth}
+                  className={inputClassName(false)}
+                />
+              </Field>
+              <Field label="Fecha de expedición (opcional)">
+                <DatePicker
+                  value={documentIssueDate}
+                  onChange={setDocumentIssueDate}
                   className={inputClassName(false)}
                 />
               </Field>
@@ -594,7 +711,11 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
 
           <FormSection title="Contacto">
             <div className="flex gap-4">
-              <Field label="Celular" error={fieldErrors.phoneNumber}>
+              <Field
+                label="Celular"
+                error={fieldErrors.phoneNumber}
+                id={fieldElementId('phoneNumber')}
+              >
                 <input
                   required
                   value={phoneNumber}
@@ -609,14 +730,24 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
                   className={inputClassName(Boolean(fieldErrors.phoneNumber))}
                 />
               </Field>
-              <Field label="Celular alterno (opcional)">
+              <Field
+                label="Celular alterno (opcional)"
+                error={fieldErrors.alternatePhoneNumber}
+                id={fieldElementId('alternatePhoneNumber')}
+              >
                 <input
                   value={alternatePhoneNumber}
-                  onChange={(event) =>
-                    setAlternatePhoneNumber(event.target.value)
-                  }
+                  onChange={(event) => {
+                    setAlternatePhoneNumber(event.target.value);
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      alternatePhoneNumber: undefined,
+                    }));
+                  }}
                   placeholder="Ej: +573001234567"
-                  className={inputClassName(false)}
+                  className={inputClassName(
+                    Boolean(fieldErrors.alternatePhoneNumber),
+                  )}
                 />
               </Field>
             </div>
@@ -669,75 +800,92 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
           </FormSection>
 
           <FormSection title="Referencias">
-            <div className="flex flex-col gap-3">
+            <div
+              id={fieldElementId('references')}
+              className="flex flex-col gap-3"
+            >
               {referenceRows.length === 0 && (
                 <p className="text-meta text-muted">
                   Sin referencias agregadas todavía.
                 </p>
               )}
-              {referenceRows.map((row) => (
-                <div
-                  key={row.rowId}
-                  className="flex flex-col gap-2 rounded border border-border bg-input p-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <Select
-                      value={row.type}
-                      onChange={(value) =>
-                        updateReferenceRow(row.rowId, {
-                          type: value as ClientReferenceType,
-                        })
-                      }
-                      options={Object.values(ClientReferenceType).map(
-                        (type) => ({
-                          value: type,
-                          label: CLIENT_REFERENCE_TYPE_LABELS[type],
-                        }),
-                      )}
-                      className="w-40"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeReferenceRow(row.rowId)}
-                      className="text-meta text-muted hover:text-red-400"
-                    >
-                      Quitar
-                    </button>
-                  </div>
-                  <div className="flex gap-2">
+              {referenceRows.map((row) => {
+                // Only flags it red once a submit attempt has actually
+                // failed (fieldErrors.references set) — otherwise every
+                // reference row would turn red the instant it's typed
+                // into, before the admin has even finished the number.
+                const phoneFormatInvalid =
+                  Boolean(fieldErrors.references) &&
+                  Boolean(row.phoneNumber.trim()) &&
+                  !CO_PHONE_REGEX.test(row.phoneNumber.trim());
+                return (
+                  <div
+                    key={row.rowId}
+                    className="flex flex-col gap-2 rounded border border-border bg-input p-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <Select
+                        value={row.type}
+                        onChange={(value) =>
+                          updateReferenceRow(row.rowId, {
+                            type: value as ClientReferenceType,
+                          })
+                        }
+                        options={Object.values(ClientReferenceType).map(
+                          (type) => ({
+                            value: type,
+                            label: CLIENT_REFERENCE_TYPE_LABELS[type],
+                          }),
+                        )}
+                        className="w-40"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeReferenceRow(row.rowId)}
+                        className="text-meta text-muted hover:text-red-400"
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        value={row.fullName}
+                        onChange={(event) =>
+                          updateReferenceRow(row.rowId, {
+                            fullName: event.target.value,
+                          })
+                        }
+                        placeholder="Nombre completo"
+                        className="h-9 flex-1 rounded border border-border bg-background px-2.5 text-small text-white placeholder-mid focus:border-subtle focus:outline-none"
+                      />
+                      <input
+                        value={row.phoneNumber}
+                        onChange={(event) =>
+                          updateReferenceRow(row.rowId, {
+                            phoneNumber: event.target.value,
+                          })
+                        }
+                        placeholder="Teléfono — ej: +573001234567"
+                        className={`h-9 w-36 rounded border bg-background px-2.5 text-small text-white placeholder-mid focus:outline-none ${
+                          phoneFormatInvalid
+                            ? 'border-red-500 focus:border-red-500'
+                            : 'border-border focus:border-subtle'
+                        }`}
+                      />
+                    </div>
                     <input
-                      value={row.fullName}
+                      value={row.relationship}
                       onChange={(event) =>
                         updateReferenceRow(row.rowId, {
-                          fullName: event.target.value,
+                          relationship: event.target.value,
                         })
                       }
-                      placeholder="Nombre completo"
-                      className="h-9 flex-1 rounded border border-border bg-background px-2.5 text-small text-white placeholder-mid focus:border-subtle focus:outline-none"
-                    />
-                    <input
-                      value={row.phoneNumber}
-                      onChange={(event) =>
-                        updateReferenceRow(row.rowId, {
-                          phoneNumber: event.target.value,
-                        })
-                      }
-                      placeholder="Teléfono"
-                      className="h-9 w-36 rounded border border-border bg-background px-2.5 text-small text-white placeholder-mid focus:border-subtle focus:outline-none"
+                      placeholder="Relación — ej: hermano, vecino, proveedor"
+                      className="h-9 rounded border border-border bg-background px-2.5 text-small text-white placeholder-mid focus:border-subtle focus:outline-none"
                     />
                   </div>
-                  <input
-                    value={row.relationship}
-                    onChange={(event) =>
-                      updateReferenceRow(row.rowId, {
-                        relationship: event.target.value,
-                      })
-                    }
-                    placeholder="Relación — ej: hermano, vecino, proveedor"
-                    className="h-9 rounded border border-border bg-background px-2.5 text-small text-white placeholder-mid focus:border-subtle focus:outline-none"
-                  />
-                </div>
-              ))}
+                );
+              })}
               {fieldErrors.references && (
                 <span className="text-meta text-red-400" role="alert">
                   {fieldErrors.references}
@@ -746,25 +894,36 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
               <button
                 type="button"
                 onClick={addReferenceRow}
-                className="self-start text-meta text-muted hover:text-white"
+                className="flex items-center gap-1.5 self-start rounded border border-border bg-input px-3.5 py-2 text-small text-muted hover:border-subtle hover:text-white"
               >
-                + Agregar referencia
+                {/* Matches the "+ Nuevo cliente"/"+ Nuevo préstamo" fix —
+                    a literal "+" character rendered visibly clipped at
+                    this size, an SVG icon doesn't. */}
+                <svg
+                  className="size-3.5 shrink-0"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                >
+                  <path
+                    d="M10 4v12M4 10h12"
+                    strokeWidth="1.75"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                Agregar referencia
               </button>
             </div>
           </FormSection>
 
           <FormSection title="Documentos">
-            <Field label="Documento de identidad — frente (opcional)">
+            <Field label="Documento de identidad — frente (opcional, foto o PDF combinado)">
               <FileUploadField
                 file={idDocumentFrontFile}
                 onFileChange={setIdDocumentFrontFile}
                 existingUrl={client?.idDocumentFrontUrl}
                 disabled={isBusy}
               />
-              <span className="mt-1 text-meta text-muted">
-                Acepta foto o PDF — un PDF con ambos lados combinados puede
-                subirse aquí, dejando "Reverso" vacío.
-              </span>
             </Field>
             <Field label="Documento de identidad — reverso (opcional)">
               <FileUploadField
@@ -774,7 +933,7 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
                 disabled={isBusy}
               />
             </Field>
-            <Field label="Selfie (opcional — el cliente puede negarse a proporcionarla)">
+            <Field label="Selfie (opcional — el cliente tiene derecho a negarse a proporcionarla)">
               <FileUploadField
                 file={selfieFile}
                 onFileChange={setSelfieFile}
@@ -786,7 +945,10 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
           </FormSection>
 
           <FormSection title="Autorización de tratamiento de datos">
-            <label className="flex items-start gap-2.5">
+            <label
+              id={fieldElementId('dataProcessingConsent')}
+              className="flex items-start gap-2.5"
+            >
               <input
                 type="checkbox"
                 checked={dataProcessingConsent}
@@ -875,11 +1037,16 @@ interface FieldProps {
   label: string;
   error?: string;
   children: React.ReactNode;
+  // Lets validation scroll straight to this field — see the fieldErrors
+  // effect in ClientForm, which jumps to `#${id}` for whichever invalid
+  // field appears first in FIELD_ORDER. Only set on fields that are
+  // actually validated; purely-optional fields don't need one.
+  id?: string;
 }
 
-function Field({ label, error, children }: FieldProps) {
+function Field({ label, error, children, id }: FieldProps) {
   return (
-    <div className="flex flex-1 flex-col gap-1.5">
+    <div id={id} className="flex flex-1 flex-col gap-1.5">
       <span className="text-[10px] font-medium tracking-[0.4px] text-muted">
         {label}
       </span>
@@ -906,7 +1073,12 @@ function FormSection({
 }) {
   return (
     <div className="flex flex-col gap-3.5">
-      <span className="text-section-label font-medium tracking-[0.36px] text-muted">
+      {/* Bumped up from text-section-label (9px, muted) — at that size and
+          color it read as just another line of body text next to the
+          fields below it (e.g. "Sin referencias agregadas todavía."),
+          with no clear heading/content distinction. Larger, brighter, and
+          underlined gives each section an actual header. */}
+      <span className="border-b border-border pb-1.5 text-label font-semibold tracking-[0.36px] text-white">
         {title.toUpperCase()}
       </span>
       {children}

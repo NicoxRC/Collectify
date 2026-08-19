@@ -64,6 +64,9 @@ export class Client {
   @Column({ type: 'varchar', nullable: true })
   documentIssuePlace!: string | null;
 
+  @Column({ type: 'date', nullable: true })
+  documentIssueDate!: string | null;
+
   @Column({ type: 'varchar', nullable: true })
   email!: string | null;
 

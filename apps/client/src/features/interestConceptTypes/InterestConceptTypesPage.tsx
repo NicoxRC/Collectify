@@ -56,8 +56,22 @@ export function InterestConceptTypesPage() {
         <button
           type="button"
           onClick={() => setFormTarget('new')}
-          className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90"
+          className="flex items-center gap-1.5 rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90"
         >
+          {/* Matches the "+ Nuevo cliente"/"+ Nuevo préstamo" buttons —
+              this one was missing the icon entirely. */}
+          <svg
+            className="size-3.5 shrink-0"
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+          >
+            <path
+              d="M10 4v12M4 10h12"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+            />
+          </svg>
           Nuevo concepto
         </button>
       </div>

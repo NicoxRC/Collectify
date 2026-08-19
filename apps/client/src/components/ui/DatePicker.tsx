@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { formatDateOnly } from '@/lib/format';
 
@@ -27,6 +27,33 @@ interface CalendarCell {
 }
 
 const WEEKDAY_LABELS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+
+// Matches the `w-[260px]` on every popover panel below — kept as a
+// constant so the edge-detection math and the panel width can't drift
+// apart from each other.
+const POPOVER_WIDTH_PX = 260;
+
+// How many years to show per page of the year grid (matches the 3x4
+// month grid's cell count, for a consistent popover height across views).
+const YEARS_PER_PAGE = 12;
+
+// Short month labels for the month-grid view below — es-CO 'MMM' via
+// toLocaleDateString would work too, but a fixed array avoids 12 Date
+// allocations on every render and guarantees consistent casing.
+const MONTH_LABELS = [
+  'Ene',
+  'Feb',
+  'Mar',
+  'Abr',
+  'May',
+  'Jun',
+  'Jul',
+  'Ago',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dic',
+];
 
 function toDateString(year: number, month: number, day: number): string {
   return new Date(Date.UTC(year, month, day)).toISOString().slice(0, 10);
@@ -89,7 +116,24 @@ export function DatePicker({
   placeholder = 'dd/mm/aaaa',
 }: DatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
+  // 'days' is the normal grid; 'months' is reached by clicking the
+  // "agosto de 2026"-style header — lets the admin jump the year/month
+  // directly instead of clicking the ‹ › arrows one month at a time,
+  // which is painful for e.g. a client's fecha de nacimiento decades back.
+  // 'years' is reached from 'months' by clicking the year itself, for
+  // jumping further than the ‹ › (one-year-at-a-time) arrows allow.
+  const [view, setView] = useState<'days' | 'months' | 'years'>('days');
+  // First year shown in the 'years' grid — a 12-year page, re-centered on
+  // viewYear each time the grid is opened (see the button below), then
+  // paged independently via its own ‹ › arrows.
+  const [yearsPageStart, setYearsPageStart] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Which edge of the trigger button the popover hangs from. Defaults to
+  // 'left' (matches a native date input), but flips to 'right' when the
+  // panel wouldn't fit within the viewport otherwise — e.g. "Fecha de
+  // expedición" sitting at the right edge of the client form, where a
+  // fixed left-aligned panel used to run off-screen.
+  const [align, setAlign] = useState<'left' | 'right'>('left');
 
   const parsedValue = parseDateString(value);
   const today = new Date();
@@ -109,8 +153,27 @@ export function DatePicker({
       const now = new Date();
       setViewYear(parsed?.year ?? now.getFullYear());
       setViewMonth(parsed?.month ?? now.getMonth());
+      setView('days');
     }
   }, [isOpen, value]);
+
+  // Measures the trigger button's position against the viewport every
+  // time the popover opens (and stays correct across the modal's own
+  // scrolling/resizing, since it's a real DOM measurement rather than a
+  // one-off guess). Runs before paint (useLayoutEffect) so the panel
+  // never flashes at the wrong alignment first.
+  useLayoutEffect(() => {
+    if (!isOpen || !containerRef.current) {
+      return;
+    }
+    const rect = containerRef.current.getBoundingClientRect();
+    const fitsOnLeft = rect.left + POPOVER_WIDTH_PX <= window.innerWidth;
+    const fitsOnRight = rect.right - POPOVER_WIDTH_PX >= 0;
+    // Prefer left-aligned (the default); only flip to right-aligned when
+    // left-aligned would actually overflow the viewport and right-aligned
+    // wouldn't. If neither fits, fall back to left rather than guessing.
+    setAlign(!fitsOnLeft && fitsOnRight ? 'right' : 'left');
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -148,12 +211,27 @@ export function DatePicker({
     setViewMonth(((totalMonths % 12) + 12) % 12);
   };
 
+  const goToPreviousYear = () => setViewYear((current) => current - 1);
+  const goToNextYear = () => setViewYear((current) => current + 1);
+
+  const goToPreviousYearsPage = () =>
+    setYearsPageStart((current) => current - YEARS_PER_PAGE);
+  const goToNextYearsPage = () =>
+    setYearsPageStart((current) => current + YEARS_PER_PAGE);
+
   const todayDateString = toDateString(
     today.getFullYear(),
     today.getMonth(),
     today.getDate(),
   );
   const cells = buildCalendarGrid(viewYear, viewMonth);
+  // Shared by every popover panel below so 'days', 'months', and 'years'
+  // always agree on which side they hang from — see the useLayoutEffect
+  // above for how `align` itself is decided.
+  const panelPositionClassName =
+    align === 'left'
+      ? 'left-0 top-[calc(100%+4px)]'
+      : 'right-0 top-[calc(100%+4px)]';
 
   return (
     <div ref={containerRef} className="relative">
@@ -180,8 +258,10 @@ export function DatePicker({
         </svg>
       </button>
 
-      {isOpen && (
-        <div className="absolute left-0 top-[calc(100%+4px)] z-10 w-[260px] rounded border border-border bg-input p-3 shadow-lg">
+      {isOpen && view === 'days' && (
+        <div
+          className={`absolute z-10 w-[260px] rounded border border-border bg-input p-3 shadow-lg ${panelPositionClassName}`}
+        >
           <div className="flex items-center justify-between">
             <button
               type="button"
@@ -191,9 +271,16 @@ export function DatePicker({
             >
               ‹
             </button>
-            <span className="text-small font-medium text-white">
+            {/* Jumps to the month/year grid below — the ‹ › arrows above
+                only step one month at a time, which is impractical for
+                dates decades away (e.g. fecha de nacimiento). */}
+            <button
+              type="button"
+              onClick={() => setView('months')}
+              className="rounded px-2 py-0.5 text-small font-medium text-white hover:bg-border"
+            >
               {formatMonthYear(viewYear, viewMonth)}
-            </span>
+            </button>
             <button
               type="button"
               aria-label="Mes siguiente"
@@ -250,6 +337,120 @@ export function DatePicker({
               Limpiar
             </button>
           )}
+        </div>
+      )}
+
+      {/* Month/year picker — reached via the header button above. The
+          ‹ › arrows step a year at a time; clicking the year itself opens
+          the year grid below for jumping further in one step. Picking a
+          month jumps straight back to the day grid for that year+month. */}
+      {isOpen && view === 'months' && (
+        <div
+          className={`absolute z-10 w-[260px] rounded border border-border bg-input p-3 shadow-lg ${panelPositionClassName}`}
+        >
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              aria-label="Año anterior"
+              onClick={goToPreviousYear}
+              className="flex size-6 items-center justify-center rounded text-muted hover:text-white"
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setYearsPageStart(viewYear - (viewYear % YEARS_PER_PAGE));
+                setView('years');
+              }}
+              className="rounded px-2 py-0.5 text-small font-medium text-white hover:bg-border"
+            >
+              {viewYear}
+            </button>
+            <button
+              type="button"
+              aria-label="Año siguiente"
+              onClick={goToNextYear}
+              className="flex size-6 items-center justify-center rounded text-muted hover:text-white"
+            >
+              ›
+            </button>
+          </div>
+
+          <div className="mt-2.5 grid grid-cols-3 gap-1.5">
+            {MONTH_LABELS.map((label, index) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => {
+                  setViewMonth(index);
+                  setView('days');
+                }}
+                className={`rounded py-1.5 text-small ${
+                  index === viewMonth
+                    ? 'bg-white font-semibold text-background'
+                    : 'text-white hover:bg-border'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Year picker — reached by clicking the year in the month grid
+          above. Pages 12 years at a time via its own ‹ › arrows; picking
+          a year returns to the month grid for that year, same as how
+          picking a month returns to the day grid. */}
+      {isOpen && view === 'years' && (
+        <div
+          className={`absolute z-10 w-[260px] rounded border border-border bg-input p-3 shadow-lg ${panelPositionClassName}`}
+        >
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              aria-label="Años anteriores"
+              onClick={goToPreviousYearsPage}
+              className="flex size-6 items-center justify-center rounded text-muted hover:text-white"
+            >
+              ‹
+            </button>
+            <span className="text-small font-medium text-white">
+              {yearsPageStart} – {yearsPageStart + YEARS_PER_PAGE - 1}
+            </span>
+            <button
+              type="button"
+              aria-label="Años siguientes"
+              onClick={goToNextYearsPage}
+              className="flex size-6 items-center justify-center rounded text-muted hover:text-white"
+            >
+              ›
+            </button>
+          </div>
+
+          <div className="mt-2.5 grid grid-cols-3 gap-1.5">
+            {Array.from({ length: YEARS_PER_PAGE }, (_, index) => {
+              const year = yearsPageStart + index;
+              return (
+                <button
+                  key={year}
+                  type="button"
+                  onClick={() => {
+                    setViewYear(year);
+                    setView('months');
+                  }}
+                  className={`rounded py-1.5 text-small ${
+                    year === viewYear
+                      ? 'bg-white font-semibold text-background'
+                      : 'text-white hover:bg-border'
+                  }`}
+                >
+                  {year}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

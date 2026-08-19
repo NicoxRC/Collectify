@@ -164,6 +164,7 @@ Unique on (`user_id`, `module`). **Row presence is the grant — there's no bool
 | `document_type` | ENUM (`cedula_ciudadania`, `cedula_extranjeria`, `pasaporte`), nullable | Added Phase 21. Shared with `loans.co_debtor_document_type` via the same `DocumentType` enum. |
 | `date_of_birth` | DATE, nullable | Added Phase 21. |
 | `document_issue_place` | VARCHAR, nullable | Added Phase 21. |
+| `document_issue_date` | DATE, nullable | Added Phase 21 (client feedback after reviewing the built form — `document_issue_place` already existed, the date didn't). |
 | `email` | VARCHAR, nullable | Added Phase 21. |
 | `alternate_phone_number` | VARCHAR, nullable | Added Phase 21. |
 | `home_address` | TEXT, nullable | Added Phase 21. |

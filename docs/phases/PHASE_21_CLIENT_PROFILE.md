@@ -13,9 +13,10 @@ Capture significantly more information per client at signup — identification d
 3. **Document photos** — two nullable fields, front and back. Each accepts either an image or a PDF (e.g. if the business already has a combined scan), reusing the existing Cloudinary upload pattern with the resource type widened from image-only to `auto`.
 4. **Scanned pagaré photo** — discarded from scope entirely, on either `Client` or `Loan` (see `docs/PROJECT_ROADMAP.md` Phase 21 note).
 5. **Employment/income fields** — in scope: `occupation`, `employer_name`, `monthly_income` on `Client`.
-6. **Mandatory vs. optional** — every new `Client` KYC column stays nullable/optional, including at Excel bulk import (`docs/phases/PHASE_8_EXCEL_IMPORT.md` is unaffected). The one exception is `dataProcessingConsent`, required specifically on the interactive `ClientForm` creation flow — Excel-imported clients are exempt (default `false`) and get it filled in later from the client's profile page.
-7. **Co-debtor (codeudor)** — belongs to `Loan`, not `Client`: confirmed with the business that whether a loan has a co-debtor varies per loan, not per client. Modeled as nullable columns directly on `Loan` (max one co-debtor per loan — no separate table needed).
-8. **Data-processing consent** — `dataProcessingConsent` (boolean, required to create a client through `ClientForm`), `consentGivenAt` (timestamp, set when the checkbox is confirmed), `consentDocumentUrl` (optional — photo or PDF of the physically signed authorization, same externally-hosted-URL pattern as everything else). The actual authorization is obtained on paper/in person at the point of sale, outside the software — the system only records that it happened and optionally stores the scanned evidence. Confirmed as a deliberate CYA measure: the field exists and is available, its use by the business is the business's own choice.
+6. **Mandatory vs. optional** — every new `Client` KYC column stays nullable/optional at the database level, including at Excel bulk import (`docs/phases/PHASE_8_EXCEL_IMPORT.md` is unaffected). Two fields are required specifically on the interactive `ClientForm` creation flow, enforced in `ClientsService.create()` rather than as a DB constraint: `dataProcessingConsent` (must be `true`) and, per client feedback after reviewing the built form, `documentType` (must be set). Excel-imported clients are exempt from both and get them filled in later from the client's profile page.
+7. **Document issue date** — `document_issue_date` (DATE, nullable), added alongside the pre-existing `document_issue_place` per the same round of client feedback.
+8. **Co-debtor (codeudor)** — belongs to `Loan`, not `Client`: confirmed with the business that whether a loan has a co-debtor varies per loan, not per client. Modeled as nullable columns directly on `Loan` (max one co-debtor per loan — no separate table needed).
+9. **Data-processing consent** — `dataProcessingConsent` (boolean, required to create a client through `ClientForm`), `consentGivenAt` (timestamp, set when the checkbox is confirmed), `consentDocumentUrl` (optional — photo or PDF of the physically signed authorization, same externally-hosted-URL pattern as everything else). The actual authorization is obtained on paper/in person at the point of sale, outside the software — the system only records that it happened and optionally stores the scanned evidence. Confirmed as a deliberate CYA measure: the field exists and is available, its use by the business is the business's own choice.
 
 ## Required reading before starting
 
@@ -27,6 +28,7 @@ Capture significantly more information per client at signup — identification d
 - [ ] `document_type` (ENUM: `cedula_ciudadania`, `cedula_extranjeria`, `pasaporte`)
 - [ ] `date_of_birth` (DATE)
 - [ ] `document_issue_place` (VARCHAR)
+- [ ] `document_issue_date` (DATE) — added after initial implementation, per client feedback
 - [ ] `email` (VARCHAR)
 - [ ] `alternate_phone_number` (VARCHAR)
 - [ ] `home_address` (TEXT)

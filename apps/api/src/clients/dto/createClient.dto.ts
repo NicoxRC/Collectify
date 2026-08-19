@@ -67,6 +67,11 @@ export class CreateClientDto {
   @IsString()
   documentIssuePlace?: string;
 
+  @ApiPropertyOptional({ example: '2015-03-20' })
+  @IsOptional()
+  @IsDateString()
+  documentIssueDate?: string;
+
   @ApiPropertyOptional({ example: 'juana.perez@example.com' })
   @IsOptional()
   @IsEmail()
