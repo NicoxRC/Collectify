@@ -8,6 +8,8 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 
 import { User, UserRole } from './entities/user.entity';
+import { AppModule } from './entities/userModulePermission.entity';
+import { UserModulePermissionsService } from './userModulePermissions.service';
 import { UsersService } from './users.service';
 
 jest.mock('bcrypt');
@@ -20,6 +22,11 @@ describe('UsersService', () => {
     create: jest.Mock;
     save: jest.Mock;
     update: jest.Mock;
+  };
+  let userModulePermissionsService: {
+    getModulesForUser: jest.Mock;
+    getModulesForUsers: jest.Mock;
+    setModulesForUser: jest.Mock;
   };
 
   const mockUser: User = {
@@ -42,11 +49,20 @@ describe('UsersService', () => {
       save: jest.fn(),
       update: jest.fn(),
     };
+    userModulePermissionsService = {
+      getModulesForUser: jest.fn().mockResolvedValue([]),
+      getModulesForUsers: jest.fn().mockResolvedValue(new Map()),
+      setModulesForUser: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
         { provide: getRepositoryToken(User), useValue: repository },
+        {
+          provide: UserModulePermissionsService,
+          useValue: userModulePermissionsService,
+        },
       ],
     }).compile();
 
@@ -91,7 +107,7 @@ describe('UsersService', () => {
 
       const result = await service.findAll({});
 
-      expect(result).toEqual([mockUser]);
+      expect(result).toEqual([{ ...mockUser, modules: [] }]);
       expect(repository.find).toHaveBeenCalledWith({
         where: { isActive: true },
         select: [
@@ -115,6 +131,21 @@ describe('UsersService', () => {
       expect(repository.find).toHaveBeenCalledWith(
         expect.objectContaining({ where: { isActive: false } }),
       );
+    });
+
+    it("attaches each collector's granted modules from the batched lookup", async () => {
+      const collector = { ...mockUser, id: 'user-2', role: UserRole.Collector };
+      repository.find.mockResolvedValue([collector]);
+      userModulePermissionsService.getModulesForUsers.mockResolvedValue(
+        new Map([['user-2', [AppModule.Clients, AppModule.Loans]]]),
+      );
+
+      const result = await service.findAll({});
+
+      expect(
+        userModulePermissionsService.getModulesForUsers,
+      ).toHaveBeenCalledWith(['user-2']);
+      expect(result[0].modules).toEqual([AppModule.Clients, AppModule.Loans]);
     });
   });
 
@@ -149,6 +180,7 @@ describe('UsersService', () => {
       );
       expect(result).not.toHaveProperty('passwordHash');
       expect(result.email).toBe('ana@collectify.com');
+      expect(result.modules).toEqual([]);
     });
 
     it('rejects a duplicate email', async () => {
@@ -216,5 +248,48 @@ describe('UsersService', () => {
       { id: mockUser.id },
       { passwordHash: 'new-hash' },
     );
+  });
+
+  describe('setModulePermissions', () => {
+    const collector: User = {
+      ...mockUser,
+      id: 'user-2',
+      role: UserRole.Collector,
+    };
+
+    it("replaces a collector's granted modules and returns the updated user", async () => {
+      repository.findOneBy.mockResolvedValue(collector);
+      userModulePermissionsService.getModulesForUser.mockResolvedValue([
+        AppModule.Clients,
+      ]);
+
+      const result = await service.setModulePermissions('user-2', [
+        AppModule.Clients,
+      ]);
+
+      expect(
+        userModulePermissionsService.setModulesForUser,
+      ).toHaveBeenCalledWith('user-2', [AppModule.Clients]);
+      expect(result.modules).toEqual([AppModule.Clients]);
+    });
+
+    it('rejects setting permissions on an admin account', async () => {
+      repository.findOneBy.mockResolvedValue(mockUser);
+
+      await expect(
+        service.setModulePermissions(mockUser.id, [AppModule.Clients]),
+      ).rejects.toThrow(BadRequestException);
+      expect(
+        userModulePermissionsService.setModulesForUser,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the user does not exist', async () => {
+      repository.findOneBy.mockResolvedValue(null);
+
+      await expect(
+        service.setModulePermissions('missing-id', [AppModule.Clients]),
+      ).rejects.toThrow(NotFoundException);
+    });
   });
 });
