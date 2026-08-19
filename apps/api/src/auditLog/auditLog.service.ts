@@ -22,6 +22,7 @@ export interface RecordAuditLogEntry {
   entityType: string;
   entityId: string | null;
   metadata: Record<string, unknown> | null;
+  entityLabel: string | null;
 }
 
 @Injectable()

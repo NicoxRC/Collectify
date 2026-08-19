@@ -19,6 +19,7 @@ describe('AuditLogService', () => {
     action: 'client.create',
     entityType: 'client',
     entityId: 'client-1',
+    entityLabel: 'Juana Pérez (CC 123)',
     metadata: { params: {}, body: { firstName: 'Juana' } },
     createdAt: new Date(),
   };
@@ -49,6 +50,7 @@ describe('AuditLogService', () => {
         action: 'client.create',
         entityType: 'client',
         entityId: 'client-1',
+        entityLabel: 'Juana Pérez (CC 123)',
         metadata: { params: {}, body: { firstName: 'Juana' } },
       });
 
@@ -57,6 +59,7 @@ describe('AuditLogService', () => {
         action: 'client.create',
         entityType: 'client',
         entityId: 'client-1',
+        entityLabel: 'Juana Pérez (CC 123)',
         metadata: { params: {}, body: { firstName: 'Juana' } },
       });
       expect(repository.save).toHaveBeenCalled();

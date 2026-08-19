@@ -64,6 +64,18 @@ export class AuditLog {
   @Column({ type: 'jsonb', nullable: true })
   metadata!: Record<string, unknown> | null;
 
+  // Human-readable snapshot of which specific record this action touched
+  // — "Juana Pérez (CC 1234567890)", "Pagaré #743", "Pago de $150.000 el
+  // 2026-08-18" — resolved once at write time by
+  // AuditLogInterceptor.resolveEntityLabel and frozen here. Deliberately
+  // NOT re-derived on read from the live client/loan/payment row: that
+  // record may have since changed (a renamed client) or been
+  // soft-deleted, and the audit trail should describe what happened at
+  // the time, not what's true today. Null when no label could be
+  // resolved (e.g. an entityType with no labeling rule yet).
+  @Column({ type: 'varchar', nullable: true })
+  entityLabel!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

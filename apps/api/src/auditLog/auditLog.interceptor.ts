@@ -6,10 +6,13 @@ import {
   NestInterceptor,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { InjectRepository } from '@nestjs/typeorm';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
+import { Repository } from 'typeorm';
 
 import { AuthenticatedUser } from '../auth/interfaces/authenticatedUser.interface';
+import { Client } from '../clients/entities/client.entity';
 
 import { AuditLogService } from './auditLog.service';
 import { AUDIT_KEY, AuditMetadata } from './decorators/audit.decorator';
@@ -46,6 +49,14 @@ export class AuditLogInterceptor implements NestInterceptor {
   constructor(
     private readonly reflector: Reflector,
     private readonly auditLogService: AuditLogService,
+    // Read-only, and only for the one case resolveEntityLabel can't
+    // avoid: client.addReference/updateReference/removeReference return
+    // the ClientReference row, not the Client, so there's no client name
+    // to read off the response — see resolveEntityLabel below. Every
+    // other entityType builds its label from fields already present on
+    // the handler's own response, no query needed.
+    @InjectRepository(Client)
+    private readonly clientsRepository: Repository<Client>,
   ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -69,26 +80,134 @@ export class AuditLogInterceptor implements NestInterceptor {
         // Fire-and-forget: a failed audit write must never fail the actual
         // request it's trying to record. Same principle as
         // sendNewLoanMessageSafely in loans.service.ts — log the error,
-        // don't throw.
-        void this.auditLogService
-          .record({
+        // don't throw. Wrapped in an async IIFE (rather than awaited
+        // directly in this tap callback) purely so resolveEntityLabel's
+        // occasional DB lookup — see its comment — can be awaited before
+        // the write, without blocking the response already flowing back
+        // to the caller.
+        void (async () => {
+          const entityLabel = await this.resolveEntityLabel(
+            audit.entityType,
+            request.params,
+            response,
+          );
+          await this.auditLogService.record({
             actorUserId: request.user?.id ?? null,
             action: audit.action,
             entityType: audit.entityType,
             entityId: this.resolveEntityId(request.params, response),
+            entityLabel,
             metadata: {
               params: request.params,
               body: this.redact(request.body),
             },
-          })
-          .catch((error: unknown) => {
-            this.logger.error(
-              `Failed to write audit log entry for action "${audit.action}"`,
-              error,
-            );
           });
+        })().catch((error: unknown) => {
+          this.logger.error(
+            `Failed to write audit log entry for action "${audit.action}"`,
+            error,
+          );
+        });
       }),
     );
+  }
+
+  // Builds the human-readable snapshot stored as AuditLog.entityLabel —
+  // see that column's comment for why this is resolved once here rather
+  // than left for the frontend to re-derive from a live record. Reads
+  // straight off the handler's own response wherever possible (no extra
+  // query); only client.addReference/updateReference/removeReference fall
+  // through to a lookup, since their response is the ClientReference row,
+  // which carries no client name.
+  private async resolveEntityLabel(
+    entityType: string,
+    params: Record<string, string>,
+    response: unknown,
+  ): Promise<string | null> {
+    const entity = this.unwrapEntity(response);
+
+    switch (entityType) {
+      case 'client': {
+        if (entity && typeof entity.firstName === 'string') {
+          return this.formatClientLabel(entity);
+        }
+        if (params.id) {
+          const client = await this.clientsRepository.findOne({
+            where: { id: params.id },
+            withDeleted: true,
+          });
+          return client
+            ? this.formatClientLabel(client as unknown as Record<string, unknown>)
+            : null;
+        }
+        return null;
+      }
+      case 'loan': {
+        return entity && typeof entity.promissoryNoteNumber === 'string'
+          ? `Pagaré #${entity.promissoryNoteNumber}`
+          : null;
+      }
+      case 'payment': {
+        if (!entity || typeof entity.amountPaid !== 'number') {
+          return null;
+        }
+        const amount = this.formatCurrencyCop(entity.amountPaid);
+        return typeof entity.paidAt === 'string'
+          ? `Pago de ${amount} el ${entity.paidAt}`
+          : `Pago de ${amount}`;
+      }
+      case 'user': {
+        if (!entity || typeof entity.fullName !== 'string') {
+          return null;
+        }
+        return typeof entity.email === 'string'
+          ? `${entity.fullName} (${entity.email})`
+          : entity.fullName;
+      }
+      case 'usuryRate': {
+        if (!entity || typeof entity.ratePercentage !== 'number') {
+          return null;
+        }
+        return typeof entity.effectiveMonth === 'string'
+          ? `${entity.ratePercentage}% desde ${entity.effectiveMonth}`
+          : `${entity.ratePercentage}%`;
+      }
+      default:
+        // No labeling rule for this entityType yet — falls back to
+        // showing just the (translated) entityType, same as before this
+        // feature existed. Not a bug; just not extended yet.
+        return null;
+    }
+  }
+
+  private formatClientLabel(client: Record<string, unknown>): string {
+    const firstName = typeof client.firstName === 'string' ? client.firstName : '';
+    const lastName = typeof client.lastName === 'string' ? client.lastName : '';
+    const documentNumber =
+      typeof client.documentNumber === 'string' ? client.documentNumber : null;
+    const name = `${firstName} ${lastName}`.trim();
+    return documentNumber ? `${name} (CC ${documentNumber})` : name;
+  }
+
+  private formatCurrencyCop(amount: number): string {
+    return new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      maximumFractionDigits: 0,
+    }).format(amount);
+  }
+
+  // Same raw-entity vs. ResponseInterceptor-wrapped ({ data: {...} })
+  // ambiguity resolveEntityId already has to handle — see its comment.
+  private unwrapEntity(response: unknown): Record<string, unknown> | null {
+    if (typeof response !== 'object' || response === null) {
+      return null;
+    }
+    const data = (response as Record<string, unknown>).data;
+    if (typeof data === 'object' && data !== null) {
+      return data as Record<string, unknown>;
+    }
+    return response as Record<string, unknown>;
   }
 
   // Prefers the id on whatever the handler actually returned — this is the
