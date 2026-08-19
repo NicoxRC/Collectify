@@ -4,6 +4,8 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 
 import { Configuration } from '../../config/configuration';
+import { UserRole } from '../../users/entities/user.entity';
+import { UserModulePermissionsService } from '../../users/userModulePermissions.service';
 import { UsersService } from '../../users/users.service';
 import { AuthenticatedUser } from '../interfaces/authenticatedUser.interface';
 import { JwtPayload } from '../interfaces/jwtPayload.interface';
@@ -13,6 +15,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     configService: ConfigService<Configuration, true>,
     private readonly usersService: UsersService,
+    private readonly userModulePermissionsService: UserModulePermissionsService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -31,12 +34,21 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('User not found or inactive');
     }
 
+    // Skipped entirely for an admin — full access is unconditional, so
+    // there's no reason to query rows that would never be consulted. See
+    // UserModulePermission's doc comment.
+    const modules =
+      user.role === UserRole.Admin
+        ? []
+        : await this.userModulePermissionsService.getModulesForUser(user.id);
+
     return {
       id: user.id,
       email: user.email,
       fullName: user.fullName,
       role: user.role,
       createdAt: user.createdAt,
+      modules,
     };
   }
 }
