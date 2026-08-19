@@ -1,0 +1,275 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+
+import { ClientsService } from '../clients/clients.service';
+import { Client } from '../clients/entities/client.entity';
+import {
+  ConceptCalculationType,
+  InterestConceptType,
+} from '../interestConceptTypes/entities/interestConceptType.entity';
+import { LoansService } from '../loans/loans.service';
+
+import { ClientLoanImportService } from './clientLoanImport.service';
+import { parseClientLoanWorkbook } from './clientLoanImportParser';
+
+jest.mock('./clientLoanImportParser');
+
+const mockParse = parseClientLoanWorkbook as jest.Mock;
+
+const REQUIRED_LOAN_FIELDS = {
+  promissoryNoteNumber: '#743',
+  principalAmount: 900000,
+  interestRate: 6,
+  disbursedAt: '2026-08-01',
+  installmentFrequency: 'monthly',
+  totalInstallments: 12,
+};
+
+function buildRow(overrides: {
+  row?: number;
+  client?: Record<string, string | number>;
+  loan?: Record<string, string | number>;
+  concepts?: { name: string; calculationType: string; value: number }[];
+}) {
+  return {
+    row: overrides.row ?? 2,
+    client: {
+      firstName: 'Juana',
+      lastName: 'Pérez',
+      documentNumber: '1234567890',
+      phoneNumber: '+573001234567',
+      ...overrides.client,
+    },
+    loan: { ...REQUIRED_LOAN_FIELDS, ...overrides.loan },
+    concepts: overrides.concepts ?? [],
+    rawValues: {
+      firstName: 'Juana',
+      lastName: 'Pérez',
+      documentNumber: '1234567890',
+      ...REQUIRED_LOAN_FIELDS,
+    } as unknown as Record<string, string>,
+  };
+}
+
+describe('ClientLoanImportService', () => {
+  let service: ClientLoanImportService;
+  let clientsService: { findByDocumentNumber: jest.Mock; create: jest.Mock };
+  let loansService: { create: jest.Mock };
+  let clientsRepository: { delete: jest.Mock };
+  let interestConceptTypesRepository: { find: jest.Mock };
+
+  const mockActiveConcept: InterestConceptType = {
+    id: '33333333-3333-4333-8333-333333333333',
+    name: 'Gastos de cobranza',
+    defaultCalculationType: ConceptCalculationType.Percentage,
+    defaultValue: null,
+    isActive: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    deletedAt: null,
+  };
+
+  beforeEach(async () => {
+    clientsService = {
+      findByDocumentNumber: jest.fn().mockResolvedValue(null),
+      create: jest.fn(),
+    };
+    loansService = { create: jest.fn() };
+    clientsRepository = { delete: jest.fn() };
+    interestConceptTypesRepository = {
+      find: jest.fn().mockResolvedValue([mockActiveConcept]),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ClientLoanImportService,
+        { provide: ClientsService, useValue: clientsService },
+        { provide: LoansService, useValue: loansService },
+        { provide: getRepositoryToken(Client), useValue: clientsRepository },
+        {
+          provide: getRepositoryToken(InterestConceptType),
+          useValue: interestConceptTypesRepository,
+        },
+      ],
+    }).compile();
+
+    service = module.get(ClientLoanImportService);
+    jest.clearAllMocks();
+    clientsService.findByDocumentNumber.mockResolvedValue(null);
+    interestConceptTypesRepository.find.mockResolvedValue([mockActiveConcept]);
+  });
+
+  it('creates a new client and its loan for a valid row', async () => {
+    mockParse.mockResolvedValue({ rows: [buildRow({})], errors: [] });
+    clientsService.create.mockResolvedValue({
+      id: '11111111-1111-4111-8111-111111111111',
+    });
+    loansService.create.mockResolvedValue({});
+
+    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+
+    expect(result).toEqual({ totalRows: 1, created: 1, skipped: [] });
+    expect(clientsService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ documentNumber: '1234567890' }),
+      { requireConsent: false, requireDocumentType: false },
+    );
+    expect(loansService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientId: '11111111-1111-4111-8111-111111111111',
+      }),
+      { skipCreditCheck: false },
+    );
+  });
+
+  it('passes skipCreditCheck: true in historical mode', async () => {
+    mockParse.mockResolvedValue({ rows: [buildRow({})], errors: [] });
+    clientsService.create.mockResolvedValue({
+      id: '11111111-1111-4111-8111-111111111111',
+    });
+    loansService.create.mockResolvedValue({});
+
+    await service.importFromExcel(Buffer.from(''), 'historical');
+
+    expect(loansService.create).toHaveBeenCalledWith(expect.anything(), {
+      skipCreditCheck: true,
+    });
+  });
+
+  it('reuses an existing client (matching fields) instead of creating a duplicate', async () => {
+    const existing = {
+      id: '22222222-2222-4222-8222-222222222222',
+      firstName: 'Juana',
+      lastName: 'Pérez',
+      phoneNumber: '+573001234567',
+    } as Client;
+    clientsService.findByDocumentNumber.mockResolvedValue(existing);
+    mockParse.mockResolvedValue({ rows: [buildRow({})], errors: [] });
+    loansService.create.mockResolvedValue({});
+
+    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+
+    expect(clientsService.create).not.toHaveBeenCalled();
+    expect(loansService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientId: '22222222-2222-4222-8222-222222222222',
+      }),
+      expect.anything(),
+    );
+    expect(result.created).toBe(1);
+  });
+
+  it('flags a row as an error, without creating anything, when a repeated cédula has conflicting data', async () => {
+    const existing = {
+      id: '22222222-2222-4222-8222-222222222222',
+      firstName: 'Juana',
+      lastName: 'Gómez', // different last name on file
+      phoneNumber: '+573001234567',
+    } as Client;
+    clientsService.findByDocumentNumber.mockResolvedValue(existing);
+    mockParse.mockResolvedValue({ rows: [buildRow({})], errors: [] });
+
+    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+
+    expect(clientsService.create).not.toHaveBeenCalled();
+    expect(loansService.create).not.toHaveBeenCalled();
+    expect(result.created).toBe(0);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0].reason).toMatch(/ya existe con datos distintos/i);
+  });
+
+  it('does not treat a blank optional field on a repeat row as a conflict', async () => {
+    const existing = {
+      id: '22222222-2222-4222-8222-222222222222',
+      firstName: 'Juana',
+      lastName: 'Pérez',
+      phoneNumber: '+573001234567',
+      city: 'Bogotá',
+    } as Client;
+    clientsService.findByDocumentNumber.mockResolvedValue(existing);
+    // This row doesn't repeat the city — should NOT be treated as "city was cleared."
+    mockParse.mockResolvedValue({ rows: [buildRow({})], errors: [] });
+    loansService.create.mockResolvedValue({});
+
+    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+
+    expect(result.created).toBe(1);
+    expect(result.skipped).toEqual([]);
+  });
+
+  it('fails the row when a "cargo adicional" name has no matching active catalog entry', async () => {
+    mockParse.mockResolvedValue({
+      rows: [
+        buildRow({
+          concepts: [
+            {
+              name: 'Concepto inexistente',
+              calculationType: 'percentage',
+              value: 2,
+            },
+          ],
+        }),
+      ],
+      errors: [],
+    });
+
+    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+
+    expect(clientsService.create).not.toHaveBeenCalled();
+    expect(result.created).toBe(0);
+    expect(result.skipped[0].reason).toMatch(/no existe en el catálogo/i);
+  });
+
+  it('rolls back a newly-created client when the loan fails afterward (all-or-nothing per row)', async () => {
+    mockParse.mockResolvedValue({ rows: [buildRow({})], errors: [] });
+    clientsService.create.mockResolvedValue({
+      id: '11111111-1111-4111-8111-111111111111',
+    });
+    loansService.create.mockRejectedValue(
+      new Error("This loan's principal exceeds the client's available cupo."),
+    );
+
+    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+
+    expect(clientsRepository.delete).toHaveBeenCalledWith({
+      id: '11111111-1111-4111-8111-111111111111',
+    });
+    expect(result.created).toBe(0);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0].reason).toMatch(/cupo/i);
+  });
+
+  it('does not roll back a pre-existing (reused) client when its loan fails', async () => {
+    const existing = {
+      id: '22222222-2222-4222-8222-222222222222',
+      firstName: 'Juana',
+      lastName: 'Pérez',
+      phoneNumber: '+573001234567',
+    } as Client;
+    clientsService.findByDocumentNumber.mockResolvedValue(existing);
+    mockParse.mockResolvedValue({ rows: [buildRow({})], errors: [] });
+    loansService.create.mockRejectedValue(
+      new Error('duplicate promissory note'),
+    );
+
+    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+
+    expect(clientsRepository.delete).not.toHaveBeenCalled();
+    expect(result.created).toBe(0);
+    expect(result.skipped).toHaveLength(1);
+  });
+
+  it('carries parser-level row errors straight through to the result', async () => {
+    mockParse.mockResolvedValue({
+      rows: [],
+      errors: [{ row: 3, reason: 'Falta valor para: Cédula', rawValues: {} }],
+    });
+
+    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+
+    expect(result).toEqual({
+      totalRows: 1,
+      created: 0,
+      skipped: [{ row: 3, reason: 'Falta valor para: Cédula', rawValues: {} }],
+    });
+  });
+});
