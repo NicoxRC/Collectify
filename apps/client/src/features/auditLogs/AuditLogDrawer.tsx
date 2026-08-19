@@ -1,4 +1,8 @@
 import { CloseButton } from '@/components/ui/CloseButton';
+import {
+  formatAuditAction,
+  formatAuditEntityType,
+} from '@/features/auditLogs/auditLogLabels';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type { AuditLog } from '@/features/auditLogs/auditLogsApi';
@@ -40,15 +44,38 @@ export function AuditLogDrawer({ entry, onClose }: AuditLogDrawerProps) {
 
         <div className="mt-5 flex flex-col gap-4">
           <DetailField label="Actor" value={actorLabel} />
-          <DetailField label="Acción" value={entry.action} />
+          {/* Friendly label plus the raw @Audit() code in parentheses —
+              this drawer is exactly where the precise technical action
+              matters (e.g. while testing), so unlike the table it keeps
+              both instead of only the friendly text. See
+              auditLogLabels.ts. */}
+          <DetailField
+            label="Acción"
+            value={
+              formatAuditAction(entry.action) !== entry.action
+                ? `${formatAuditAction(entry.action)} (${entry.action})`
+                : entry.action
+            }
+          />
+          {/* entityLabel is the actual "which one?" answer (see
+              AuditLog.entityLabel); entityType + the full id stays
+              underneath for the cases where no label could be resolved,
+              or when the raw id itself is what's needed (e.g. to paste
+              into a support query). */}
           <DetailField
             label="Entidad"
             value={
-              entry.entityId
-                ? `${entry.entityType} · ${entry.entityId}`
-                : entry.entityType
+              entry.entityLabel
+                ? entry.entityLabel
+                : formatAuditEntityType(entry.entityType)
             }
           />
+          {entry.entityId && (
+            <DetailField
+              label="ID del registro"
+              value={`${formatAuditEntityType(entry.entityType)} · ${entry.entityId}`}
+            />
+          )}
         </div>
 
         <div className="mt-5 border-t border-border" />
