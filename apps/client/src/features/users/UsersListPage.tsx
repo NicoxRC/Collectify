@@ -4,11 +4,13 @@ import { Header } from '@/components/layout/Header';
 import { useAuth } from '@/features/auth/useAuth';
 import { DeactivateUserDialog } from '@/features/users/DeactivateUserDialog';
 import { UserForm } from '@/features/users/UserForm';
+import { UserPermissionsDialog } from '@/features/users/UserPermissionsDialog';
 import { UserRow } from '@/features/users/UserRow';
 import {
   useCreateUser,
   useDeactivateUser,
   useReactivateUser,
+  useUpdateUserPermissions,
   useUsers,
 } from '@/features/users/useUsers';
 import { ApiError } from '@/lib/apiClient';
@@ -28,6 +30,8 @@ export function UsersListPage() {
   const [showInactive, setShowInactive] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [deactivatingUser, setDeactivatingUser] = useState<User | null>(null);
+  const [editingPermissionsUser, setEditingPermissionsUser] =
+    useState<User | null>(null);
   const [reactivateError, setReactivateError] = useState<string | null>(null);
 
   const {
@@ -41,6 +45,7 @@ export function UsersListPage() {
   const createUser = useCreateUser();
   const deactivateUser = useDeactivateUser();
   const reactivateUser = useReactivateUser();
+  const updateUserPermissions = useUpdateUserPermissions();
 
   return (
     <div className="flex flex-col gap-5">
@@ -104,6 +109,7 @@ export function UsersListPage() {
                 user={user}
                 isOwnAccount={user.id === currentUser?.id}
                 onDeactivate={() => setDeactivatingUser(user)}
+                onEditPermissions={() => setEditingPermissionsUser(user)}
                 onReactivate={async () => {
                   setReactivateError(null);
                   try {
@@ -131,6 +137,9 @@ export function UsersListPage() {
       {isCreating && (
         <UserForm
           onSubmit={(input) => createUser.mutateAsync(input)}
+          onSetPermissions={(userId, modules) =>
+            updateUserPermissions.mutateAsync({ id: userId, modules })
+          }
           onClose={() => setIsCreating(false)}
         />
       )}
@@ -140,6 +149,19 @@ export function UsersListPage() {
           userName={deactivatingUser.fullName}
           onClose={() => setDeactivatingUser(null)}
           onConfirm={() => deactivateUser.mutateAsync(deactivatingUser.id)}
+        />
+      )}
+
+      {editingPermissionsUser && (
+        <UserPermissionsDialog
+          user={editingPermissionsUser}
+          onClose={() => setEditingPermissionsUser(null)}
+          onSubmit={(modules) =>
+            updateUserPermissions.mutateAsync({
+              id: editingPermissionsUser.id,
+              modules,
+            })
+          }
         />
       )}
     </div>

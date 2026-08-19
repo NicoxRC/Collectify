@@ -1,6 +1,6 @@
 import { apiClient } from '@/lib/apiClient';
 
-import type { UserRole } from '@/features/auth/authApi';
+import type { AppModule, UserRole } from '@/features/auth/authApi';
 
 export const USER_ROLE_LABELS: Record<UserRole, string> = {
   admin: 'Admin',
@@ -9,6 +9,9 @@ export const USER_ROLE_LABELS: Record<UserRole, string> = {
 
 // Matches apps/api/src/users/users.service.ts's PublicUser (User minus
 // passwordHash) — the API never returns a password hash to the client.
+// modules added Phase 20 — always [] for an admin, who has full access
+// unconditionally regardless of this field. See
+// docs/phases/PHASE_20_MODULE_PERMISSIONS.md.
 export interface User {
   id: string;
   fullName: string;
@@ -18,6 +21,7 @@ export interface User {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  modules: AppModule[];
 }
 
 export interface UsersQueryParams {
@@ -58,6 +62,19 @@ export const usersApi = {
 
   reactivate: async (id: string): Promise<User> => {
     const { data } = await apiClient.patch<User>(`/users/${id}/reactivate`);
+    return data;
+  },
+
+  // Replaces the full set of granted modules — rejected server-side for an
+  // admin account (see UsersService.setModulePermissions), so this is only
+  // ever called for a collector.
+  updatePermissions: async (
+    id: string,
+    modules: AppModule[],
+  ): Promise<User> => {
+    const { data } = await apiClient.put<User>(`/users/${id}/permissions`, {
+      modules,
+    });
     return data;
   },
 };

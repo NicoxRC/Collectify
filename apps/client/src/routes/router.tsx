@@ -5,6 +5,7 @@ import { AuditLogsPage } from '@/features/auditLogs/AuditLogsPage';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { ProfilePage } from '@/features/auth/ProfilePage';
 import { ProtectedRoute } from '@/features/auth/ProtectedRoute';
+import { RequirePermission } from '@/features/auth/RequirePermission';
 import { RequireRole } from '@/features/auth/RequireRole';
 import { ClientDetailPage } from '@/features/clients/ClientDetailPage';
 import { ClientsListPage } from '@/features/clients/ClientsListPage';
@@ -68,16 +69,29 @@ export const router = createBrowserRouter([
             element: <ProfilePage />,
           },
           {
-            // MessageTemplatesController is admin-only server-side (whole
-            // controller, @Roles(UserRole.Admin)) — gated here too so a
-            // collector can't reach it by typing the URL, not just by
-            // hiding the nav link. See RequireRole.tsx.
-            element: <RequireRole allowedRoles={['admin']} />,
+            // MessageTemplatesController migrated to Phase 20's module
+            // permissions (@RequireModule(AppModule.MessageTemplates)) —
+            // gated here the same way, not by role, so client and server
+            // never drift apart for this one module. See
+            // RequirePermission.tsx and
+            // docs/phases/PHASE_20_MODULE_PERMISSIONS.md.
+            element: <RequirePermission module="message_templates" />,
             children: [
               {
                 path: 'plantillas',
                 element: <MessageTemplatesPage />,
               },
+            ],
+          },
+          {
+            // Every controller below is still admin-only server-side via
+            // the older @Roles(UserRole.Admin) — gated here too so a
+            // collector can't reach it by typing the URL, not just by
+            // hiding the nav link. See RequireRole.tsx. Migrated to
+            // RequirePermission one at a time, alongside its backend
+            // controller — see docs/phases/PHASE_20_MODULE_PERMISSIONS.md.
+            element: <RequireRole allowedRoles={['admin']} />,
+            children: [
               {
                 // InterestConceptTypesController is admin-only server-side
                 // (@Roles(UserRole.Admin)) — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md.
