@@ -98,7 +98,11 @@ export function LoansListPage() {
               fill="none"
               stroke="currentColor"
             >
-              <path d="M10 4v12M4 10h12" strokeWidth="1.75" strokeLinecap="round" />
+              <path
+                d="M10 4v12M4 10h12"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+              />
             </svg>
             Nuevo préstamo
           </button>

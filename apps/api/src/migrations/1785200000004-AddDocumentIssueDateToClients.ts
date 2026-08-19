@@ -5,9 +5,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 // issue *date* didn't. Nullable, same as every other Phase 21 KYC field —
 // see 1785200000000-AddExtendedProfileFieldsToClients for the original
 // batch this belongs with.
-export class AddDocumentIssueDateToClients1785200000004
-  implements MigrationInterface
-{
+export class AddDocumentIssueDateToClients1785200000004 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       ALTER TABLE "clients"

@@ -360,9 +360,7 @@ export function DatePicker({
             <button
               type="button"
               onClick={() => {
-                setYearsPageStart(
-                  viewYear - (viewYear % YEARS_PER_PAGE),
-                );
+                setYearsPageStart(viewYear - (viewYear % YEARS_PER_PAGE));
                 setView('years');
               }}
               className="rounded px-2 py-0.5 text-small font-medium text-white hover:bg-border"

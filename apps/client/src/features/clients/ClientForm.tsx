@@ -323,7 +323,8 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
       // holds whatever they typed to the same Colombian format.
       referenceRows.some(
         (row) =>
-          row.phoneNumber.trim() && !CO_PHONE_REGEX.test(row.phoneNumber.trim()),
+          row.phoneNumber.trim() &&
+          !CO_PHONE_REGEX.test(row.phoneNumber.trim()),
       )
     ) {
       errors.references =
@@ -818,71 +819,71 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
                   Boolean(row.phoneNumber.trim()) &&
                   !CO_PHONE_REGEX.test(row.phoneNumber.trim());
                 return (
-                <div
-                  key={row.rowId}
-                  className="flex flex-col gap-2 rounded border border-border bg-input p-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <Select
-                      value={row.type}
-                      onChange={(value) =>
-                        updateReferenceRow(row.rowId, {
-                          type: value as ClientReferenceType,
-                        })
-                      }
-                      options={Object.values(ClientReferenceType).map(
-                        (type) => ({
-                          value: type,
-                          label: CLIENT_REFERENCE_TYPE_LABELS[type],
-                        }),
-                      )}
-                      className="w-40"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeReferenceRow(row.rowId)}
-                      className="text-meta text-muted hover:text-red-400"
-                    >
-                      Quitar
-                    </button>
-                  </div>
-                  <div className="flex gap-2">
+                  <div
+                    key={row.rowId}
+                    className="flex flex-col gap-2 rounded border border-border bg-input p-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <Select
+                        value={row.type}
+                        onChange={(value) =>
+                          updateReferenceRow(row.rowId, {
+                            type: value as ClientReferenceType,
+                          })
+                        }
+                        options={Object.values(ClientReferenceType).map(
+                          (type) => ({
+                            value: type,
+                            label: CLIENT_REFERENCE_TYPE_LABELS[type],
+                          }),
+                        )}
+                        className="w-40"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeReferenceRow(row.rowId)}
+                        className="text-meta text-muted hover:text-red-400"
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        value={row.fullName}
+                        onChange={(event) =>
+                          updateReferenceRow(row.rowId, {
+                            fullName: event.target.value,
+                          })
+                        }
+                        placeholder="Nombre completo"
+                        className="h-9 flex-1 rounded border border-border bg-background px-2.5 text-small text-white placeholder-mid focus:border-subtle focus:outline-none"
+                      />
+                      <input
+                        value={row.phoneNumber}
+                        onChange={(event) =>
+                          updateReferenceRow(row.rowId, {
+                            phoneNumber: event.target.value,
+                          })
+                        }
+                        placeholder="Teléfono — ej: +573001234567"
+                        className={`h-9 w-36 rounded border bg-background px-2.5 text-small text-white placeholder-mid focus:outline-none ${
+                          phoneFormatInvalid
+                            ? 'border-red-500 focus:border-red-500'
+                            : 'border-border focus:border-subtle'
+                        }`}
+                      />
+                    </div>
                     <input
-                      value={row.fullName}
+                      value={row.relationship}
                       onChange={(event) =>
                         updateReferenceRow(row.rowId, {
-                          fullName: event.target.value,
+                          relationship: event.target.value,
                         })
                       }
-                      placeholder="Nombre completo"
-                      className="h-9 flex-1 rounded border border-border bg-background px-2.5 text-small text-white placeholder-mid focus:border-subtle focus:outline-none"
-                    />
-                    <input
-                      value={row.phoneNumber}
-                      onChange={(event) =>
-                        updateReferenceRow(row.rowId, {
-                          phoneNumber: event.target.value,
-                        })
-                      }
-                      placeholder="Teléfono — ej: +573001234567"
-                      className={`h-9 w-36 rounded border bg-background px-2.5 text-small text-white placeholder-mid focus:outline-none ${
-                        phoneFormatInvalid
-                          ? 'border-red-500 focus:border-red-500'
-                          : 'border-border focus:border-subtle'
-                      }`}
+                      placeholder="Relación — ej: hermano, vecino, proveedor"
+                      className="h-9 rounded border border-border bg-background px-2.5 text-small text-white placeholder-mid focus:border-subtle focus:outline-none"
                     />
                   </div>
-                  <input
-                    value={row.relationship}
-                    onChange={(event) =>
-                      updateReferenceRow(row.rowId, {
-                        relationship: event.target.value,
-                      })
-                    }
-                    placeholder="Relación — ej: hermano, vecino, proveedor"
-                    className="h-9 rounded border border-border bg-background px-2.5 text-small text-white placeholder-mid focus:border-subtle focus:outline-none"
-                  />
-                </div>
                 );
               })}
               {fieldErrors.references && (

@@ -106,9 +106,7 @@ export class ClientsService {
       );
     }
     if (options.requireDocumentType && !dto.documentType) {
-      throw new BadRequestException(
-        'El tipo de documento es obligatorio.',
-      );
+      throw new BadRequestException('El tipo de documento es obligatorio.');
     }
     await this.assertDocumentNumberIsUnique(dto.documentNumber);
 
