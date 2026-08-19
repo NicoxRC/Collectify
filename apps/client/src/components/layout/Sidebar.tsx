@@ -37,8 +37,8 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Cotizador', to: '/cotizador' },
   { label: 'Plantillas', to: '/plantillas', module: 'message_templates' },
   {
-    label: 'Conceptos de interés',
-    to: '/conceptos-de-interes',
+    label: 'Cargos adicionales',
+    to: '/cargos-adicionales',
     roles: ['admin'],
   },
   // Not in the original Figma nav (no frame exists for Phase 11) —

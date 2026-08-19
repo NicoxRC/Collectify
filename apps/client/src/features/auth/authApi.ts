@@ -22,7 +22,7 @@ export const MODULE_LABELS: Record<AppModule, string> = {
   loans: 'Préstamos',
   messages: 'Mensajes',
   message_templates: 'Plantillas',
-  interest_concept_types: 'Conceptos de interés',
+  interest_concept_types: 'Cargos adicionales',
   audit_log: 'Auditoría',
   usury_rates: 'Tasa de usura',
   users: 'Usuarios',
