@@ -1,11 +1,14 @@
 # Railway config-as-code for the `api` service. This file must live inside
-# apps/api because Railway's "Root Directory" for this service is set to
-# apps/api in a monorepo — Railway reads config relative to that root.
-# See the staging section of docs/ENVIRONMENT_VARIABLES.md for the full
-# deploy walkthrough (env vars, Postgres plugin wiring, etc.).
+# apps/api because Railway's "Root Directory" for this service must be set
+# to apps/api in the dashboard (Settings → Source) — that setting has no
+# config-as-code equivalent, this file alone does not scope the build to
+# this folder. See the staging section of docs/ENVIRONMENT_VARIABLES.md for
+# the full deploy walkthrough (env vars, Postgres plugin wiring, etc.).
 
 [build]
-builder = "NIXPACKS"
+# No `builder` override — Railpack (Railway's current default builder,
+# replacing the now-maintenance-mode Nixpacks) auto-detects this as a
+# standard Node project once Root Directory is correctly scoped above.
 buildCommand = "npm run build"
 
 [deploy]
