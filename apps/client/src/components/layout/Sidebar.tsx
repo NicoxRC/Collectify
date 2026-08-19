@@ -36,6 +36,9 @@ const NAV_ITEMS: NavItem[] = [
   // Not in the original Figma nav (no frame exists for Phase 15) —
   // admin-only. See docs/phases/PHASE_15_USURY_RATE.md.
   { label: 'Tasa de usura', to: '/tasa-de-usura', roles: ['admin'] },
+  // "Gestionar usuarios" from the original Figma nav, finally built in
+  // Phase 19 — see docs/phasesClient/PHASE_19_USER_MANAGEMENT.md.
+  { label: 'Usuarios', to: '/usuarios', roles: ['admin'] },
 ];
 
 export function Sidebar() {

@@ -1,6 +1,6 @@
 # Phase 19 — User Management UI
 
-**Status: backend confirmed complete (2026-08-18).** The remaining work for this phase is the frontend, tracked in `docs/phasesClient/PHASE_19_USER_MANAGEMENT.md`.
+**Status: done (2026-08-18).** Backend confirmed complete; frontend built the same day — see `docs/phasesClient/PHASE_19_USER_MANAGEMENT.md`.
 
 ## Goal
 
