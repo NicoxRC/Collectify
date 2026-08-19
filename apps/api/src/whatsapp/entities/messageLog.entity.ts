@@ -54,7 +54,7 @@ export class MessageLog {
   @Column({ type: 'timestamptz', nullable: true })
   retriedAt!: Date | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   retryOfMessageLogId!: string | null;
 
   @ManyToOne(() => MessageLog, { nullable: true, onDelete: 'SET NULL' })

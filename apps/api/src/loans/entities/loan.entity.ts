@@ -68,7 +68,7 @@ export class Loan {
   @Column({ type: 'enum', enum: LoanStatus, default: LoanStatus.Active })
   status!: LoanStatus;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   refinancedFromLoanId!: string | null;
 
   @Column({ type: 'text', nullable: true })
@@ -123,25 +123,25 @@ export class Loan {
   // business confirmed whether a loan has one varies per loan. At most one
   // per loan (confirmed) — plain nullable columns, no separate table. See
   // docs/phases/PHASE_21_CLIENT_PROFILE.md.
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   coDebtorFullName!: string | null;
 
   @Column({ type: 'enum', enum: DocumentType, nullable: true })
   coDebtorDocumentType!: DocumentType | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   coDebtorDocumentNumber!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   coDebtorPhoneNumber!: string | null;
 
   @Column({ type: 'text', nullable: true })
   coDebtorAddress!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   coDebtorRelationship!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   coDebtorIdDocumentUrl!: string | null;
 
   @CreateDateColumn()

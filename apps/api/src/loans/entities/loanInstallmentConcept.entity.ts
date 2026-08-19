@@ -38,7 +38,7 @@ export class LoanInstallmentConcept {
   @JoinColumn({ name: 'installment_id' })
   installment!: Installment;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   interestConceptTypeId!: string | null;
 
   @ManyToOne(() => InterestConceptType, {
