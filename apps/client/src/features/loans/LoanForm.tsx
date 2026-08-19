@@ -625,16 +625,42 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                   <button
                     type="button"
                     onClick={addConceptRow}
-                    className="text-meta text-muted hover:text-white"
+                    className="flex items-center gap-1 text-meta text-muted hover:text-white"
                   >
-                    + Agregar concepto
+                    {/* An SVG instead of a literal "+" character — the
+                        glyph rendered visibly clipped at this size. */}
+                    <svg
+                      className="size-2.5 shrink-0"
+                      viewBox="0 0 20 20"
+                      fill="none"
+                      stroke="currentColor"
+                    >
+                      <path
+                        d="M10 4v12M4 10h12"
+                        strokeWidth="1.75"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    Agregar concepto
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowNewConceptTypeForm(true)}
-                    className="text-meta text-muted hover:text-white"
+                    className="flex items-center gap-1 text-meta text-muted hover:text-white"
                   >
-                    + Crear nuevo tipo
+                    <svg
+                      className="size-2.5 shrink-0"
+                      viewBox="0 0 20 20"
+                      fill="none"
+                      stroke="currentColor"
+                    >
+                      <path
+                        d="M10 4v12M4 10h12"
+                        strokeWidth="1.75"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    Crear nuevo tipo
                   </button>
                 </div>
               </div>

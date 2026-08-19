@@ -403,9 +403,19 @@ function TemplateAudienceEditor({ type }: { type: MessageType }) {
           <button
             type="button"
             onClick={() => setIsPickerOpen(true)}
-            className="self-start rounded border border-border bg-input px-3 py-1.5 text-meta text-white hover:border-subtle"
+            className="flex items-center gap-1 self-start rounded border border-border bg-input px-3 py-1.5 text-meta text-white hover:border-subtle"
           >
-            + Agregar clientes
+            {/* An SVG instead of a literal "+" character — the glyph
+                rendered visibly clipped at this size. */}
+            <svg
+              className="size-2.5 shrink-0"
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+            >
+              <path d="M10 4v12M4 10h12" strokeWidth="1.75" strokeLinecap="round" />
+            </svg>
+            Agregar clientes
           </button>
 
           <span className="text-meta text-muted">
@@ -544,9 +554,17 @@ function ClientPickerModal({
               <button
                 type="button"
                 onClick={addAllOnPage}
-                className="text-meta text-muted hover:text-white"
+                className="flex items-center gap-1 text-meta text-muted hover:text-white"
               >
-                + Agregar todos en esta página
+                <svg
+                  className="size-2.5 shrink-0"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                >
+                  <path d="M10 4v12M4 10h12" strokeWidth="1.75" strokeLinecap="round" />
+                </svg>
+                Agregar todos en esta página
               </button>
               <button
                 type="button"
