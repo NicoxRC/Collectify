@@ -106,7 +106,7 @@ export const router = createBrowserRouter([
               {
                 // InterestConceptTypesController is admin-only server-side
                 // (@Roles(UserRole.Admin)) — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md.
-                path: 'conceptos-de-interes',
+                path: 'cargos-adicionales',
                 element: <InterestConceptTypesPage />,
               },
               {

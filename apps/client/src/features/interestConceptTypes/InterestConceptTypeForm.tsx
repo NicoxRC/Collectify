@@ -27,11 +27,11 @@ const CALCULATION_TYPE_OPTIONS = [
   { value: ConceptCalculationType.FixedAmount, label: 'Monto fijo ($)' },
 ];
 
-// Confirmed with the human: the admin must be able to create new concept
-// types at any time, not pick from a fixed list — this form is what makes
-// that possible. defaultValue is a plain number field, not CurrencyInput
-// (which hardcodes a "$" prefix and whole-peso formatting) — a percentage
-// concept's value (e.g. 2.5) isn't a peso amount.
+// The admin can create new charge types at any time, not pick from a fixed
+// list — this form is what makes that possible. defaultValue is a plain
+// number field, not CurrencyInput (which hardcodes a "$" prefix and
+// whole-peso formatting) — a percentage charge's value (e.g. 2.5) isn't a
+// peso amount.
 export function InterestConceptTypeForm({
   conceptType,
   onSubmit,
@@ -87,7 +87,7 @@ export function InterestConceptTypeForm({
       if (err instanceof ApiError) {
         setFormError(err.message);
       } else {
-        setFormError('No se pudo guardar el concepto. Intenta de nuevo.');
+        setFormError('No se pudo guardar el cargo. Intenta de nuevo.');
       }
     } finally {
       setIsSubmitting(false);
@@ -99,13 +99,13 @@ export function InterestConceptTypeForm({
       <div className="w-full max-w-[420px] rounded-lg border border-border bg-surface px-8 py-7">
         <div className="flex items-center justify-between">
           <h2 className="text-[16px] font-medium text-white">
-            {isEditing ? 'Editar concepto' : 'Nuevo concepto de interés'}
+            {isEditing ? 'Editar cargo' : 'Nuevo cargo adicional'}
           </h2>
           <CloseButton onClick={onClose} />
         </div>
         <p className="mt-1 text-label text-muted">
-          Los préstamos que ya usan este concepto conservan su propio valor,
-          aunque lo edites o lo desactives aquí.
+          Los préstamos que ya usan este cargo conservan su propio valor, aunque
+          lo edites o lo desactives aquí.
         </p>
 
         <div className="mt-5 border-t border-border" />
@@ -118,7 +118,6 @@ export function InterestConceptTypeForm({
                 setName(event.target.value);
                 setFieldErrors((prev) => ({ ...prev, name: undefined }));
               }}
-              placeholder="Ej: Gastos de cobranza"
               className={inputClassName(Boolean(fieldErrors.name))}
             />
           </Field>
@@ -140,11 +139,6 @@ export function InterestConceptTypeForm({
               step="0.01"
               value={defaultValue}
               onChange={(event) => setDefaultValue(event.target.value)}
-              placeholder={
-                calculationType === ConceptCalculationType.Percentage
-                  ? 'Ej: 2 (equivale a 2%)'
-                  : 'Ej: 5000'
-              }
               className={inputClassName(false)}
             />
           </Field>
@@ -174,7 +168,7 @@ export function InterestConceptTypeForm({
                 ? 'Guardando…'
                 : isEditing
                   ? 'Guardar cambios'
-                  : 'Crear concepto'}
+                  : 'Crear cargo'}
             </button>
           </div>
         </form>

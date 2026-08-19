@@ -22,12 +22,12 @@ function formatDefaultValue(conceptType: InterestConceptType): string {
     : `$${conceptType.defaultValue.toLocaleString('es-CO')}`;
 }
 
-// Admin screen for the catalog of interest/fee concept types introduced in
-// Phase 14 — confirmed with the human that the admin must be able to add
-// new kinds of concepts whenever needed, not pick from a fixed list. Loans
-// pick from this catalog at creation time (LoanForm.tsx). Deactivating a
-// type only removes it from that picker — loans that already used it keep
-// the name/value they were generated with (snapshot), unaffected.
+// Admin screen for the catalog of additional-charge types introduced in
+// Phase 14 — the admin can add new charge types whenever needed, not pick
+// from a fixed list. Loans pick from this catalog at creation time
+// (LoanForm.tsx). Deactivating a type only removes it from that picker —
+// loans that already used it keep the name/value they were generated with
+// (snapshot), unaffected.
 export function InterestConceptTypesPage() {
   const [showInactive, setShowInactive] = useState(false);
   const {
@@ -50,7 +50,7 @@ export function InterestConceptTypesPage() {
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between">
         <Header
-          title="Conceptos de interés"
+          title="Cargos adicionales"
           subtitle="Solo ADMIN — catálogo usado al crear préstamos"
         />
         <button
@@ -72,7 +72,7 @@ export function InterestConceptTypesPage() {
               strokeLinecap="round"
             />
           </svg>
-          Nuevo concepto
+          Nuevo cargo
         </button>
       </div>
 
@@ -96,14 +96,14 @@ export function InterestConceptTypesPage() {
       {isLoading && <p className="text-small text-muted">Cargando…</p>}
       {isError && (
         <p className="text-small text-red-400" role="alert">
-          No se pudieron cargar los conceptos.
+          No se pudieron cargar los cargos adicionales.
         </p>
       )}
       {!isLoading && !isError && conceptTypes?.length === 0 && (
         <p className="text-small text-muted">
           {showInactive
-            ? 'No hay conceptos desactivados.'
-            : 'Todavía no hay conceptos de interés — crea el primero.'}
+            ? 'No hay cargos adicionales desactivados.'
+            : 'Todavía no hay cargos adicionales — crea el primero.'}
         </p>
       )}
 

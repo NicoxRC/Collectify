@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
@@ -5,6 +6,7 @@ import { useAuth } from '@/features/auth/useAuth';
 import { ClientForm } from '@/features/clients/ClientForm';
 import { ClientRow } from '@/features/clients/ClientRow';
 import { DeactivateClientDialog } from '@/features/clients/DeactivateClientDialog';
+import { ImportClientsDialog } from '@/features/clients/ImportClientsDialog';
 import {
   useClients,
   useCreateClient,
@@ -17,12 +19,14 @@ import { ApiError } from '@/lib/apiClient';
 import type { Client } from '@/features/clients/clientsApi';
 import type { ReactNode } from 'react';
 
-// Matches Figma frame 40:3 ("F-10 / Clientes — Desktop 1440"), with two
-// remaining deliberate departures from the mockup — see
+// Matches Figma frame 40:3 ("F-10 / Clientes — Desktop 1440"), with one
+// remaining deliberate departure from the mockup — see
 // apps/client/docs/DESIGN_TOKENS.md "Known design/backend gaps":
 //   - "Préstamos" / "Última actividad" columns dropped: not backed by any
 //     endpoint yet (arrive with Phase 4/7).
-//   - "Importar Excel" button dropped: that's Phase 8 scope.
+// The "Importar Excel" button noted as dropped here previously is now
+// built — see ImportClientsDialog.tsx (Phase 8 scope, confirmed with the
+// client 2026-08-19).
 // The "Todos" tab WAS missing for the same reason (isActive was a strict
 // true/false), but that turned out to be worth fixing rather than dropping
 // — ClientsService.findAll/QueryClientsDto now accept isActive: 'all'.
@@ -48,6 +52,8 @@ export function ClientsListPage() {
   const [deactivatingClient, setDeactivatingClient] = useState<Client | null>(
     null,
   );
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useClients({
     search: search || undefined,
@@ -117,6 +123,16 @@ export function ClientsListPage() {
         {isAdmin && (
           <button
             type="button"
+            onClick={() => setIsImportDialogOpen(true)}
+            className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
+          >
+            Importar Excel
+          </button>
+        )}
+
+        {isAdmin && (
+          <button
+            type="button"
             onClick={() => setEditingClient('new')}
             className="flex items-center gap-1.5 rounded bg-white px-4 py-2.5 text-body font-semibold text-background hover:bg-white/90"
           >
@@ -139,6 +155,15 @@ export function ClientsListPage() {
           </button>
         )}
       </div>
+
+      {isImportDialogOpen && (
+        <ImportClientsDialog
+          onClose={() => setIsImportDialogOpen(false)}
+          onImported={() =>
+            void queryClient.invalidateQueries({ queryKey: ['clients'] })
+          }
+        />
+      )}
 
       <div className="overflow-hidden rounded bg-surface">
         <table className="w-full">

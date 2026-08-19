@@ -41,8 +41,8 @@ interface LoanFormProps {
   onClose: () => void;
 }
 
-// One row of the "Conceptos" repeater — a LoanConceptAssignment plus a
-// client-only id (for React keys / stable row identity as rows are
+// One row of the "Cargos adicionales" repeater — a LoanConceptAssignment
+// plus a client-only id (for React keys / stable row identity as rows are
 // added/removed, since two rows could otherwise share the same
 // conceptTypeId+value and be indistinguishable to React).
 interface ConceptRow extends LoanConceptAssignment {
@@ -220,7 +220,8 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
       errors.totalInstallments = 'El número de cuotas debe ser mayor a 0.';
     }
     if (concepts.some((row) => !row.conceptTypeId)) {
-      errors.concepts = 'Selecciona un tipo para cada concepto agregado.';
+      errors.concepts =
+        'Selecciona un tipo para cada cargo adicional agregado.';
     }
     if (hasCoDebtor && !coDebtorFullName.trim()) {
       errors.coDebtorFullName =
@@ -382,69 +383,71 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
 
         <div className="mt-5 border-t border-border" />
 
-        <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-3.5">
-          <Field label="Cliente" error={fieldErrors.clientId}>
-            {selectedClient ? (
-              <div className="flex items-center justify-between rounded border border-border bg-input px-3.5 py-2.5">
-                <span className="text-control text-white">
-                  {selectedClient.firstName} {selectedClient.lastName} · CC{' '}
-                  {selectedClient.documentNumber}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedClient(null);
-                    setFieldErrors((prev) => ({
-                      ...prev,
-                      clientId: undefined,
-                    }));
-                  }}
-                  className="text-meta text-muted hover:text-white"
-                >
-                  Cambiar
-                </button>
-              </div>
-            ) : (
-              <div className="relative">
-                <input
-                  value={clientSearch}
-                  onChange={(event) => setClientSearch(event.target.value)}
-                  placeholder="Buscar cliente por nombre o cédula…"
-                  className={inputClassName(Boolean(fieldErrors.clientId))}
-                />
-                {clientSearch && (clientResults?.items.length ?? 0) > 0 && (
-                  <div className="absolute z-10 mt-1 w-full rounded border border-border bg-input shadow-lg">
-                    {clientResults!.items.slice(0, 5).map((client) => (
-                      <button
-                        key={client.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedClient(client);
-                          setClientSearch('');
-                          setFieldErrors((prev) => ({
-                            ...prev,
-                            clientId: undefined,
-                          }));
-                        }}
-                        className="flex w-full flex-col items-start gap-0.5 px-3.5 py-2 text-left hover:bg-border"
-                      >
-                        <span className="text-control text-white">
-                          {client.firstName} {client.lastName}
-                        </span>
-                        <span className="text-meta text-muted">
-                          CC {client.documentNumber}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </Field>
+        <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-6">
+          <FormSection title="Cliente">
+            <Field label="Cliente" error={fieldErrors.clientId}>
+              {selectedClient ? (
+                <div className="flex items-center justify-between rounded border border-border bg-input px-3.5 py-2.5">
+                  <span className="text-control text-white">
+                    {selectedClient.firstName} {selectedClient.lastName} · CC{' '}
+                    {selectedClient.documentNumber}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedClient(null);
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        clientId: undefined,
+                      }));
+                    }}
+                    className="text-meta text-muted hover:text-white"
+                  >
+                    Cambiar
+                  </button>
+                </div>
+              ) : (
+                <div className="relative">
+                  <input
+                    value={clientSearch}
+                    onChange={(event) => setClientSearch(event.target.value)}
+                    placeholder="Buscar cliente por nombre o cédula…"
+                    className={inputClassName(Boolean(fieldErrors.clientId))}
+                  />
+                  {clientSearch && (clientResults?.items.length ?? 0) > 0 && (
+                    <div className="absolute z-10 mt-1 w-full rounded border border-border bg-input shadow-lg">
+                      {clientResults!.items.slice(0, 5).map((client) => (
+                        <button
+                          key={client.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedClient(client);
+                            setClientSearch('');
+                            setFieldErrors((prev) => ({
+                              ...prev,
+                              clientId: undefined,
+                            }));
+                          }}
+                          className="flex w-full flex-col items-start gap-0.5 px-3.5 py-2 text-left hover:bg-border"
+                        >
+                          <span className="text-control text-white">
+                            {client.firstName} {client.lastName}
+                          </span>
+                          <span className="text-meta text-muted">
+                            CC {client.documentNumber}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </Field>
 
-          {selectedClient && selectedClientDetail && (
-            <ClientCapacityNotice clientDetail={selectedClientDetail} />
-          )}
+            {selectedClient && selectedClientDetail && (
+              <ClientCapacityNotice clientDetail={selectedClientDetail} />
+            )}
+          </FormSection>
 
           {/* Disabled (not hidden) once the selected client is
               mora-blocked — the client asked for this after seeing the
@@ -453,324 +456,307 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
               bottom. Nothing here is fillable until a non-blocked client
               is picked instead. */}
           <fieldset disabled={isMoraBlocked} className="contents">
-            <div className="flex gap-4">
-              <Field
-                label="N° de pagaré"
-                error={fieldErrors.promissoryNoteNumber}
-              >
-                <input
-                  value={promissoryNoteNumber}
-                  onChange={(event) => {
-                    setPromissoryNoteNumber(event.target.value);
-                    setFieldErrors((prev) => ({
-                      ...prev,
-                      promissoryNoteNumber: undefined,
-                    }));
-                  }}
-                  placeholder="Ej: #743"
-                  className={inputClassName(
-                    Boolean(fieldErrors.promissoryNoteNumber),
-                  )}
-                />
-              </Field>
-              <Field
-                label="Tasa de interés moratorio (%)"
-                error={fieldErrors.interestRate}
-              >
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step="0.1"
-                  value={interestRate}
-                  onChange={(event) => {
-                    setInterestRate(event.target.value);
-                    setFieldErrors((prev) => ({
-                      ...prev,
-                      interestRate: undefined,
-                    }));
-                  }}
-                  placeholder="Ej: 6"
-                  className={inputClassName(Boolean(fieldErrors.interestRate))}
-                />
-              </Field>
-            </div>
-
-            <div className="flex gap-4">
-              <Field label="Monto" error={fieldErrors.principalAmount}>
-                <CurrencyInput
-                  value={principalAmount}
-                  onChange={(value) => {
-                    setPrincipalAmount(value);
-                    setFieldErrors((prev) => ({
-                      ...prev,
-                      principalAmount: undefined,
-                    }));
-                    setPreview(null);
-                  }}
-                  placeholder="Ej: $1.500.000"
-                  className={inputClassName(
-                    Boolean(fieldErrors.principalAmount),
-                  )}
-                />
-              </Field>
-              <Field label="N° cuotas" error={fieldErrors.totalInstallments}>
-                <input
-                  type="number"
-                  min={1}
-                  value={totalInstallments}
-                  onChange={(event) => handleCountChange(event.target.value)}
-                  placeholder="Ej: 12"
-                  className={inputClassName(
-                    Boolean(fieldErrors.totalInstallments),
-                  )}
-                />
-              </Field>
-            </div>
-
-            <div className="flex gap-4">
-              <Field
-                label="Fecha de la primera cuota"
-                error={fieldErrors.firstDueDate}
-              >
-                <DatePicker
-                  value={firstDueDate}
-                  onChange={(next) => {
-                    setFirstDueDate(next);
-                    setFieldErrors((prev) => ({
-                      ...prev,
-                      firstDueDate: undefined,
-                    }));
-                    setPreview(null);
-                  }}
-                  className={inputClassName(Boolean(fieldErrors.firstDueDate))}
-                />
-              </Field>
-              <Field label="Periodicidad de cuotas">
-                <select
-                  value={installmentFrequency}
-                  onChange={(event) => {
-                    setInstallmentFrequency(
-                      event.target.value as InstallmentFrequency,
-                    );
-                    setPreview(null);
-                  }}
-                  className={inputClassName(false)}
+            <FormSection title="Datos del crédito">
+              <div className="flex gap-4">
+                <Field
+                  label="N° de pagaré"
+                  error={fieldErrors.promissoryNoteNumber}
                 >
-                  <option value={InstallmentFrequency.Monthly}>Mensual</option>
-                  <option value={InstallmentFrequency.Biweekly}>
-                    Quincenal
-                  </option>
-                </select>
+                  <input
+                    value={promissoryNoteNumber}
+                    onChange={(event) => {
+                      setPromissoryNoteNumber(event.target.value);
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        promissoryNoteNumber: undefined,
+                      }));
+                    }}
+                    placeholder="Ej: #743"
+                    className={inputClassName(
+                      Boolean(fieldErrors.promissoryNoteNumber),
+                    )}
+                  />
+                </Field>
+                <Field
+                  label="Tasa de interés moratorio (%)"
+                  error={fieldErrors.interestRate}
+                >
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.1"
+                    value={interestRate}
+                    onChange={(event) => {
+                      setInterestRate(event.target.value);
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        interestRate: undefined,
+                      }));
+                    }}
+                    placeholder="Ej: 6"
+                    className={inputClassName(
+                      Boolean(fieldErrors.interestRate),
+                    )}
+                  />
+                </Field>
+              </div>
+
+              <div className="flex gap-4">
+                <Field label="Monto" error={fieldErrors.principalAmount}>
+                  <CurrencyInput
+                    value={principalAmount}
+                    onChange={(value) => {
+                      setPrincipalAmount(value);
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        principalAmount: undefined,
+                      }));
+                      setPreview(null);
+                    }}
+                    placeholder="Ej: $1.500.000"
+                    className={inputClassName(
+                      Boolean(fieldErrors.principalAmount),
+                    )}
+                  />
+                </Field>
+                <Field label="N° cuotas" error={fieldErrors.totalInstallments}>
+                  <input
+                    type="number"
+                    min={1}
+                    value={totalInstallments}
+                    onChange={(event) => handleCountChange(event.target.value)}
+                    placeholder="Ej: 12"
+                    className={inputClassName(
+                      Boolean(fieldErrors.totalInstallments),
+                    )}
+                  />
+                </Field>
+              </div>
+
+              <div className="flex gap-4">
+                <Field
+                  label="Fecha de la primera cuota"
+                  error={fieldErrors.firstDueDate}
+                >
+                  <DatePicker
+                    value={firstDueDate}
+                    onChange={(next) => {
+                      setFirstDueDate(next);
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        firstDueDate: undefined,
+                      }));
+                      setPreview(null);
+                    }}
+                    className={inputClassName(
+                      Boolean(fieldErrors.firstDueDate),
+                    )}
+                  />
+                </Field>
+                <Field label="Periodicidad de cuotas">
+                  <select
+                    value={installmentFrequency}
+                    onChange={(event) => {
+                      setInstallmentFrequency(
+                        event.target.value as InstallmentFrequency,
+                      );
+                      setPreview(null);
+                    }}
+                    className={inputClassName(false)}
+                  >
+                    <option value={InstallmentFrequency.Monthly}>
+                      Mensual
+                    </option>
+                    <option value={InstallmentFrequency.Biweekly}>
+                      Quincenal
+                    </option>
+                  </select>
+                </Field>
+              </div>
+            </FormSection>
+
+            <FormSection title="Cargos adicionales y cronograma">
+              <Field label="Cargos adicionales" error={fieldErrors.concepts}>
+                <div className="flex flex-col gap-2">
+                  {concepts.length === 0 && (
+                    <p className="text-meta text-muted">
+                      Sin cargos adicionales — el préstamo se financiará solo
+                      con capital. La tasa moratoria de arriba es aparte y solo
+                      aplica si una cuota queda vencida.
+                    </p>
+                  )}
+                  {concepts.map((row) => (
+                    <div key={row.rowId} className="flex items-center gap-2">
+                      <Select
+                        value={row.conceptTypeId}
+                        onChange={(conceptTypeId) => {
+                          const type = conceptTypes?.find(
+                            (c) => c.id === conceptTypeId,
+                          );
+                          updateConceptRow(row.rowId, {
+                            conceptTypeId,
+                            calculationType:
+                              type?.defaultCalculationType ??
+                              row.calculationType,
+                            value: type?.defaultValue ?? row.value,
+                          });
+                        }}
+                        options={conceptTypeOptions}
+                        className="flex-1"
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={row.value}
+                        onChange={(event) =>
+                          updateConceptRow(row.rowId, {
+                            value: parseFloat(event.target.value) || 0,
+                          })
+                        }
+                        placeholder={
+                          row.calculationType ===
+                          ConceptCalculationType.Percentage
+                            ? '%'
+                            : '$'
+                        }
+                        className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeConceptRow(row.rowId)}
+                        className="text-meta text-muted hover:text-red-400"
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                  ))}
+                  <div className="mt-1 flex items-center gap-4">
+                    <ChipButton onClick={addConceptRow}>
+                      <PlusIcon />
+                      Agregar cargo
+                    </ChipButton>
+                    <ChipButton onClick={() => setShowNewConceptTypeForm(true)}>
+                      <PlusIcon />
+                      Crear nuevo tipo
+                    </ChipButton>
+                  </div>
+                </div>
               </Field>
-            </div>
 
-            <Field
-              label="Conceptos de interés / cargos"
-              error={fieldErrors.concepts}
-            >
-              <div className="flex flex-col gap-2">
-                {concepts.length === 0 && (
-                  <p className="text-meta text-muted">
-                    Sin conceptos — el préstamo se financiará solo con capital
-                    (sin intereses ni cargos).
-                  </p>
-                )}
-                {concepts.map((row) => (
-                  <div key={row.rowId} className="flex items-center gap-2">
-                    <Select
-                      value={row.conceptTypeId}
-                      onChange={(conceptTypeId) => {
-                        const type = conceptTypes?.find(
-                          (c) => c.id === conceptTypeId,
-                        );
-                        updateConceptRow(row.rowId, {
-                          conceptTypeId,
-                          calculationType:
-                            type?.defaultCalculationType ?? row.calculationType,
-                          value: type?.defaultValue ?? row.value,
-                        });
-                      }}
-                      options={conceptTypeOptions}
-                      className="flex-1"
-                    />
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={row.value}
-                      onChange={(event) =>
-                        updateConceptRow(row.rowId, {
-                          value: parseFloat(event.target.value) || 0,
-                        })
-                      }
-                      placeholder={
-                        row.calculationType ===
-                        ConceptCalculationType.Percentage
-                          ? '%'
-                          : '$'
-                      }
-                      className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeConceptRow(row.rowId)}
-                      className="text-meta text-muted hover:text-red-400"
+              {count > 0 && (
+                <div className="rounded border border-border bg-input p-3">
+                  <div className="flex items-center justify-between">
+                    <ChipButton
+                      onClick={handlePreview}
+                      disabled={previewSchedule.isPending}
                     >
-                      Quitar
-                    </button>
+                      {previewSchedule.isPending
+                        ? 'Calculando…'
+                        : 'Previsualizar cronograma de cuotas'}
+                    </ChipButton>
                   </div>
-                ))}
-                <div className="mt-1 flex items-center gap-4">
-                  <button
-                    type="button"
-                    onClick={addConceptRow}
-                    className="flex items-center gap-1 text-meta text-muted hover:text-white"
-                  >
-                    {/* An SVG instead of a literal "+" character — the
-                        glyph rendered visibly clipped at this size. */}
-                    <svg
-                      className="size-2.5 shrink-0"
-                      viewBox="0 0 20 20"
-                      fill="none"
-                      stroke="currentColor"
-                    >
-                      <path
-                        d="M10 4v12M4 10h12"
-                        strokeWidth="1.75"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    Agregar concepto
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowNewConceptTypeForm(true)}
-                    className="flex items-center gap-1 text-meta text-muted hover:text-white"
-                  >
-                    <svg
-                      className="size-2.5 shrink-0"
-                      viewBox="0 0 20 20"
-                      fill="none"
-                      stroke="currentColor"
-                    >
-                      <path
-                        d="M10 4v12M4 10h12"
-                        strokeWidth="1.75"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    Crear nuevo tipo
-                  </button>
-                </div>
-              </div>
-            </Field>
-
-            <Field label="Cuota inicial (opcional)">
-              <CurrencyInput
-                value={initialPayment}
-                onChange={setInitialPayment}
-                placeholder="Ej: $200.000"
-                className={inputClassName(false)}
-              />
-              <span className="mt-1 text-meta text-muted">
-                Valor que el cliente ya pagó por fuera del crédito para cubrir
-                parte de la compra — es solo informativo, no hace parte de las
-                cuotas ni afecta el cronograma.
-              </span>
-            </Field>
-
-            {count > 0 && (
-              <div className="rounded border border-border bg-input p-3">
-                <div className="flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={handlePreview}
-                    disabled={previewSchedule.isPending}
-                    className="text-meta font-medium text-white hover:text-mid"
-                  >
-                    {previewSchedule.isPending
-                      ? 'Calculando…'
-                      : 'Previsualizar cronograma de cuotas'}
-                  </button>
-                </div>
-                {preview && (
-                  <div className="mt-2.5 max-h-[180px] overflow-y-auto">
-                    <table className="w-full text-meta">
-                      <thead>
-                        <tr className="text-muted">
-                          <th className="pb-1 text-left font-normal">Cuota</th>
-                          <th className="pb-1 text-left font-normal">Vence</th>
-                          <th className="pb-1 text-right font-normal">
-                            Capital
-                          </th>
-                          <th className="pb-1 text-right font-normal">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {preview.installments.map((installment) => (
-                          <tr
-                            key={installment.installmentNumber}
-                            className="text-white"
-                          >
-                            <td className="py-0.5">
-                              {installment.installmentNumber}
-                            </td>
-                            <td className="py-0.5">
-                              {formatDateOnly(installment.dueDate)}
-                            </td>
-                            <td className="py-0.5 text-right">
-                              {formatCurrency(installment.principalPortion)}
-                            </td>
-                            <td className="py-0.5 text-right font-medium">
-                              {formatCurrency(installment.amount)}
-                            </td>
+                  {preview && (
+                    <div className="mt-2.5 max-h-[180px] overflow-y-auto">
+                      <table className="w-full text-meta">
+                        <thead>
+                          <tr className="text-muted">
+                            <th className="pb-1 text-left font-normal">
+                              Cuota
+                            </th>
+                            <th className="pb-1 text-left font-normal">
+                              Vence
+                            </th>
+                            <th className="pb-1 text-right font-normal">
+                              Capital
+                            </th>
+                            <th className="pb-1 text-right font-normal">
+                              Total
+                            </th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                {preview?.usuryWarning && (
-                  <p className="mt-2.5 text-meta text-red-400" role="alert">
-                    Este cronograma supera la tasa de usura vigente (
-                    {preview.usuryWarning.maxEffectiveInstallmentRate}% vs.{' '}
-                    {preview.usuryWarning.currentCeilingRate}% permitido). El
-                    préstamo puede crearse igual, pero considera dejar una
-                    justificación abajo.
-                  </p>
-                )}
-              </div>
-            )}
+                        </thead>
+                        <tbody>
+                          {preview.installments.map((installment) => (
+                            <tr
+                              key={installment.installmentNumber}
+                              className="text-white"
+                            >
+                              <td className="py-0.5">
+                                {installment.installmentNumber}
+                              </td>
+                              <td className="py-0.5">
+                                {formatDateOnly(installment.dueDate)}
+                              </td>
+                              <td className="py-0.5 text-right">
+                                {formatCurrency(installment.principalPortion)}
+                              </td>
+                              <td className="py-0.5 text-right font-medium">
+                                {formatCurrency(installment.amount)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {preview?.usuryWarning && (
+                    <p className="mt-2.5 text-meta text-red-400" role="alert">
+                      Este cronograma supera la tasa de usura vigente (
+                      {preview.usuryWarning.maxEffectiveInstallmentRate}% vs.{' '}
+                      {preview.usuryWarning.currentCeilingRate}% permitido). El
+                      préstamo puede crearse igual, pero considera dejar una
+                      justificación abajo.
+                    </p>
+                  )}
+                </div>
+              )}
 
-            {preview?.usuryWarning && (
-              <Field label="Justificación de la tasa de usura (opcional)">
+              {preview?.usuryWarning && (
+                <Field label="Justificación de la tasa de usura (opcional)">
+                  <textarea
+                    value={usuryJustification}
+                    onChange={(event) =>
+                      setUsuryJustification(event.target.value)
+                    }
+                    placeholder="Ej: Cliente antiguo, aprobado por el dueño."
+                    rows={2}
+                    className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
+                  />
+                </Field>
+              )}
+            </FormSection>
+
+            <FormSection title="Detalles adicionales">
+              <Field label="Cuota inicial (opcional)">
+                <CurrencyInput
+                  value={initialPayment}
+                  onChange={setInitialPayment}
+                  placeholder="Ej: $200.000"
+                  className={inputClassName(false)}
+                />
+                <span className="mt-1 text-meta text-muted">
+                  Valor que el cliente ya pagó por fuera del crédito para cubrir
+                  parte de la compra — es solo informativo, no hace parte de las
+                  cuotas ni afecta el cronograma.
+                </span>
+              </Field>
+
+              <Field label="Descripción (opcional)">
                 <textarea
-                  value={usuryJustification}
-                  onChange={(event) =>
-                    setUsuryJustification(event.target.value)
-                  }
-                  placeholder="Ej: Cliente antiguo, aprobado por el dueño."
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  placeholder="Ej: Compra de electrodoméstico…"
                   rows={2}
+                  // Not inputClassName(false) — that has a fixed h-[42px] meant
+                  // for single-line inputs, which fights with rows={2} and
+                  // squeezes the placeholder text with no vertical padding.
+                  // py-2.5 instead lets the textarea size itself naturally,
+                  // matching MessageTemplateForm.tsx's textarea.
                   className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
                 />
               </Field>
-            )}
-
-            <Field label="Descripción (opcional)">
-              <textarea
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder="Ej: Compra de electrodoméstico…"
-                rows={2}
-                // Not inputClassName(false) — that has a fixed h-[42px] meant
-                // for single-line inputs, which fights with rows={2} and
-                // squeezes the placeholder text with no vertical padding.
-                // py-2.5 instead lets the textarea size itself naturally,
-                // matching MessageTemplateForm.tsx's textarea.
-                className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
-              />
-            </Field>
+            </FormSection>
 
             {/* Phase 21 — optional, off by default. See
                 docs/phasesClient/PHASE_21_CLIENT_PROFILE.md. */}
@@ -991,5 +977,67 @@ function Field({ label, error, children }: FieldProps) {
         </span>
       )}
     </div>
+  );
+}
+
+// Mirrors ClientForm.tsx's FormSection exactly — same fix, same reason:
+// the client reported this form's field labels (10px, muted) all read as
+// one undifferentiated wall of text with no way to tell where one group of
+// fields ends and the next begins. A bold, larger, underlined header per
+// group (reusing the same `text-label` token ClientDetailPage.tsx's
+// "PRÉSTAMOS"/"HISTORIAL DE MENSAJES" headers use) gives each an actual
+// title.
+function FormSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-3.5">
+      <span className="border-b border-border pb-1.5 text-label font-semibold tracking-[0.36px] text-white">
+        {title.toUpperCase()}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+// Same chip treatment ClientForm.tsx's "+ Agregar referencia" fix
+// introduced — a bordered, backgrounded button instead of bare colored
+// text sitting right next to plain muted body copy, which made it easy to
+// miss as an actual clickable action.
+function ChipButton({
+  onClick,
+  disabled,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex items-center gap-1.5 self-start rounded border border-border bg-input px-3.5 py-2 text-small text-muted hover:border-subtle hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {children}
+    </button>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      className="size-3.5 shrink-0"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+    >
+      <path d="M10 4v12M4 10h12" strokeWidth="1.75" strokeLinecap="round" />
+    </svg>
   );
 }
