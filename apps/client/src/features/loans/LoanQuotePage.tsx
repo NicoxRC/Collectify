@@ -210,12 +210,11 @@ export function LoanQuotePage() {
             />
           </Field>
 
-          <Field label="Conceptos de interés / cargos">
+          <Field label="Cargos adicionales">
             <div className="flex flex-col gap-2">
               {concepts.length === 0 && (
                 <p className="text-meta text-muted">
-                  Sin conceptos — se cotizará solo el capital, sin intereses ni
-                  cargos.
+                  Sin cargos adicionales — se cotizará solo el capital.
                 </p>
               )}
               {concepts.map((row) => (
@@ -262,21 +261,15 @@ export function LoanQuotePage() {
                   </button>
                 </div>
               ))}
-              <div className="mt-1 flex items-center gap-4">
-                <button
-                  type="button"
-                  onClick={addConceptRow}
-                  className="text-meta text-muted hover:text-white"
-                >
-                  + Agregar concepto
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowNewConceptTypeForm(true)}
-                  className="text-meta text-muted hover:text-white"
-                >
-                  + Crear nuevo tipo
-                </button>
+              <div className="mt-1 flex items-center gap-3">
+                <ChipButton onClick={addConceptRow}>
+                  <PlusIcon />
+                  Agregar cargo
+                </ChipButton>
+                <ChipButton onClick={() => setShowNewConceptTypeForm(true)}>
+                  <PlusIcon />
+                  Crear nuevo tipo
+                </ChipButton>
               </div>
             </div>
           </Field>
@@ -403,6 +396,43 @@ function Field({
       </span>
       {children}
     </div>
+  );
+}
+
+// Same chip treatment as LoanForm.tsx/RefinanceLoanForm.tsx — a bordered,
+// backgrounded button instead of bare colored text, which made these easy
+// to miss as actual clickable actions.
+function ChipButton({
+  onClick,
+  disabled,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex items-center gap-1.5 self-start rounded border border-border bg-input px-3.5 py-2 text-small text-muted hover:border-subtle hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {children}
+    </button>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      className="size-3.5 shrink-0"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+    >
+      <path d="M10 4v12M4 10h12" strokeWidth="1.75" strokeLinecap="round" />
+    </svg>
   );
 }
 
