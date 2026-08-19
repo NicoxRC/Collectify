@@ -12,6 +12,7 @@ import { ClientsListPage } from '@/features/clients/ClientsListPage';
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { InterestConceptTypesPage } from '@/features/interestConceptTypes/InterestConceptTypesPage';
 import { LoanDetailPage } from '@/features/loans/LoanDetailPage';
+import { LoanQuotePage } from '@/features/loans/LoanQuotePage';
 import { LoansListPage } from '@/features/loans/LoansListPage';
 import { MessageLogsPage } from '@/features/messageLogs/MessageLogsPage';
 import { MessageTemplatesPage } from '@/features/messageTemplates/MessageTemplatesPage';
@@ -55,6 +56,16 @@ export const router = createBrowserRouter([
           {
             path: 'prestamos/:id',
             element: <LoanDetailPage />,
+          },
+          {
+            // No admin/module gate — deliberately open to every
+            // authenticated user, confirmed with the human (2026-08-18):
+            // this is a stateless calculator that touches no client data
+            // and persists nothing, so it carries none of the risk "Crear
+            // préstamo" does. See
+            // docs/phasesClient/PHASE_14_INTEREST_CONCEPTS.md.
+            path: 'cotizador',
+            element: <LoanQuotePage />,
           },
           {
             path: 'mensajes',

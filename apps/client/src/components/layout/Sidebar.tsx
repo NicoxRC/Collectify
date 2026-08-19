@@ -30,6 +30,11 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Clientes', to: '/clientes' },
   { label: 'Préstamos', to: '/prestamos' },
   { label: 'Mensajes', to: '/mensajes' },
+  // Phase 14's "amortizador proyector" — open to every role, same as the
+  // three items above, since it's a stateless calculator with no client
+  // data and nothing persisted. See
+  // docs/phasesClient/PHASE_14_INTEREST_CONCEPTS.md.
+  { label: 'Cotizador', to: '/cotizador' },
   { label: 'Plantillas', to: '/plantillas', module: 'message_templates' },
   {
     label: 'Conceptos de interés',
