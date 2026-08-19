@@ -1,6 +1,6 @@
 import { CallHandler, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { firstValueFrom, of, throwError } from 'rxjs';
+import { firstValueFrom, Observable, of, throwError } from 'rxjs';
 
 import { AuditLogInterceptor } from './auditLog.interceptor';
 import { AuditLogService } from './auditLog.service';
@@ -26,9 +26,11 @@ describe('AuditLogInterceptor', () => {
     } as unknown as ExecutionContext;
   };
 
-  const buildCallHandler = (
-    observable: ReturnType<typeof of>,
-  ): CallHandler => ({
+  // Explicitly Observable<unknown>, not ReturnType<typeof of> — of() is
+  // overloaded, and TS resolves ReturnType against its last (zero-arg)
+  // overload, Observable<never>, which then rejects every real call site
+  // below (each passes an Observable of some concrete object shape).
+  const buildCallHandler = (observable: Observable<unknown>): CallHandler => ({
     handle: () => observable,
   });
 
