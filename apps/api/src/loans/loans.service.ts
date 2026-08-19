@@ -191,8 +191,25 @@ export class LoansService {
     private readonly dataSource: DataSource,
   ) {}
 
-  async create(dto: CreateLoanDto): Promise<LoanDetail> {
-    await this.assertClientCanTakeNewLoan(dto.clientId, dto.principalAmount);
+  // skipCreditCheck: false by default (the interactive "Crear préstamo"
+  // flow, via LoansController). ClientLoanImportService is the one caller
+  // that sets it true, for its "modo histórico" — bulk-loading a past
+  // loan book shouldn't be blocked by a mora/cupo state that no longer
+  // reflects reality (the loan already happened). "Modo normal" import
+  // leaves this false, so it's rejected exactly like a manually-created
+  // loan would be. Mirrors ClientsService.create's CreateClientOptions
+  // pattern. Note this only ever touches the mora/cupo guard below — the
+  // promissory-note-uniqueness and usury-ceiling checks always run
+  // regardless of mode: the first is a hard data-integrity constraint,
+  // the second has never been a hard block for anyone (see
+  // buildUsuryWarning).
+  async create(
+    dto: CreateLoanDto,
+    options: { skipCreditCheck?: boolean } = {},
+  ): Promise<LoanDetail> {
+    if (!options.skipCreditCheck) {
+      await this.assertClientCanTakeNewLoan(dto.clientId, dto.principalAmount);
+    }
 
     // Transactional — persistLoanWithInstallments is three sequential
     // saves (loan, then installments, then concept rows); without this, a
