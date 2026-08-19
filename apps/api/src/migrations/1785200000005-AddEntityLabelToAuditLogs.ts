@@ -9,9 +9,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 // than the frontend trying to re-derive it later — the record it refers
 // to may have since changed (or been soft-deleted), so the label needs to
 // reflect what it looked like at the moment the action happened.
-export class AddEntityLabelToAuditLogs1785200000005
-  implements MigrationInterface
-{
+export class AddEntityLabelToAuditLogs1785200000005 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       ALTER TABLE "audit_logs"

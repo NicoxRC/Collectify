@@ -137,7 +137,9 @@ export class AuditLogInterceptor implements NestInterceptor {
             withDeleted: true,
           });
           return client
-            ? this.formatClientLabel(client as unknown as Record<string, unknown>)
+            ? this.formatClientLabel(
+                client as unknown as Record<string, unknown>,
+              )
             : null;
         }
         return null;
@@ -181,7 +183,8 @@ export class AuditLogInterceptor implements NestInterceptor {
   }
 
   private formatClientLabel(client: Record<string, unknown>): string {
-    const firstName = typeof client.firstName === 'string' ? client.firstName : '';
+    const firstName =
+      typeof client.firstName === 'string' ? client.firstName : '';
     const lastName = typeof client.lastName === 'string' ? client.lastName : '';
     const documentNumber =
       typeof client.documentNumber === 'string' ? client.documentNumber : null;

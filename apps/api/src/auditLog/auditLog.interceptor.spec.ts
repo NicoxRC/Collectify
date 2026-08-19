@@ -16,7 +16,8 @@ import { AuditLogService } from './auditLog.service';
 // tests that assert on `record` need to flush the microtask/macrotask
 // queue first. Fire-and-forget code is still fire-and-forget in
 // production (nothing here changes that); this is purely a test concern.
-const flushPromises = () => new Promise<void>((resolve) => setImmediate(resolve));
+const flushPromises = () =>
+  new Promise<void>((resolve) => setImmediate(resolve));
 
 describe('AuditLogInterceptor', () => {
   let interceptor: AuditLogInterceptor;
@@ -389,7 +390,11 @@ describe('AuditLogInterceptor', () => {
       });
       const context = buildContext({ user: { id: 'admin-1' }, params: {} });
       const handler = buildCallHandler(
-        of({ id: 'rate-1', ratePercentage: 28.5, effectiveMonth: '2026-08-01' }),
+        of({
+          id: 'rate-1',
+          ratePercentage: 28.5,
+          effectiveMonth: '2026-08-01',
+        }),
       );
 
       await firstValueFrom(interceptor.intercept(context, handler));
