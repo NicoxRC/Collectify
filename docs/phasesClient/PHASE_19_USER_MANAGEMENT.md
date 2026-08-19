@@ -11,20 +11,20 @@ Build the admin panel for managing company (collector/admin) user accounts — c
 ## Scope
 
 ### Data layer
-- [ ] `usersApi.ts` — `getAll(query)`, `create(dto)`, `deactivate(id)`, `reactivate(id)`, matching the existing `UsersController` endpoints.
-- [ ] `useUsers.ts` hooks (TanStack Query), mirroring `useClients.ts`.
+- [x] `usersApi.ts` — `getAll(query)`, `create(dto)`, `deactivate(id)`, `reactivate(id)`, matching the existing `UsersController` endpoints.
+- [x] `useUsers.ts` hooks (TanStack Query), mirroring `useClients.ts`.
 
 ### Pages and components
-- [ ] `features/users/UsersListPage.tsx` — list with Activos/Inactivos tabs, closely mirroring `ClientsListPage.tsx`.
-- [ ] `UserForm.tsx` — create dialog (name, email, role, password), mirroring `ClientForm.tsx`'s structure.
-- [ ] `UserRow.tsx` — deactivate/reactivate row actions, mirroring `ClientRow.tsx` (including the same "Sin acciones disponibles → row action" fix pattern used in Phase 10 for clients).
-- [ ] New route `/usuarios`, `RequireRole allowedRoles={['admin']}`, same pattern as `/plantillas`.
-- [ ] Sidebar nav entry, admin only — `Sidebar.tsx` already has a comment noting this item is missing from the implemented nav.
+- [x] `features/users/UsersListPage.tsx` — list with Activos/Inactivos tabs, closely mirroring `ClientsListPage.tsx`. No search or pagination controls: `QueryUsersDto` only supports `isActive`, and a company user list is expected to stay small.
+- [x] `UserForm.tsx` — create dialog (name, email, role, password), mirroring `ClientForm.tsx`'s structure. Create-only, unlike `ClientForm.tsx` — the backend has no `PATCH /users/:id` to edit an existing account, only deactivate/reactivate.
+- [x] `UserRow.tsx` — deactivate/reactivate row actions, mirroring `ClientRow.tsx`. The logged-in admin's own row shows "Tu cuenta" instead of a Desactivar action (client-side mirror of `UsersService.deactivate`'s server-side "cannot deactivate your own account" rule, avoiding a guaranteed-400 request). A confirm dialog (`DeactivateUserDialog.tsx`, mirroring `DeactivateClientDialog.tsx`) gates the actual deactivation.
+- [x] New route `/usuarios`, `RequireRole allowedRoles={['admin']}`, same pattern as `/plantillas`.
+- [x] Sidebar nav entry ("Usuarios"), admin only.
 
 ## Definition of done for this phase
 
-- An admin can create, deactivate, and reactivate collector/admin accounts entirely through the panel, with no direct API access needed.
-- All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
+- [x] An admin can create, deactivate, and reactivate collector/admin accounts entirely through the panel, with no direct API access needed.
+- [x] All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## Related documents
 
