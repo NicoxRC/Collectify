@@ -14,6 +14,12 @@ export interface AuditLog {
   action: string;
   entityType: string;
   entityId: string | null;
+  // Human-readable snapshot of the specific record — "Juana Pérez (CC
+  // 1234567890)", "Pagaré #743" — resolved once at write time by the
+  // backend's AuditLogInterceptor and frozen, not re-derived from the
+  // live record on read. Null for an entityType with no labeling rule
+  // yet, or an entity the backend couldn't resolve enough fields for.
+  entityLabel: string | null;
   metadata: Record<string, unknown> | null;
   createdAt: string;
 }

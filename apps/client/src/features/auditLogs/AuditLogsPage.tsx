@@ -4,6 +4,10 @@ import { Header } from '@/components/layout/Header';
 import { DatePicker } from '@/components/ui/DatePicker';
 import { Select } from '@/components/ui/Select';
 import { AuditLogDrawer } from '@/features/auditLogs/AuditLogDrawer';
+import {
+  formatAuditAction,
+  formatAuditEntityType,
+} from '@/features/auditLogs/auditLogLabels';
 import { useAuditLogs } from '@/features/auditLogs/useAuditLogs';
 
 import type { AuditLog } from '@/features/auditLogs/auditLogsApi';
@@ -146,10 +150,22 @@ export function AuditLogsPage() {
             {entries.map((entry) => (
               <tr key={entry.id} className="border-t border-border">
                 <Td>{entry.actorUser?.fullName ?? '—'}</Td>
-                <Td className="text-muted">{entry.action}</Td>
+                {/* Was raw "client.create" — meaningless at a glance to
+                    anyone who isn't reading the backend's @Audit()
+                    decorators. See auditLogLabels.ts. */}
                 <Td className="text-muted">
-                  {entry.entityType}
-                  {entry.entityId ? ` · ${entry.entityId.slice(0, 8)}` : ''}
+                  {formatAuditAction(entry.action)}
+                </Td>
+                {/* entityLabel ("Juana Pérez (CC 123456)", "Pagaré
+                    #743") is what actually answers "which one?" — the
+                    entityType alone just says which module. Falls back
+                    to the old entityType + short id when no label could
+                    be resolved (see AuditLog.entityLabel). */}
+                <Td className="text-muted">
+                  {entry.entityLabel ??
+                    `${formatAuditEntityType(entry.entityType)}${
+                      entry.entityId ? ` · ${entry.entityId.slice(0, 8)}` : ''
+                    }`}
                 </Td>
                 <Td className="text-muted">
                   {new Date(entry.createdAt).toLocaleString('es-CO', {
