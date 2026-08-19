@@ -72,6 +72,7 @@ export interface Client {
   documentType: DocumentType | null;
   dateOfBirth: string | null;
   documentIssuePlace: string | null;
+  documentIssueDate: string | null;
   email: string | null;
   alternatePhoneNumber: string | null;
   homeAddress: string | null;
@@ -146,6 +147,7 @@ export interface CreateClientInput {
   documentType?: DocumentType;
   dateOfBirth?: string;
   documentIssuePlace?: string;
+  documentIssueDate?: string;
   email?: string;
   alternatePhoneNumber?: string;
   homeAddress?: string;

@@ -10,6 +10,12 @@ interface SelectProps {
   onChange: (value: string) => void;
   options: SelectOption[];
   className?: string;
+  // Shown in place of a label when no option is selected — same role as
+  // a native <select>'s disabled first option, or DatePicker.tsx's own
+  // `placeholder` prop. Without this, an unselected required Select (e.g.
+  // ClientForm's "Tipo de documento") just renders blank, which reads as
+  // broken rather than empty-and-required.
+  placeholder?: string;
 }
 
 // Replaces a native <select> — the browser draws a native <select>'s
@@ -24,6 +30,7 @@ export function Select({
   onChange,
   options,
   className = '',
+  placeholder,
 }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -63,7 +70,7 @@ export function Select({
         onClick={() => setIsOpen((current) => !current)}
         className="flex h-[38px] w-full items-center justify-between gap-2 rounded bg-input px-3 text-small text-muted focus:outline-none"
       >
-        <span className="truncate">{selected?.label ?? ''}</span>
+        <span className="truncate">{selected?.label ?? placeholder ?? ''}</span>
         <svg
           className={`size-3 shrink-0 text-muted transition-transform ${isOpen ? 'rotate-180' : ''}`}
           viewBox="0 0 20 20"
