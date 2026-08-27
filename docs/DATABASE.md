@@ -445,6 +445,26 @@ Added Phase 15 — Colombia's legal usury ceiling, certified monthly by the Supe
 
 `UsuryRateService.getCurrentRate()` returns the most recent row plus a computed `isStale` flag (true when that row's `effective_month` isn't the current calendar month) — not stored, since the SFC's publication date isn't a fixed day (see the phase doc's domain research).
 
+### `whatsapp_inbound_messages`
+
+Added Phase 22 — append-only, one row per inbound WhatsApp event Meta's webhook delivers (a template quick-reply button tap or free text a client sends in), whether or not it matched a known client. See `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `client_id` | UUID, nullable | FK → `clients.id`, `ON DELETE SET NULL` — an inbound message from a phone number that matches no client is still logged, never dropped. `SET NULL` (not `RESTRICT`) since this is historical record of an event, not a reference that should block a client's own soft-delete. |
+| `from_phone_number` | VARCHAR | as received from Meta, before normalization — see below |
+| `type` | ENUM (`button`, `text`, `other`) | `button` covers both a template's quick-reply tap (Meta's `type: "button"` payload shape) and a session interactive `button_reply` (`type: "interactive"`) — both normalize to the same row shape here. `other` is anything not yet handled (e.g. a sticker), kept rather than dropped. |
+| `button_payload` | VARCHAR, nullable | the button's `payload`/`id`, only set when `type = 'button'` |
+| `body_text` | TEXT, nullable | the message body for `text`, or the button's display text for `button` |
+| `raw_payload` | JSONB | the full webhook POST body, for debugging/replay |
+| `received_at` | TIMESTAMPTZ | from Meta's own `timestamp` field on the message; falls back to server time if that's missing/malformed |
+| `created_at` | TIMESTAMPTZ | append-only, no `updated_at`/`deleted_at` — same convention as `message_logs` |
+
+**Phone number matching:** Meta sends the sender's number without a leading `+` (e.g. `573001234567`); `clients.phone_number` is stored E.164 with one (e.g. `+573001234567`). `client_id` is resolved by prepending `+` when absent, then matching against `clients.phone_number` exactly — see `normalizeIncomingPhoneNumber` in `apps/api/src/whatsapp/webhook/`.
+
+**What's not yet built:** the button-flow/"menu" catalog that would turn a button tap into an automatic triggered action, whether an inbound signal persists as a standing client preference, and any automated handling of unprompted free text beyond logging it — all explicitly blocked on open questions with the human, see `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md`.
+
 ## Refinancing
 
 When a loan is refinanced:
@@ -538,6 +558,13 @@ npm run migration:revert
 - `loans` gained an optional co-debtor (codeudor): `co_debtor_full_name`, `co_debtor_document_type`, `co_debtor_document_number`, `co_debtor_phone_number`, `co_debtor_address`, `co_debtor_relationship`, `co_debtor_id_document_url`. Belongs to the loan rather than the client because whether a given loan has one varies per loan; at most one per loan. See "`loans`" above.
 - The pagaré-photo field proposed early in this phase's design was discarded — not implemented, not present in any table.
 - Legal basis and reasoning: Ley Estatutaria 1581 de 2012 + Decreto 1377 de 2013 ("Habeas Data"). The business owner is the "responsable del tratamiento"; this software is at most an "encargado" acting on instruction. The client's own authorization must happen physically/in person — the `data_processing_consent` checkbox in the app is staff-entered evidence that the physical authorization occurred, not the authorization itself, and sensitive/biometric data (`selfie_image_url`) is never made mandatory anywhere in the app, per the law's own restriction on conditioning any activity on a titular supplying sensitive data. See `docs/phases/PHASE_21_CLIENT_PROFILE.md` for the full decision log.
+
+## Added in Phase 22
+
+- `whatsapp_inbound_messages` — Collectify's first inbound WhatsApp capability, a webhook that receives what clients send back instead of only ever sending. See "`whatsapp_inbound_messages`" above.
+- Two new env vars: `META_WHATSAPP_WEBHOOK_VERIFY_TOKEN` (Meta's handshake token) and `META_WHATSAPP_APP_SECRET` (signs `X-Hub-Signature-256`) — see `ENVIRONMENT_VARIABLES.md`.
+- `GET`/`POST /api/v1/whatsapp/webhook` — the one deliberate `@Public()` exception in the `whatsapp` module; the API's global JSON-response envelope (`{success,data}`) is bypassed on the `GET` handshake's success path only, since Meta requires the bare `hub.challenge` string back.
+- Only the not-blocked half of the phase shipped — the button-flow catalog, preference persistence, and any automated reply logic remain open questions, not yet built. See `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md`.
 
 ## Related documents
 
