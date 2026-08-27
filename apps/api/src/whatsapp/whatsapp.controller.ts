@@ -28,6 +28,7 @@ import { MessageType } from './messageType.enum';
 import { OverdueReminderService } from './overdueReminder.service';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
 import { QueryWhatsappInboundMessagesDto } from './webhook/dto/queryWhatsappInboundMessages.dto';
+import { ReplyToInboundMessageDto } from './webhook/dto/replyToInboundMessage.dto';
 import { WhatsappWebhookService } from './webhook/whatsappWebhook.service';
 import { WhatsappCronService } from './whatsappCron.service';
 
@@ -59,6 +60,26 @@ export class WhatsappController {
     @Query() query: QueryWhatsappInboundMessagesDto,
   ): Promise<PaginatedResult<WhatsappInboundMessage>> {
     return this.whatsappWebhookService.findAll(query);
+  }
+
+  @Post('inbound-messages/reply')
+  @ApiOperation({
+    summary: 'Manually reply to an inbound WhatsApp conversation (admin only)',
+    description:
+      'Sends a free-form session message — valid because the recipient already messaged in, opening the 24h window. Not tied to any template. See docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md\'s "Noted for later" section — this is the manual-reply half of that, ahead of the full human-handoff/queue flow.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Returns whether the send actually succeeded.',
+  })
+  async replyToInboundMessage(
+    @Body() dto: ReplyToInboundMessageDto,
+  ): Promise<{ sent: boolean }> {
+    const sent = await this.whatsappWebhookService.sendManualReply(
+      dto.phoneNumber,
+      dto.message,
+    );
+    return { sent };
   }
 
   @Get('cron/:type/status')
@@ -159,5 +180,24 @@ export class WhatsappController {
   @ApiResponse({ status: 404, description: 'Client not found.' })
   sendAccountSummary(@Param('clientId') clientId: string): Promise<MessageLog> {
     return this.accountSummaryService.sendAccountSummary(clientId);
+  }
+
+  @Post('clients/:clientId/send-test-menu')
+  @ApiOperation({
+    summary:
+      'Send the TEST-ONLY numbered menu (1/2) to one client (admin only)',
+    description:
+      'Plain text, not a real Meta-approved template — lets an admin kick off a manual test of the "1 = hablar con humano / 2 = recibir cuotas" flow. Only reaches the client if a 24h session window is already open. See the TEST_MENU_MESSAGE doc comment in WhatsappWebhookService.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Returns whether the send actually succeeded.',
+  })
+  @ApiResponse({ status: 404, description: 'Client not found.' })
+  async sendTestMenu(
+    @Param('clientId') clientId: string,
+  ): Promise<{ sent: boolean }> {
+    const sent = await this.whatsappWebhookService.sendTestMenu(clientId);
+    return { sent };
   }
 }

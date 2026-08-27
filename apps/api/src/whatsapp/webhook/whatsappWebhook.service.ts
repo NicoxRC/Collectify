@@ -1,6 +1,11 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, ILike, Repository } from 'typeorm';
@@ -8,7 +13,9 @@ import { FindOptionsWhere, ILike, Repository } from 'typeorm';
 import { Client } from '../../clients/entities/client.entity';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
 import { Configuration } from '../../config/configuration';
+import { AccountSummaryService } from '../accountSummary.service';
 import { WhatsappInboundMessage } from '../entities/whatsappInboundMessage.entity';
+import { WhatsAppService } from '../whatsapp.service';
 
 import { QueryWhatsappInboundMessagesDto } from './dto/queryWhatsappInboundMessages.dto';
 import {
@@ -22,6 +29,32 @@ const HUB_SUBSCRIBE_MODE = 'subscribe';
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 
+// TEST-ONLY menu, requested directly by the human (2026-08-27) to exercise
+// the inbox before the real button-flow/"menu" catalog exists — see the
+// still-open "how many menus" question in
+// docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md. Not the real menu system: no
+// catalog, no admin config, just one hardcoded numeric reply that
+// auto-triggers the existing account-summary send. Option "1" ("hablar con
+// humano") has no server-side effect at all — the frontend enables the
+// reply box purely by scanning the thread for a "1" message, see
+// WhatsappInboundMessagesPage.tsx. Rip this whole thing out once the real
+// catalog ships.
+const TEST_MENU_ACCOUNT_SUMMARY_OPTION = '2';
+
+// The outbound half of the same test scaffolding — a plain text message
+// (not a real, Meta-approved template) an admin can send from the client's
+// page to kick off a manual test of the flow above. Sent as a free-form
+// session message, so it only reaches the client if a 24h window is
+// already open (they messaged in recently) — same limitation as
+// sendManualReply.
+const TEST_MENU_MESSAGE = [
+  '¿En qué podemos ayudarte?',
+  '1. Hablar con un humano',
+  '2. Recibir el desglose de tus cuotas',
+  '',
+  'Responde con el número de la opción.',
+].join('\n');
+
 @Injectable()
 export class WhatsappWebhookService {
   private readonly logger = new Logger(WhatsappWebhookService.name);
@@ -33,6 +66,8 @@ export class WhatsappWebhookService {
     @InjectRepository(Client)
     private readonly clientsRepository: Repository<Client>,
     private readonly whatsappInboundGateway: WhatsappInboundGateway,
+    private readonly whatsAppService: WhatsAppService,
+    private readonly accountSummaryService: AccountSummaryService,
   ) {}
 
   // Meta's one-time verification handshake — echoes hub.challenge back only
@@ -163,5 +198,61 @@ export class WhatsappWebhookService {
     // merges both sources into the same list/cache, so they need to look
     // the same.
     this.whatsappInboundGateway.emitInboundMessage({ ...saved, client });
+
+    await this.maybeTriggerTestMenuAction(event, client);
+  }
+
+  // See the TEST_MENU_ACCOUNT_SUMMARY_OPTION doc comment above — this whole
+  // method is test scaffolding, not the real menu-driven action resolution
+  // the phase doc describes. Never lets a failed send break webhook
+  // processing; logs and moves on, same as the rest of this service.
+  private async maybeTriggerTestMenuAction(
+    event: ParsedInboundEvent,
+    client: Client | null,
+  ): Promise<void> {
+    if (
+      !client ||
+      event.bodyText?.trim() !== TEST_MENU_ACCOUNT_SUMMARY_OPTION
+    ) {
+      return;
+    }
+
+    try {
+      await this.accountSummaryService.sendAccountSummary(client.id);
+    } catch (error) {
+      this.logger.warn(
+        `Test-menu account-summary trigger failed for client ${client.id}`,
+        error,
+      );
+    }
+  }
+
+  // Manual reply from the panel — a free-form session message, valid
+  // within the 24h window the client's own inbound message opened. See
+  // POST /whatsapp/inbound-messages/reply.
+  async sendManualReply(
+    rawPhoneNumber: string,
+    message: string,
+  ): Promise<boolean> {
+    return this.whatsAppService.sendTextMessage(
+      normalizeIncomingPhoneNumber(rawPhoneNumber),
+      message,
+    );
+  }
+
+  // See TEST_MENU_MESSAGE's doc comment — the "send the test menu" button
+  // on ClientDetailPage. Same free-form-session limitation as
+  // sendManualReply: only actually reaches the client if they've messaged
+  // in within the last 24h.
+  async sendTestMenu(clientId: string): Promise<boolean> {
+    const client = await this.clientsRepository.findOneBy({ id: clientId });
+    if (!client) {
+      throw new NotFoundException(`Client with id ${clientId} not found`);
+    }
+
+    return this.whatsAppService.sendTextMessage(
+      client.phoneNumber,
+      TEST_MENU_MESSAGE,
+    );
   }
 }

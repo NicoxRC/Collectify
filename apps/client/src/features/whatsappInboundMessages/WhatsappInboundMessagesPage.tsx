@@ -1,9 +1,13 @@
 import { useMemo, useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
-import { useWhatsappInboundMessages } from '@/features/whatsappInboundMessages/useWhatsappInboundMessages';
+import {
+  useReplyToInboundMessage,
+  useWhatsappInboundMessages,
+} from '@/features/whatsappInboundMessages/useWhatsappInboundMessages';
 import { useWhatsappInboundSocket } from '@/features/whatsappInboundMessages/useWhatsappInboundSocket';
 import { WhatsappInboundMessageType } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
+import { ApiError } from '@/lib/apiClient';
 import { formatPhoneNumber } from '@/lib/format';
 
 import type { WhatsappInboundMessage } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
@@ -18,12 +22,19 @@ import type { ReactNode } from 'react';
 // Updates live via useWhatsappInboundSocket instead of needing a manual
 // refresh.
 //
-// Deliberately still read-only and still the "not blocked" floor: no
-// reply box, no "claim conversation"/human-handoff UI, no button-flow
-// auto-answers — those depend on the menu catalog and the still-open
-// questions in docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md. This is
-// groundwork (grouping + real-time) built ahead of that, at the human's
-// explicit request.
+// TEST-ONLY menu (requested directly by the human, 2026-08-27, to exercise
+// this page before the real button-flow/"menu" catalog exists — see
+// docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md's open questions): a client
+// replying "1" ("hablar con humano") unlocks the reply box below for that
+// conversation — purely by this page scanning the thread for that exact
+// text, no backend flag involved. Replying "2" auto-triggers the existing
+// account-summary send server-side (WhatsappWebhookService). This is NOT
+// the real menu system — no catalog, no admin config — and a sent reply
+// is only kept in this page's local state (lost on refresh), since replies
+// aren't persisted as MessageLog rows yet. Rip this out once the real
+// catalog + human-handoff flow are actually scoped.
+const TEST_MENU_HUMAN_OPTION = '1';
+
 const MESSAGE_FETCH_LIMIT = 100;
 
 const TYPE_LABELS: Record<WhatsappInboundMessageType, string> = {
@@ -95,11 +106,45 @@ function messagePreview(message: WhatsappInboundMessage): string {
   );
 }
 
+// A reply sent from this page — kept in local state only (see the
+// TEST-ONLY menu comment above), not fetched from the server.
+interface LocalReply {
+  id: string;
+  message: string;
+  sentAt: string;
+}
+
+type ThreadItem =
+  | { direction: 'inbound'; sentAt: string; message: WhatsappInboundMessage }
+  | { direction: 'outbound'; sentAt: string; reply: LocalReply };
+
+function buildThreadItems(
+  conversation: Conversation,
+  localReplies: LocalReply[],
+): ThreadItem[] {
+  const inbound: ThreadItem[] = conversation.messages.map((message) => ({
+    direction: 'inbound',
+    sentAt: message.receivedAt,
+    message,
+  }));
+  const outbound: ThreadItem[] = localReplies.map((reply) => ({
+    direction: 'outbound',
+    sentAt: reply.sentAt,
+    reply,
+  }));
+  return [...inbound, ...outbound].sort(
+    (a, b) => new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime(),
+  );
+}
+
 export function WhatsappInboundMessagesPage() {
   useWhatsappInboundSocket();
 
   const [search, setSearch] = useState('');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [localRepliesByKey, setLocalRepliesByKey] = useState<
+    Record<string, LocalReply[]>
+  >({});
 
   const { data, isLoading, isError } = useWhatsappInboundMessages({
     search: search || undefined,
@@ -115,6 +160,20 @@ export function WhatsappInboundMessagesPage() {
     conversations.find((conversation) => conversation.key === selectedKey) ??
     conversations[0] ??
     null;
+
+  function handleReplySent(conversationKey: string, message: string) {
+    setLocalRepliesByKey((current) => ({
+      ...current,
+      [conversationKey]: [
+        ...(current[conversationKey] ?? []),
+        {
+          id: `${Date.now()}-${Math.random()}`,
+          message,
+          sentAt: new Date().toISOString(),
+        },
+      ],
+    }));
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -155,7 +214,13 @@ export function WhatsappInboundMessagesPage() {
 
         <div className="flex-1 overflow-y-auto p-5">
           {selectedConversation ? (
-            <ConversationThread conversation={selectedConversation} />
+            <ConversationThread
+              conversation={selectedConversation}
+              localReplies={localRepliesByKey[selectedConversation.key] ?? []}
+              onReplySent={(message) =>
+                handleReplySent(selectedConversation.key, message)
+              }
+            />
           ) : (
             !isLoading && (
               <p className="text-small text-muted">
@@ -209,9 +274,22 @@ function ConversationListItem({
   );
 }
 
-function ConversationThread({ conversation }: { conversation: Conversation }) {
+function ConversationThread({
+  conversation,
+  localReplies,
+  onReplySent,
+}: {
+  conversation: Conversation;
+  localReplies: LocalReply[];
+  onReplySent: (message: string) => void;
+}) {
+  const humanReplyEnabled = conversation.messages.some(
+    (message) => message.bodyText?.trim() === TEST_MENU_HUMAN_OPTION,
+  );
+  const threadItems = buildThreadItems(conversation, localReplies);
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex h-full flex-col gap-4">
       <div className="border-b border-border pb-3">
         <p className="text-small font-medium text-white">
           {conversation.displayName}
@@ -221,11 +299,24 @@ function ConversationThread({ conversation }: { conversation: Conversation }) {
         </p>
       </div>
 
-      <div className="flex flex-col gap-3">
-        {conversation.messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
-        ))}
+      <div className="flex flex-1 flex-col gap-3">
+        {threadItems.map((item) =>
+          item.direction === 'inbound' ? (
+            <MessageBubble key={item.message.id} message={item.message} />
+          ) : (
+            <ReplyBubble key={item.reply.id} reply={item.reply} />
+          ),
+        )}
       </div>
+
+      {humanReplyEnabled ? (
+        <ReplyBox phoneNumber={conversation.phoneNumber} onSent={onReplySent} />
+      ) : (
+        <p className="text-meta text-subtle">
+          El cliente todavía no pidió hablar con un humano (opción "1") — la
+          respuesta manual se habilita cuando lo hace.
+        </p>
+      )}
     </div>
   );
 }
@@ -245,6 +336,91 @@ function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
         </span>
       </div>
       <p className="text-small text-white">{messagePreview(message)}</p>
+    </div>
+  );
+}
+
+// Right-aligned, distinct color — the admin's own reply, not something the
+// client sent. Local-only (see the TEST-ONLY menu comment at the top of
+// this file), so it disappears on refresh — it's not fetched from the
+// server.
+function ReplyBubble({ reply }: { reply: LocalReply }) {
+  return (
+    <div className="ml-auto flex max-w-[480px] flex-col gap-1 rounded-lg bg-white/10 px-3.5 py-2.5">
+      <div className="flex items-center gap-2">
+        <span className="rounded-[3px] border border-border bg-surface px-1.5 py-0.5 text-meta text-muted">
+          Tú
+        </span>
+        <span className="text-meta text-subtle">
+          {new Date(reply.sentAt).toLocaleString('es-CO', {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+          })}
+        </span>
+      </div>
+      <p className="text-small text-white">{reply.message}</p>
+    </div>
+  );
+}
+
+function ReplyBox({
+  phoneNumber,
+  onSent,
+}: {
+  phoneNumber: string;
+  onSent: (message: string) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const replyMutation = useReplyToInboundMessage();
+
+  function handleSend() {
+    const message = draft.trim();
+    if (!message) return;
+
+    replyMutation.mutate(
+      { phoneNumber, message },
+      {
+        onSuccess: () => {
+          onSent(message);
+          setDraft('');
+        },
+      },
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5 border-t border-border pt-3">
+      {replyMutation.isError && (
+        <p className="text-meta text-red-400" role="alert">
+          {replyMutation.error instanceof ApiError
+            ? replyMutation.error.message
+            : 'No se pudo enviar la respuesta.'}
+        </p>
+      )}
+      {replyMutation.isSuccess && replyMutation.data === false && (
+        <p className="text-meta text-red-400" role="alert">
+          WhatsApp no confirmó el envío — revisá las credenciales de Meta.
+        </p>
+      )}
+      <div className="flex items-center gap-2">
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') handleSend();
+          }}
+          placeholder="Escribí una respuesta…"
+          className="h-[38px] flex-1 rounded bg-input px-3 text-small text-white placeholder-mid focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={handleSend}
+          disabled={replyMutation.isPending || !draft.trim()}
+          className="h-[38px] rounded bg-white px-4 text-small font-medium text-background disabled:opacity-50"
+        >
+          {replyMutation.isPending ? 'Enviando…' : 'Enviar'}
+        </button>
+      </div>
     </div>
   );
 }

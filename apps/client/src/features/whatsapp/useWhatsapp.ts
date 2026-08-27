@@ -79,3 +79,11 @@ export function useSendAccountSummary() {
       queryClient.invalidateQueries({ queryKey: ['messageLogs'] }),
   });
 }
+
+// TEST-ONLY — see whatsappApi.sendTestMenu's doc comment. No MessageLog
+// row is created, so there's no messageLogs cache to invalidate here.
+export function useSendTestMenu() {
+  return useMutation({
+    mutationFn: whatsappApi.sendTestMenu,
+  });
+}
