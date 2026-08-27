@@ -215,14 +215,16 @@ Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_25_REFI
 
 **Exit criteria:** a loan with overdue installments can be refinanced, and the new principal correctly folds in capital plus both kinds of interest already caused.
 
-## Phase 26 — Co-debtor as a linked client
+## Phase 26 — Co-debtor as a linked client, required client fields
 
-Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_26_CODEBTOR_CLIENT.md`. Replaces Phase 21's flat `co_debtor_*` columns on `Loan`.
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_26_CODEBTOR_CLIENT.md`. Co-debtor replaces Phase 21's flat `co_debtor_*` columns on `Loan`; the required-fields bundle below applies to every interactive client creation, including one made to attach as a co-debtor. Two bundles merged into one phase.
 
 - A co-debtor must already exist as a `Client` record before being attached to a loan — no more free-text co-debtor fields entered inline at loan creation
 - A loan references its co-debtor via a client relationship instead of duplicated flat columns
+- `document_number` (cédula) becomes required on interactive client creation
+- At least one address field becomes required on interactive client creation
 
-**Exit criteria:** attaching a co-debtor to a loan means picking an existing client, not typing their details from scratch.
+**Exit criteria:** attaching a co-debtor to a loan means picking an existing client, not typing their details from scratch; a client can't be created interactively without a cédula and at least one address, matching Phase 21's existing exemption for Excel imports.
 
 ## Phase 27 — Personalized messaging frequency (replaces message audiences)
 
@@ -280,15 +282,6 @@ Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_32_UI_F
 - "Cotizador" is renamed to "Proyector rápido"
 
 **Exit criteria:** each listed bug/annoyance is fixed with no change to any financial calculation.
-
-## Phase 33 — Required client fields
-
-Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_33_CLIENT_REQUIRED_FIELDS.md`.
-
-- `document_number` (cédula) becomes required on interactive client creation
-- At least one address field becomes required on interactive client creation
-
-**Exit criteria:** a client can't be created interactively without a cédula and at least one address, matching Phase 21's existing exemption for Excel imports.
 
 ---
 
