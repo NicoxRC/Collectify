@@ -16,6 +16,7 @@ import {
   ParsedInboundEvent,
 } from './extractInboundEvents';
 import { normalizeIncomingPhoneNumber } from './normalizeIncomingPhoneNumber';
+import { WhatsappInboundGateway } from './whatsappInbound.gateway';
 
 const HUB_SUBSCRIBE_MODE = 'subscribe';
 const DEFAULT_PAGE = 1;
@@ -31,6 +32,7 @@ export class WhatsappWebhookService {
     private readonly inboundMessagesRepository: Repository<WhatsappInboundMessage>,
     @InjectRepository(Client)
     private readonly clientsRepository: Repository<Client>,
+    private readonly whatsappInboundGateway: WhatsappInboundGateway,
   ) {}
 
   // Meta's one-time verification handshake — echoes hub.challenge back only
@@ -155,6 +157,11 @@ export class WhatsappWebhookService {
       receivedAt: event.receivedAt,
     });
 
-    await this.inboundMessagesRepository.save(inboundMessage);
+    const saved = await this.inboundMessagesRepository.save(inboundMessage);
+    // Attach the already-resolved client so the pushed payload matches
+    // findAll()'s shape (relations: { client: true }) — the frontend
+    // merges both sources into the same list/cache, so they need to look
+    // the same.
+    this.whatsappInboundGateway.emitInboundMessage({ ...saved, client });
   }
 }

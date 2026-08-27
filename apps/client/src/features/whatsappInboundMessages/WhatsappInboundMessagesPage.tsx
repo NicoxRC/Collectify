@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
-import { Select } from '@/components/ui/Select';
 import { useWhatsappInboundMessages } from '@/features/whatsappInboundMessages/useWhatsappInboundMessages';
+import { useWhatsappInboundSocket } from '@/features/whatsappInboundMessages/useWhatsappInboundSocket';
 import { WhatsappInboundMessageType } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
 import { formatPhoneNumber } from '@/lib/format';
 
@@ -10,18 +10,21 @@ import type { WhatsappInboundMessage } from '@/features/whatsappInboundMessages/
 import type { ReactNode } from 'react';
 
 // No Figma frame for this phase (docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md /
-// docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md) — built reusing
-// AuditLogsPage.tsx's exact skeleton (filters row, paginated table, no
-// per-row detail drawer needed here since a message's full content already
-// fits in one column). Admin-only, same treatment as Auditoría/Tasa de
-// usura/Usuarios.
+// docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md). Redesigned from a flat
+// table (one row per message) to a conversation inbox — one entry per
+// contact, opened into a chat-style thread — matching how every real
+// messaging inbox does this (WhatsApp itself, Intercom, Chatwoot, Front):
+// nobody wants a table that grows one row per event from the same person.
+// Updates live via useWhatsappInboundSocket instead of needing a manual
+// refresh.
 //
-// Deliberately read-only: this is the "not blocked" floor from the phase
-// doc. No button-flow/"menu" management UI, no preference/opt-out UI, no
-// automated-reply UI — all of that is blocked on open questions the human
-// asked to leave open. A button tap shows up here exactly like free text,
-// with no indication anything was (or should have been) triggered by it.
-type TypeFilter = 'all' | WhatsappInboundMessageType;
+// Deliberately still read-only and still the "not blocked" floor: no
+// reply box, no "claim conversation"/human-handoff UI, no button-flow
+// auto-answers — those depend on the menu catalog and the still-open
+// questions in docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md. This is
+// groundwork (grouping + real-time) built ahead of that, at the human's
+// explicit request.
+const MESSAGE_FETCH_LIMIT = 100;
 
 const TYPE_LABELS: Record<WhatsappInboundMessageType, string> = {
   [WhatsappInboundMessageType.Button]: 'Botón',
@@ -29,18 +32,55 @@ const TYPE_LABELS: Record<WhatsappInboundMessageType, string> = {
   [WhatsappInboundMessageType.Other]: 'Otro',
 };
 
-const TYPE_FILTER_OPTIONS = [
-  { value: 'all', label: 'Todos los tipos' },
-  ...Object.values(WhatsappInboundMessageType).map((type) => ({
-    value: type,
-    label: TYPE_LABELS[type],
-  })),
-];
+interface Conversation {
+  key: string; // clientId when matched, otherwise the raw phone number
+  displayName: string;
+  phoneNumber: string;
+  messages: WhatsappInboundMessage[]; // chronological — oldest first
+  lastMessage: WhatsappInboundMessage;
+}
 
-// Meta sends the sender's number without a leading "+" (see
-// apps/api/src/whatsapp/webhook/normalizeIncomingPhoneNumber.ts);
-// formatPhoneNumber expects the E.164 "+57..." shape, so this mirrors that
-// same normalization for display only.
+// Groups the flat, newest-first message list into one conversation per
+// contact. Purely client-side for now: with MESSAGE_FETCH_LIMIT covering
+// every message received so far, a dedicated backend "conversations"
+// aggregation endpoint isn't justified yet — revisit once volume actually
+// requires server-side pagination per conversation, not per message.
+function groupIntoConversations(
+  messages: WhatsappInboundMessage[],
+): Conversation[] {
+  const byKey = new Map<string, WhatsappInboundMessage[]>();
+
+  for (const message of messages) {
+    const key = message.clientId ?? message.fromPhoneNumber;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.push(message);
+    } else {
+      byKey.set(key, [message]);
+    }
+  }
+
+  const conversations: Conversation[] = [];
+  for (const [key, groupMessages] of byKey) {
+    const lastMessage = groupMessages[0];
+    conversations.push({
+      key,
+      displayName: lastMessage.client
+        ? `${lastMessage.client.firstName} ${lastMessage.client.lastName}`
+        : 'Número no reconocido',
+      phoneNumber: lastMessage.fromPhoneNumber,
+      messages: [...groupMessages].reverse(),
+      lastMessage,
+    });
+  }
+
+  return conversations.sort(
+    (a, b) =>
+      new Date(b.lastMessage.receivedAt).getTime() -
+      new Date(a.lastMessage.receivedAt).getTime(),
+  );
+}
+
 function formatSenderPhoneNumber(fromPhoneNumber: string): string {
   const withPlus = fromPhoneNumber.startsWith('+')
     ? fromPhoneNumber
@@ -48,168 +88,168 @@ function formatSenderPhoneNumber(fromPhoneNumber: string): string {
   return formatPhoneNumber(withPlus);
 }
 
+function messagePreview(message: WhatsappInboundMessage): string {
+  return (
+    message.bodyText ??
+    (message.buttonPayload ? `Botón: ${message.buttonPayload}` : '—')
+  );
+}
+
 export function WhatsappInboundMessagesPage() {
+  useWhatsappInboundSocket();
+
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
-  const [page, setPage] = useState(1);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useWhatsappInboundMessages({
     search: search || undefined,
-    type: typeFilter === 'all' ? undefined : typeFilter,
-    page,
+    limit: MESSAGE_FETCH_LIMIT,
   });
 
-  const messages = data?.items ?? [];
-  const meta = data?.meta;
+  const conversations = useMemo(
+    () => groupIntoConversations(data?.items ?? []),
+    [data],
+  );
+
+  const selectedConversation =
+    conversations.find((conversation) => conversation.key === selectedKey) ??
+    conversations[0] ??
+    null;
 
   return (
     <div className="flex flex-col gap-5">
       <Header
         title="Mensajes entrantes"
-        subtitle="Botones tocados y mensajes de texto que los clientes enviaron"
+        subtitle="Botones tocados y mensajes de texto que los clientes enviaron — se actualiza en vivo"
       />
 
-      <div className="flex h-10 items-center gap-3">
-        <Select
-          value={typeFilter}
-          onChange={(next) => {
-            setTypeFilter(next as TypeFilter);
-            setPage(1);
-          }}
-          options={TYPE_FILTER_OPTIONS}
-          className="w-[190px]"
+      <div className="flex h-[38px] w-[280px] items-center gap-2 rounded bg-input px-3">
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Buscar cliente…"
+          className="w-full bg-transparent text-small text-white placeholder-mid focus:outline-none"
         />
-
-        <div className="flex h-[38px] w-[220px] items-center gap-2 rounded bg-input px-3">
-          <input
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-            }}
-            placeholder="Buscar cliente…"
-            className="w-full bg-transparent text-small text-white placeholder-mid focus:outline-none"
-          />
-        </div>
       </div>
 
-      <div className="overflow-hidden rounded bg-surface">
-        <table className="w-full">
-          <thead className="bg-input">
-            <tr>
-              <Th>Remitente</Th>
-              <Th>Cliente</Th>
-              <Th>Tipo</Th>
-              <Th>Contenido</Th>
-              <Th>Fecha recibido</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && <EmptyRow>Cargando…</EmptyRow>}
-            {isError && (
-              <EmptyRow tone="error">
-                No se pudieron cargar los mensajes entrantes.
-              </EmptyRow>
-            )}
-            {!isLoading && !isError && messages.length === 0 && (
-              <EmptyRow>No hay mensajes entrantes todavía.</EmptyRow>
-            )}
-            {messages.map((message) => (
-              <MessageRow key={message.id} message={message} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {meta && meta.total > 0 && (
-        <div className="flex h-8 items-center justify-between">
-          <p className="text-label text-muted">
-            Mostrando {messages.length} de {meta.total} mensajes
-          </p>
-          <div className="flex items-center gap-1">
-            <PageButton
-              disabled={page <= 1}
-              onClick={() => setPage((current) => current - 1)}
-            >
-              ←
-            </PageButton>
-            {Array.from(
-              { length: meta.totalPages },
-              (_, index) => index + 1,
-            ).map((pageNumber) => (
-              <PageButton
-                key={pageNumber}
-                isActive={pageNumber === page}
-                onClick={() => setPage(pageNumber)}
-              >
-                {pageNumber}
-              </PageButton>
-            ))}
-            <PageButton
-              disabled={page >= meta.totalPages}
-              onClick={() => setPage((current) => current + 1)}
-            >
-              →
-            </PageButton>
-          </div>
+      <div className="flex h-[70vh] overflow-hidden rounded bg-surface">
+        <div className="flex w-[300px] shrink-0 flex-col overflow-y-auto border-r border-border">
+          {isLoading && <SidebarMessage>Cargando…</SidebarMessage>}
+          {isError && (
+            <SidebarMessage tone="error">
+              No se pudieron cargar los mensajes entrantes.
+            </SidebarMessage>
+          )}
+          {!isLoading && !isError && conversations.length === 0 && (
+            <SidebarMessage>No hay mensajes entrantes todavía.</SidebarMessage>
+          )}
+          {conversations.map((conversation) => (
+            <ConversationListItem
+              key={conversation.key}
+              conversation={conversation}
+              isActive={conversation.key === selectedConversation?.key}
+              onClick={() => setSelectedKey(conversation.key)}
+            />
+          ))}
         </div>
-      )}
+
+        <div className="flex-1 overflow-y-auto p-5">
+          {selectedConversation ? (
+            <ConversationThread conversation={selectedConversation} />
+          ) : (
+            !isLoading && (
+              <p className="text-small text-muted">
+                Elegí una conversación para ver los mensajes.
+              </p>
+            )
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
-function MessageRow({ message }: { message: WhatsappInboundMessage }) {
-  const content =
-    message.bodyText ??
-    (message.buttonPayload ? `Botón: ${message.buttonPayload}` : '—');
-
-  return (
-    <tr className="border-t border-border">
-      <Td className="text-muted">
-        {formatSenderPhoneNumber(message.fromPhoneNumber)}
-      </Td>
-      <Td>
-        {message.client
-          ? `${message.client.firstName} ${message.client.lastName}`
-          : 'Número no reconocido'}
-      </Td>
-      <Td className="text-muted">{TYPE_LABELS[message.type]}</Td>
-      <Td className="max-w-[320px] truncate text-muted">{content}</Td>
-      <Td className="text-muted">
-        {new Date(message.receivedAt).toLocaleString('es-CO', {
-          dateStyle: 'medium',
-          timeStyle: 'short',
-        })}
-      </Td>
-    </tr>
-  );
-}
-
-function Th({ children }: { children: ReactNode }) {
-  return (
-    <th className="h-[38px] px-3.5 text-left text-label font-medium tracking-[0.36px] text-muted">
-      {children}
-    </th>
-  );
-}
-
-function Td({
-  children,
-  className = '',
+function ConversationListItem({
+  conversation,
+  isActive,
+  onClick,
 }: {
-  children: ReactNode;
-  className?: string;
+  conversation: Conversation;
+  isActive: boolean;
+  onClick: () => void;
 }) {
   return (
-    <td
-      className={`h-11 px-3.5 text-small font-medium text-white ${className}`}
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex flex-col gap-1 border-b border-border px-4 py-3 text-left ${
+        isActive ? 'bg-input' : 'hover:bg-input/50'
+      }`}
     >
-      {children}
-    </td>
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-small font-medium text-white">
+          {conversation.displayName}
+        </span>
+        <span className="shrink-0 text-meta text-subtle">
+          {new Date(conversation.lastMessage.receivedAt).toLocaleDateString(
+            'es-CO',
+            { day: '2-digit', month: '2-digit' },
+          )}
+        </span>
+      </div>
+      <span className="truncate text-meta text-muted">
+        {messagePreview(conversation.lastMessage)}
+      </span>
+      {conversation.messages.length > 1 && (
+        <span className="text-meta text-subtle">
+          {conversation.messages.length} mensajes
+        </span>
+      )}
+    </button>
   );
 }
 
-function EmptyRow({
+function ConversationThread({ conversation }: { conversation: Conversation }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="border-b border-border pb-3">
+        <p className="text-small font-medium text-white">
+          {conversation.displayName}
+        </p>
+        <p className="text-meta text-muted">
+          {formatSenderPhoneNumber(conversation.phoneNumber)}
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {conversation.messages.map((message) => (
+          <MessageBubble key={message.id} message={message} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MessageBubble({ message }: { message: WhatsappInboundMessage }) {
+  return (
+    <div className="flex max-w-[480px] flex-col gap-1 rounded-lg bg-input px-3.5 py-2.5">
+      <div className="flex items-center gap-2">
+        <span className="rounded-[3px] border border-border bg-surface px-1.5 py-0.5 text-meta text-muted">
+          {TYPE_LABELS[message.type]}
+        </span>
+        <span className="text-meta text-subtle">
+          {new Date(message.receivedAt).toLocaleString('es-CO', {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+          })}
+        </span>
+      </div>
+      <p className="text-small text-white">{messagePreview(message)}</p>
+    </div>
+  );
+}
+
+function SidebarMessage({
   children,
   tone = 'muted',
 }: {
@@ -217,40 +257,10 @@ function EmptyRow({
   tone?: 'muted' | 'error';
 }) {
   return (
-    <tr>
-      <td
-        colSpan={5}
-        className={`p-6 text-center text-small ${tone === 'error' ? 'text-red-400' : 'text-muted'}`}
-      >
-        {children}
-      </td>
-    </tr>
-  );
-}
-
-function PageButton({
-  children,
-  onClick,
-  isActive = false,
-  disabled = false,
-}: {
-  children: ReactNode;
-  onClick: () => void;
-  isActive?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`rounded px-2.5 py-1.5 text-label ${
-        isActive
-          ? 'bg-border font-medium text-white'
-          : 'bg-input text-muted disabled:opacity-40'
-      }`}
+    <p
+      className={`p-4 text-small ${tone === 'error' ? 'text-red-400' : 'text-muted'}`}
     >
       {children}
-    </button>
+    </p>
   );
 }

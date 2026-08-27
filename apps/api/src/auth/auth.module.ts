@@ -37,5 +37,10 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: ModulePermissionsGuard },
   ],
+  // JwtModule exported for WhatsappInboundGateway (WhatsappModule), which
+  // verifies a socket connection's access token by hand — Socket.IO's
+  // handshake never goes through JwtAuthGuard/Passport. See
+  // docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md.
+  exports: [JwtModule],
 })
 export class AuthModule {}

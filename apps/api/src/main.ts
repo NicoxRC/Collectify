@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module';
+import { SocketIoAdapter } from './common/adapters/socketIo.adapter';
 import { HttpExceptionFilter } from './common/filters/httpException.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { Configuration } from './config/configuration';
@@ -21,6 +22,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api/v1');
 
   app.enableCors({ origin: clientUrl });
+  app.useWebSocketAdapter(new SocketIoAdapter(app, clientUrl));
 
   app.useGlobalPipes(
     new ValidationPipe({

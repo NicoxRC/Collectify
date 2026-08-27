@@ -11,6 +11,7 @@ import {
   WhatsappInboundMessageType,
 } from '../entities/whatsappInboundMessage.entity';
 
+import { WhatsappInboundGateway } from './whatsappInbound.gateway';
 import { WhatsappWebhookService } from './whatsappWebhook.service';
 
 const APP_SECRET = 'test-app-secret';
@@ -29,6 +30,7 @@ describe('WhatsappWebhookService', () => {
   };
   let clientsRepository: { findOneBy: jest.Mock };
   let configGet: jest.Mock;
+  let whatsappInboundGateway: { emitInboundMessage: jest.Mock };
 
   beforeEach(async () => {
     inboundMessagesRepository = {
@@ -41,6 +43,7 @@ describe('WhatsappWebhookService', () => {
       webhookVerifyToken: VERIFY_TOKEN,
       appSecret: APP_SECRET,
     });
+    whatsappInboundGateway = { emitInboundMessage: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -51,6 +54,10 @@ describe('WhatsappWebhookService', () => {
           useValue: inboundMessagesRepository,
         },
         { provide: getRepositoryToken(Client), useValue: clientsRepository },
+        {
+          provide: WhatsappInboundGateway,
+          useValue: whatsappInboundGateway,
+        },
       ],
     }).compile();
 
@@ -162,6 +169,12 @@ describe('WhatsappWebhookService', () => {
       expect(inboundMessagesRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ clientId: 'client-1' }),
       );
+      expect(whatsappInboundGateway.emitInboundMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clientId: 'client-1',
+          client: { id: 'client-1' },
+        }),
+      );
     });
 
     it('persists with clientId null when the phone number matches no client', async () => {
@@ -182,6 +195,7 @@ describe('WhatsappWebhookService', () => {
         service.handleIncomingPayload({ entry: 'not-an-array' }),
       ).resolves.toBeUndefined();
       expect(inboundMessagesRepository.save).not.toHaveBeenCalled();
+      expect(whatsappInboundGateway.emitInboundMessage).not.toHaveBeenCalled();
     });
   });
 
