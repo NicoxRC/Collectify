@@ -22,6 +22,11 @@ export interface WhatsappConfig {
   phoneNumberId: string;
   accessToken: string;
   businessAccountId: string;
+  // Phase 22 — inbound webhook. webhookVerifyToken is checked against
+  // Meta's hub.verify_token handshake; appSecret signs
+  // X-Hub-Signature-256. See docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md.
+  webhookVerifyToken: string;
+  appSecret: string;
 }
 
 export interface CronConfig {
@@ -67,6 +72,8 @@ export default (): Configuration => ({
     phoneNumberId: process.env.META_WHATSAPP_PHONE_NUMBER_ID ?? '',
     accessToken: process.env.META_WHATSAPP_ACCESS_TOKEN ?? '',
     businessAccountId: process.env.META_WHATSAPP_BUSINESS_ACCOUNT_ID ?? '',
+    webhookVerifyToken: process.env.META_WHATSAPP_WEBHOOK_VERIFY_TOKEN ?? '',
+    appSecret: process.env.META_WHATSAPP_APP_SECRET ?? '',
   },
   cron: {
     overdueReminderExpression: process.env.OVERDUE_REMINDER_CRON ?? '0 9 * * 1',
