@@ -22,7 +22,11 @@ function signBody(body: Buffer): string {
 
 describe('WhatsappWebhookService', () => {
   let service: WhatsappWebhookService;
-  let inboundMessagesRepository: { create: jest.Mock; save: jest.Mock };
+  let inboundMessagesRepository: {
+    create: jest.Mock;
+    save: jest.Mock;
+    findAndCount: jest.Mock;
+  };
   let clientsRepository: { findOneBy: jest.Mock };
   let configGet: jest.Mock;
 
@@ -30,6 +34,7 @@ describe('WhatsappWebhookService', () => {
     inboundMessagesRepository = {
       create: jest.fn((data: Record<string, unknown>) => data),
       save: jest.fn((data: Record<string, unknown>) => Promise.resolve(data)),
+      findAndCount: jest.fn(),
     };
     clientsRepository = { findOneBy: jest.fn() };
     configGet = jest.fn().mockReturnValue({
@@ -177,6 +182,93 @@ describe('WhatsappWebhookService', () => {
         service.handleIncomingPayload({ entry: 'not-an-array' }),
       ).resolves.toBeUndefined();
       expect(inboundMessagesRepository.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('findAll', () => {
+    it('returns a paginated result with default page/limit', async () => {
+      inboundMessagesRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      const result = await service.findAll({});
+
+      expect(inboundMessagesRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {},
+          relations: { client: true },
+          order: { receivedAt: 'DESC' },
+          skip: 0,
+          take: 20,
+        }),
+      );
+      expect(result.meta).toEqual({
+        page: 1,
+        limit: 20,
+        total: 0,
+        totalPages: 0,
+      });
+    });
+
+    it('filters by clientId and type', async () => {
+      inboundMessagesRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.findAll({
+        clientId: 'client-1',
+        type: WhatsappInboundMessageType.Button,
+      });
+
+      expect(inboundMessagesRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            clientId: 'client-1',
+            type: WhatsappInboundMessageType.Button,
+          },
+        }),
+      );
+    });
+
+    it("builds an OR search across the matched client's first/last name", async () => {
+      inboundMessagesRepository.findAndCount.mockResolvedValue([[], 0]);
+
+      await service.findAll({ search: 'Juana' });
+
+      expect(inboundMessagesRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: [
+            {
+              client: {
+                firstName: expect.objectContaining({
+                  _type: 'ilike',
+                  _value: '%Juana%',
+                }) as unknown,
+              },
+            },
+            {
+              client: {
+                lastName: expect.objectContaining({
+                  _type: 'ilike',
+                  _value: '%Juana%',
+                }) as unknown,
+              },
+            },
+          ],
+        }),
+      );
+    });
+
+    it('paginates using the requested page and limit', async () => {
+      inboundMessagesRepository.findAndCount.mockResolvedValue([[], 45]);
+
+      const result = await service.findAll({ page: 3, limit: 10 });
+
+      expect(inboundMessagesRepository.findAndCount).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 20, take: 10 }),
+      );
+      expect(result.meta).toEqual({
+        page: 3,
+        limit: 10,
+        total: 45,
+        totalPages: 5,
+      });
     });
   });
 });
