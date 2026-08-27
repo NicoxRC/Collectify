@@ -1,0 +1,182 @@
+import { createHmac } from 'crypto';
+
+import { ForbiddenException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+
+import { Client } from '../../clients/entities/client.entity';
+import {
+  WhatsappInboundMessage,
+  WhatsappInboundMessageType,
+} from '../entities/whatsappInboundMessage.entity';
+
+import { WhatsappWebhookService } from './whatsappWebhook.service';
+
+const APP_SECRET = 'test-app-secret';
+const VERIFY_TOKEN = 'test-verify-token';
+
+function signBody(body: Buffer): string {
+  return `sha256=${createHmac('sha256', APP_SECRET).update(body).digest('hex')}`;
+}
+
+describe('WhatsappWebhookService', () => {
+  let service: WhatsappWebhookService;
+  let inboundMessagesRepository: { create: jest.Mock; save: jest.Mock };
+  let clientsRepository: { findOneBy: jest.Mock };
+  let configGet: jest.Mock;
+
+  beforeEach(async () => {
+    inboundMessagesRepository = {
+      create: jest.fn((data: Record<string, unknown>) => data),
+      save: jest.fn((data: Record<string, unknown>) => Promise.resolve(data)),
+    };
+    clientsRepository = { findOneBy: jest.fn() };
+    configGet = jest.fn().mockReturnValue({
+      webhookVerifyToken: VERIFY_TOKEN,
+      appSecret: APP_SECRET,
+    });
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        WhatsappWebhookService,
+        { provide: ConfigService, useValue: { get: configGet } },
+        {
+          provide: getRepositoryToken(WhatsappInboundMessage),
+          useValue: inboundMessagesRepository,
+        },
+        { provide: getRepositoryToken(Client), useValue: clientsRepository },
+      ],
+    }).compile();
+
+    service = module.get<WhatsappWebhookService>(WhatsappWebhookService);
+  });
+
+  describe('verifyHandshake', () => {
+    it('returns the challenge when mode and token match', () => {
+      expect(
+        service.verifyHandshake('subscribe', VERIFY_TOKEN, 'challenge-123'),
+      ).toBe('challenge-123');
+    });
+
+    it('throws ForbiddenException when the token does not match', () => {
+      expect(() =>
+        service.verifyHandshake('subscribe', 'wrong-token', 'challenge-123'),
+      ).toThrow(ForbiddenException);
+    });
+
+    it('throws ForbiddenException when mode is not "subscribe"', () => {
+      expect(() =>
+        service.verifyHandshake('unsubscribe', VERIFY_TOKEN, 'challenge-123'),
+      ).toThrow(ForbiddenException);
+    });
+
+    it('throws ForbiddenException when the verify token is not configured', () => {
+      configGet.mockReturnValue({
+        webhookVerifyToken: '',
+        appSecret: APP_SECRET,
+      });
+      expect(() =>
+        service.verifyHandshake('subscribe', '', 'challenge-123'),
+      ).toThrow(ForbiddenException);
+    });
+  });
+
+  describe('verifySignatureOrThrow', () => {
+    it('does not throw for a valid signature', () => {
+      const body = Buffer.from(JSON.stringify({ hello: 'world' }));
+      expect(() =>
+        service.verifySignatureOrThrow(body, signBody(body)),
+      ).not.toThrow();
+    });
+
+    it('throws ForbiddenException for an invalid signature', () => {
+      const body = Buffer.from(JSON.stringify({ hello: 'world' }));
+      expect(() =>
+        service.verifySignatureOrThrow(body, 'sha256=wrong'),
+      ).toThrow(ForbiddenException);
+    });
+
+    it('throws ForbiddenException when the signature header is missing', () => {
+      const body = Buffer.from(JSON.stringify({ hello: 'world' }));
+      expect(() => service.verifySignatureOrThrow(body, undefined)).toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('throws ForbiddenException when the raw body is missing', () => {
+      expect(() =>
+        service.verifySignatureOrThrow(undefined, 'sha256=anything'),
+      ).toThrow(ForbiddenException);
+    });
+
+    it('throws ForbiddenException when the app secret is not configured', () => {
+      configGet.mockReturnValue({
+        webhookVerifyToken: VERIFY_TOKEN,
+        appSecret: '',
+      });
+      const body = Buffer.from(JSON.stringify({ hello: 'world' }));
+      expect(() =>
+        service.verifySignatureOrThrow(body, signBody(body)),
+      ).toThrow(ForbiddenException);
+    });
+  });
+
+  describe('handleIncomingPayload', () => {
+    function buildPayload(from: string) {
+      return {
+        entry: [
+          {
+            changes: [
+              {
+                value: {
+                  messages: [
+                    {
+                      from,
+                      timestamp: '1700000000',
+                      type: 'text',
+                      text: { body: 'hola' },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      };
+    }
+
+    it('resolves and stamps the matching client when the phone number is known', async () => {
+      clientsRepository.findOneBy.mockResolvedValue({ id: 'client-1' });
+
+      await service.handleIncomingPayload(buildPayload('573001234567'));
+
+      expect(clientsRepository.findOneBy).toHaveBeenCalledWith({
+        phoneNumber: '+573001234567',
+      });
+      expect(inboundMessagesRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ clientId: 'client-1' }),
+      );
+    });
+
+    it('persists with clientId null when the phone number matches no client', async () => {
+      clientsRepository.findOneBy.mockResolvedValue(null);
+
+      await service.handleIncomingPayload(buildPayload('573009999999'));
+
+      expect(inboundMessagesRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clientId: null,
+          type: WhatsappInboundMessageType.Text,
+        }),
+      );
+    });
+
+    it('never throws for a malformed payload', async () => {
+      await expect(
+        service.handleIncomingPayload({ entry: 'not-an-array' }),
+      ).resolves.toBeUndefined();
+      expect(inboundMessagesRepository.save).not.toHaveBeenCalled();
+    });
+  });
+});
