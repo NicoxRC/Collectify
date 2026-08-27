@@ -1,4 +1,4 @@
-# Phase 23 — Usury Rate Becomes Mandatory and Self-Applied
+# Phase 24 — Usury Rate Becomes Mandatory and Self-Applied
 
 ## Goal
 
@@ -6,7 +6,7 @@ Turn the usury ceiling from an admin-informational warning (Phase 15) into the a
 
 ## Depends on
 
-`docs/phases/PHASE_22_DYNAMIC_CHARGES.md` — moratory interest must already be priced through `InterestConceptType`/`LoanInstallmentConcept` (with the `category` split that phase adds) before this phase can auto-fill both corriente and moratorio concepts with the usury rate. Do not start this phase before Phase 22 ships.
+`docs/phases/PHASE_23_DYNAMIC_CHARGES.md` — moratory interest must already be priced through `InterestConceptType`/`LoanInstallmentConcept` (with the `category` split that phase adds) before this phase can auto-fill both corriente and moratorio concepts with the usury rate. Do not start this phase before Phase 23 ships.
 
 ## Resolved — confirmed directly with the human (reunión 2026-08-25)
 
@@ -22,12 +22,12 @@ Turn the usury ceiling from an admin-informational warning (Phase 15) into the a
 
 ## Required reading before starting
 
-`docs/phases/PHASE_15_USURY_RATE.md` (the enforcement model this phase replaces), `docs/phases/PHASE_22_DYNAMIC_CHARGES.md` (the concept `category` split this phase relies on), `docs/DATABASE.md` (`usury_rates`, `loans` usury columns).
+`docs/phases/PHASE_15_USURY_RATE.md` (the enforcement model this phase replaces), `docs/phases/PHASE_23_DYNAMIC_CHARGES.md` (the concept `category` split this phase relies on), `docs/DATABASE.md` (`usury_rates`, `loans` usury columns).
 
 ## Scope (once the open questions above are confirmed)
 
 ### Entities and migrations
-- [ ] No new columns anticipated beyond what Phase 22 adds — this phase changes *behavior*, not shape, pending resolution of the "drop vs. retire" open question on the existing usury warning columns.
+- [ ] No new columns anticipated beyond what Phase 23 adds — this phase changes *behavior*, not shape, pending resolution of the "drop vs. retire" open question on the existing usury warning columns.
 
 ### Service and API
 - [ ] `LoansService.persistLoanWithInstallments()`: replace the current warning-only usury check with a hard rejection (`BadRequestException` or similar) when no current-month rate is on file.
@@ -59,5 +59,5 @@ Update `docs/DATABASE.md`'s `usury_rates`/`loans` sections and "Enforcement" lan
 ## Related documents
 
 - `docs/phases/PHASE_15_USURY_RATE.md` — the warning-only model this phase replaces
-- `docs/phases/PHASE_22_DYNAMIC_CHARGES.md` — the concept `category` split this phase depends on
+- `docs/phases/PHASE_23_DYNAMIC_CHARGES.md` — the concept `category` split this phase depends on
 - `docs/DATABASE.md`, `docs/GLOSSARY.md`

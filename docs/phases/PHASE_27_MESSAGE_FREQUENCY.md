@@ -1,4 +1,4 @@
-# Phase 26 — Personalized Messaging Frequency (Replaces Message Audiences)
+# Phase 27 — Personalized Messaging Frequency (Replaces Message Audiences)
 
 ## Goal
 

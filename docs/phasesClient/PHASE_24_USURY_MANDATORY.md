@@ -1,8 +1,8 @@
-# Phase 23 — Usury Rate Becomes Mandatory and Self-Applied (Client)
+# Phase 24 — Usury Rate Becomes Mandatory and Self-Applied (Client)
 
 ## Goal
 
-Reflect the new hard-block usury rule in the loan creation flow: block submission with a clear message when no current-month rate exists, and show the auto-filled, non-editable interest rate instead of an input field. See `docs/phases/PHASE_23_USURY_MANDATORY.md` for the backend rule this consumes.
+Reflect the new hard-block usury rule in the loan creation flow: block submission with a clear message when no current-month rate exists, and show the auto-filled, non-editable interest rate instead of an input field. See `docs/phases/PHASE_24_USURY_MANDATORY.md` for the backend rule this consumes.
 
 ## Scope
 
@@ -28,5 +28,5 @@ Reflect the new hard-block usury rule in the loan creation flow: block submissio
 
 ## Related documents
 
-- `docs/phases/PHASE_23_USURY_MANDATORY.md` — backend rule this phase consumes
+- `docs/phases/PHASE_24_USURY_MANDATORY.md` — backend rule this phase consumes
 - `docs/phasesClient/PHASE_15_USURY_RATE.md` — the warning UI this phase removes

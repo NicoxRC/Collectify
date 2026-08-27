@@ -1,4 +1,4 @@
-# Phase 22 — Unified Dynamic Charges (Cargos Corrientes y Moratorios)
+# Phase 23 — Unified Dynamic Charges (Cargos Corrientes y Moratorios)
 
 ## Goal
 
@@ -20,7 +20,7 @@ Stop treating moratory interest as a single hardcoded rate/formula (`loans.inter
 
 ## Required reading before starting
 
-`docs/phases/PHASE_14_INTEREST_CONCEPTS.md` (the engine this phase extends), `docs/phases/PHASE_15_USURY_RATE.md` (Phase 23 will build directly on this phase's category split), `docs/DATABASE.md` (`interest_concept_types`, `loan_installment_concepts`, `installments` overdue formula), `apps/api/src/loans/amortization/generateSchedule.ts`.
+`docs/phases/PHASE_14_INTEREST_CONCEPTS.md` (the engine this phase extends), `docs/phases/PHASE_15_USURY_RATE.md` (Phase 24 will build directly on this phase's category split), `docs/DATABASE.md` (`interest_concept_types`, `loan_installment_concepts`, `installments` overdue formula), `apps/api/src/loans/amortization/generateSchedule.ts`.
 
 ## Scope (once the open questions above are confirmed)
 
@@ -63,5 +63,5 @@ Update `docs/DATABASE.md` (`interest_concept_types`, `loan_installment_concepts`
 ## Related documents
 
 - `docs/phases/PHASE_14_INTEREST_CONCEPTS.md` — the concept engine this phase extends
-- `docs/phases/PHASE_23_USURY_MANDATORY.md` — depends on this phase's `category` split
+- `docs/phases/PHASE_24_USURY_MANDATORY.md` — depends on this phase's `category` split
 - `docs/DATABASE.md`, `docs/GLOSSARY.md`

@@ -1,8 +1,8 @@
-# Phase 24 — Refinancing With Overdue Installments (Client)
+# Phase 25 — Refinancing With Overdue Installments (Client)
 
 ## Goal
 
-Remove the client-side block/error messaging that currently prevents refinancing a loan with overdue installments, and show the new principal's breakdown (capital, interés corrido, mora corrida) so the admin sees how the number was reached. See `docs/phases/PHASE_24_REFINANCE_OVERDUE.md` for the backend calculation this consumes.
+Remove the client-side block/error messaging that currently prevents refinancing a loan with overdue installments, and show the new principal's breakdown (capital, interés corrido, mora corrida) so the admin sees how the number was reached. See `docs/phases/PHASE_25_REFINANCE_OVERDUE.md` for the backend calculation this consumes.
 
 ## Scope
 
@@ -21,5 +21,5 @@ Remove the client-side block/error messaging that currently prevents refinancing
 
 ## Related documents
 
-- `docs/phases/PHASE_24_REFINANCE_OVERDUE.md` — backend calculation this phase consumes
+- `docs/phases/PHASE_25_REFINANCE_OVERDUE.md` — backend calculation this phase consumes
 - `docs/phasesClient/PHASE_17_REFINANCING_RECALC.md` — the existing refinance breakdown UI this phase extends

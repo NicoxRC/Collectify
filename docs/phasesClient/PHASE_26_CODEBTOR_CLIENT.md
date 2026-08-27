@@ -1,8 +1,8 @@
-# Phase 25 — Co-debtor as a Linked Client (Client)
+# Phase 26 — Co-debtor as a Linked Client (Client)
 
 ## Goal
 
-Replace the loan form's free-text co-debtor fields with a client picker (search-and-select an existing client, same pattern as any other client lookup in the app), matching the backend's move to a real relationship. See `docs/phases/PHASE_25_CODEBTOR_CLIENT.md` for the backend model this consumes.
+Replace the loan form's free-text co-debtor fields with a client picker (search-and-select an existing client, same pattern as any other client lookup in the app), matching the backend's move to a real relationship. See `docs/phases/PHASE_26_CODEBTOR_CLIENT.md` for the backend model this consumes.
 
 ## Scope
 
@@ -23,5 +23,5 @@ Replace the loan form's free-text co-debtor fields with a client picker (search-
 
 ## Related documents
 
-- `docs/phases/PHASE_25_CODEBTOR_CLIENT.md` — backend model this phase consumes
+- `docs/phases/PHASE_26_CODEBTOR_CLIENT.md` — backend model this phase consumes
 - `docs/phasesClient/PHASE_21_CLIENT_PROFILE.md` — the free-text co-debtor fields this phase replaces

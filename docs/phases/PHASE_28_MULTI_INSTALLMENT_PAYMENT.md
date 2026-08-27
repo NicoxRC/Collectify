@@ -1,4 +1,4 @@
-# Phase 27 — Multi-Installment Payments
+# Phase 28 — Multi-Installment Payments
 
 ## Goal
 
@@ -45,7 +45,7 @@ Let a collector register payments against several installments in one action, an
 
 ## After this phase
 
-Update `docs/DATABASE.md` (`payments`, new `payment_images` table) and note the deprecation timeline for `payments.image_url` in the "Changed after Phase 27" style used for prior deprecations in this doc.
+Update `docs/DATABASE.md` (`payments`, new `payment_images` table) and note the deprecation timeline for `payments.image_url` in the "Changed after Phase 28" style used for prior deprecations in this doc.
 
 ## Related documents
 

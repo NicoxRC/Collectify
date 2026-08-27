@@ -1,4 +1,4 @@
-# Phase 31 — UI Fixes and Small Corrections
+# Phase 32 — UI Fixes and Small Corrections
 
 ## Goal
 
@@ -32,5 +32,5 @@ A bundle of smaller corrections flagged directly by the client (reunión 2026-08
 
 ## Related documents
 
-- `docs/phasesClient/PHASE_31_UI_FIXES.md` — the client-side half of this bundle
+- `docs/phasesClient/PHASE_32_UI_FIXES.md` — the client-side half of this bundle
 - `docs/phases/PHASE_16_EARLY_PAYOFF.md`, `docs/phases/PHASE_14_INTEREST_CONCEPTS.md`, `docs/phases/PHASE_11_AUDIT_LOG.md` — the flows this phase's fixes touch

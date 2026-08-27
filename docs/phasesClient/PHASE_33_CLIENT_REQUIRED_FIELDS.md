@@ -1,8 +1,8 @@
-# Phase 32 — Required Client Fields (Client)
+# Phase 33 — Required Client Fields (Client)
 
 ## Goal
 
-Mark `document_number` and at least one address field as required on `ClientForm`, matching the backend's new validation. See `docs/phases/PHASE_32_CLIENT_REQUIRED_FIELDS.md`.
+Mark `document_number` and at least one address field as required on `ClientForm`, matching the backend's new validation. See `docs/phases/PHASE_33_CLIENT_REQUIRED_FIELDS.md`.
 
 ## Scope
 
@@ -22,4 +22,4 @@ Mark `document_number` and at least one address field as required on `ClientForm
 
 ## Related documents
 
-- `docs/phases/PHASE_32_CLIENT_REQUIRED_FIELDS.md` — backend rule this phase consumes
+- `docs/phases/PHASE_33_CLIENT_REQUIRED_FIELDS.md` — backend rule this phase consumes

@@ -1,8 +1,8 @@
-# Phase 22 — Unified Dynamic Charges (Client)
+# Phase 23 — Unified Dynamic Charges (Client)
 
 ## Goal
 
-Render the loan detail view's charge breakdown as a dynamic per-charge table instead of a vertical list of concepts under each installment amount, let the admin pick a fixed-amount concept's distribution mode, and clean up the amortizador panel's readability. See `docs/phases/PHASE_22_DYNAMIC_CHARGES.md` for the backend model this consumes.
+Render the loan detail view's charge breakdown as a dynamic per-charge table instead of a vertical list of concepts under each installment amount, let the admin pick a fixed-amount concept's distribution mode, and clean up the amortizador panel's readability. See `docs/phases/PHASE_23_DYNAMIC_CHARGES.md` for the backend model this consumes.
 
 ## Scope
 
@@ -37,5 +37,5 @@ Render the loan detail view's charge breakdown as a dynamic per-charge table ins
 
 ## Related documents
 
-- `docs/phases/PHASE_22_DYNAMIC_CHARGES.md` — backend model and API shape this phase consumes
+- `docs/phases/PHASE_23_DYNAMIC_CHARGES.md` — backend model and API shape this phase consumes
 - `docs/phasesClient/PHASE_14_INTEREST_CONCEPTS.md` — the amortizador/concept UI this phase extends
