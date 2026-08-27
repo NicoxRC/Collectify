@@ -38,23 +38,26 @@ Split into what's mechanically clear regardless of the open questions above, and
 ### Not blocked — build regardless of how the open questions resolve
 
 #### Entities and migrations
-- [ ] `WhatsappInboundMessage`: `id`, `client_id` (FK → `clients.id`, nullable — an inbound message from an unrecognized phone number is still logged, not dropped), `from_phone_number` (VARCHAR, as received), `type` (ENUM: `button`, `text`, `other`), `button_payload` (VARCHAR, nullable), `body_text` (TEXT, nullable), `raw_payload` (JSONB — the full webhook event, for debugging/replay), `received_at`, `created_at`. Append-only, no `updated_at`/`deleted_at` — same convention as `message_logs`/`audit_logs`.
-- [ ] Migration `CreateWhatsappInboundMessagesTable`.
-- [ ] New env vars: `META_WHATSAPP_WEBHOOK_VERIFY_TOKEN` (handshake secret, admin-chosen), `META_WHATSAPP_APP_SECRET` (from the Meta app, used for `X-Hub-Signature-256` verification) — added to `.env.example` and `docs/ENVIRONMENT_VARIABLES.md`.
+- [x] `WhatsappInboundMessage`: `id`, `client_id` (FK → `clients.id`, nullable — an inbound message from an unrecognized phone number is still logged, not dropped), `from_phone_number` (VARCHAR, as received), `type` (ENUM: `button`, `text`, `other`), `button_payload` (VARCHAR, nullable), `body_text` (TEXT, nullable), `raw_payload` (JSONB — the full webhook event, for debugging/replay), `received_at`, `created_at`. Append-only, no `updated_at`/`deleted_at` — same convention as `message_logs`/`audit_logs`.
+- [x] Migration `CreateWhatsappInboundMessagesTable`.
+- [x] New env vars: `META_WHATSAPP_WEBHOOK_VERIFY_TOKEN` (handshake secret, admin-chosen), `META_WHATSAPP_APP_SECRET` (from the Meta app, used for `X-Hub-Signature-256` verification) — added to `.env.example` and `docs/ENVIRONMENT_VARIABLES.md`.
 
 #### Service and API
-- [ ] `GET /api/v1/whatsapp/webhook` (`@Public()`) — Meta's verification handshake: validate `hub.verify_token` against `META_WHATSAPP_WEBHOOK_VERIFY_TOKEN`, echo back `hub.challenge` as plain text on match, `403` otherwise.
-- [ ] `POST /api/v1/whatsapp/webhook` (`@Public()`) — verify `X-Hub-Signature-256` (HMAC-SHA256 of the raw body against `META_WHATSAPP_APP_SECRET`) before touching the payload at all; reject with `403` on mismatch. On success: parse the event, resolve `client_id` by normalizing the sender's phone number and matching against `clients.phone_number` (must handle Meta's number format, typically without a leading `+`, against the app's stored `+E.164` format — do not assume they already match), persist a `WhatsappInboundMessage` row, and respond `200` quickly (Meta expects a fast ack; any slow processing — like the button-triggered follow-up send — should not block the response).
+- [x] `GET /api/v1/whatsapp/webhook` (`@Public()`) — Meta's verification handshake: validate `hub.verify_token` against `META_WHATSAPP_WEBHOOK_VERIFY_TOKEN`, echo back `hub.challenge` as plain text on match, `403` otherwise.
+- [x] `POST /api/v1/whatsapp/webhook` (`@Public()`) — verify `X-Hub-Signature-256` (HMAC-SHA256 of the raw body against `META_WHATSAPP_APP_SECRET`) before touching the payload at all; reject with `403` on mismatch. On success: parse the event, resolve `client_id` by normalizing the sender's phone number and matching against `clients.phone_number` (must handle Meta's number format, typically without a leading `+`, against the app's stored `+E.164` format — do not assume they already match), persist a `WhatsappInboundMessage` row, and respond `200` quickly (Meta expects a fast ack; any slow processing — like the button-triggered follow-up send — should not block the response).
+- [x] `GET /api/v1/whatsapp/inbound-messages` (admin-only) — paginated list backing the panel's inbox, filterable by `clientId`/`type`, searchable by the matched client's name. Not originally itemized in this doc; added once the frontend's "not blocked" log view needed something to read from.
+- [x] `WhatsappInboundGateway` (`whatsapp-inbound` Socket.IO namespace, admin-only) — pushes every newly persisted inbound message live to the panel. Built ahead of the button-flow catalog below, at the human's explicit request (2026-08-27), as infrastructure a future human-handoff/live-reply flow will also need — see `docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md`'s "Noted for later" section.
 - [ ] Button-payload → action resolution: once the "how many menus" open question is resolved, build the admin-configurable mapping it implies (most likely a new small entity linking a button payload to a triggerable action, e.g. `send_account_summary`) and execute it asynchronously after acking the webhook.
 
 #### Tests (mandatory)
-- [ ] Webhook verification handshake: correct token echoes the challenge; incorrect token is rejected.
-- [ ] Signature verification: a request with a valid signature is processed; one with an invalid/missing signature is rejected before any parsing happens.
-- [ ] An inbound message from a known client's phone number resolves `client_id` correctly, including the format-normalization case; one from an unrecognized number is still logged with `client_id: null`.
-- [ ] `WhatsappInboundMessage` rows are never lost even when the payload is malformed/unexpected — log what can be parsed, never throw an unhandled error back to Meta.
+- [x] Webhook verification handshake: correct token echoes the challenge; incorrect token is rejected.
+- [x] Signature verification: a request with a valid signature is processed; one with an invalid/missing signature is rejected before any parsing happens.
+- [x] An inbound message from a known client's phone number resolves `client_id` correctly, including the format-normalization case; one from an unrecognized number is still logged with `client_id: null`.
+- [x] `WhatsappInboundMessage` rows are never lost even when the payload is malformed/unexpected — log what can be parsed, never throw an unhandled error back to Meta.
+- [x] `WhatsappInboundGateway.handleConnection` accepts an active admin with a valid access token and rejects everything else (missing token, invalid token, wrong token type, non-admin role, deactivated admin).
 
 #### Swagger
-- [ ] Webhook endpoints documented, including the explicit note that they're the one deliberate `@Public()` exception in this controller and why.
+- [x] Webhook endpoints documented, including the explicit note that they're the one deliberate `@Public()` exception in this controller and why.
 
 ### Blocked on the open questions above — do not build ahead of confirmation
 

@@ -76,6 +76,7 @@ apps/api/
     │   │   │                          # @Public() exception in this module
     │   │   ├── whatsappWebhook.controller.ts
     │   │   ├── whatsappWebhook.service.ts
+    │   │   ├── whatsappInbound.gateway.ts  # live push — see "WebSocket gateways" below
     │   │   └── extractInboundEvents.ts, normalizeIncomingPhoneNumber.ts
     │   ├── entities/
     │   │   ├── messageLog.entity.ts
@@ -93,6 +94,8 @@ apps/api/
     │   │   └── httpException.filter.ts
     │   ├── interceptors/
     │   │   └── response.interceptor.ts
+    │   ├── adapters/
+    │   │   └── socketIo.adapter.ts      # WebSocket CORS — see note below
     │   ├── decorators/
     │   └── pipes/
     │
@@ -158,6 +161,10 @@ Services throw NestJS built-in exceptions (`NotFoundException`, `BadRequestExcep
 
 The weekly overdue-reminder job lives in `whatsapp/overdueReminder.cron.ts`, using `@nestjs/schedule`'s `@Cron()` decorator. It is registered in `whatsapp.module.ts` and can be paused/resumed via the `SchedulerRegistry` API, exposed through an admin-only endpoint.
 
+### WebSocket gateways
+
+Added Phase 22 for the inbound-message inbox's live updates (`whatsapp/webhook/whatsappInbound.gateway.ts`) — the first real-time channel in this API, everything before it was request/response only. `main.ts` installs `common/adapters/socketIo.adapter.ts` globally so every gateway shares the same CORS origin as the REST API (`app.enableCors()`'s `clientUrl`) instead of hardcoding it per-gateway. A gateway is admin-only the same way a controller is, but can't reuse `JwtAuthGuard`/`@Roles()` directly — Socket.IO's handshake never passes through Nest's HTTP guard pipeline — so `WhatsappInboundGateway.handleConnection` verifies the access token and role by hand instead, disconnecting anything that doesn't resolve to an active admin.
+
 **Important — the job groups by client, not by loan or installment.** Confirmed from real business messages: a single client with overdue installments across multiple loans (pagarés) receives **one** consolidated WhatsApp message listing every overdue installment with its own days-overdue and interest, followed by a grand total. The job's logic is roughly:
 
 ```
@@ -210,7 +217,8 @@ apps/client/
     │
     ├── lib/
     │   ├── apiClient.ts                 # base fetch wrapper (auth headers, base URL, error handling)
-    │   └── queryClient.ts               # TanStack Query client instance
+    │   ├── queryClient.ts               # TanStack Query client instance
+    │   └── socket.ts                    # Socket.IO connection factory — see "WebSocket gateways" above
     │
     ├── routes/
     │   └── router.tsx                   # React Router route definitions
