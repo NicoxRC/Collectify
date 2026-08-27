@@ -66,4 +66,15 @@ export const whatsappInboundMessagesApi = {
       meta: meta as PaginatedWhatsappInboundMessages['meta'],
     };
   },
+
+  // Manual reply — free-form session message, only meaningful once the
+  // client has messaged in and opened the 24h window. See
+  // WhatsappInboundMessagesPage.tsx's TEST_MENU_HUMAN_OPTION.
+  reply: async (phoneNumber: string, message: string): Promise<boolean> => {
+    const { data } = await apiClient.post<{ sent: boolean }>(
+      '/whatsapp/inbound-messages/reply',
+      { phoneNumber, message },
+    );
+    return data.sent;
+  },
 };

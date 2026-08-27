@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 
 import { whatsappInboundMessagesApi } from '@/features/whatsappInboundMessages/whatsappInboundMessagesApi';
 
@@ -10,5 +10,17 @@ export function useWhatsappInboundMessages(
   return useQuery({
     queryKey: ['whatsappInboundMessages', params],
     queryFn: () => whatsappInboundMessagesApi.getAll(params),
+  });
+}
+
+export function useReplyToInboundMessage() {
+  return useMutation({
+    mutationFn: ({
+      phoneNumber,
+      message,
+    }: {
+      phoneNumber: string;
+      message: string;
+    }) => whatsappInboundMessagesApi.reply(phoneNumber, message),
   });
 }
