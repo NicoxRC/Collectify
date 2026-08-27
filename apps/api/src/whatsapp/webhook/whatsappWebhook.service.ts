@@ -8,7 +8,9 @@ import { FindOptionsWhere, ILike, Repository } from 'typeorm';
 import { Client } from '../../clients/entities/client.entity';
 import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
 import { Configuration } from '../../config/configuration';
+import { AccountSummaryService } from '../accountSummary.service';
 import { WhatsappInboundMessage } from '../entities/whatsappInboundMessage.entity';
+import { WhatsAppService } from '../whatsapp.service';
 
 import { QueryWhatsappInboundMessagesDto } from './dto/queryWhatsappInboundMessages.dto';
 import {
@@ -22,6 +24,18 @@ const HUB_SUBSCRIBE_MODE = 'subscribe';
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 
+// TEST-ONLY menu, requested directly by the human (2026-08-27) to exercise
+// the inbox before the real button-flow/"menu" catalog exists — see the
+// still-open "how many menus" question in
+// docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md. Not the real menu system: no
+// catalog, no admin config, just one hardcoded numeric reply that
+// auto-triggers the existing account-summary send. Option "1" ("hablar con
+// humano") has no server-side effect at all — the frontend enables the
+// reply box purely by scanning the thread for a "1" message, see
+// WhatsappInboundMessagesPage.tsx. Rip this whole thing out once the real
+// catalog ships.
+const TEST_MENU_ACCOUNT_SUMMARY_OPTION = '2';
+
 @Injectable()
 export class WhatsappWebhookService {
   private readonly logger = new Logger(WhatsappWebhookService.name);
@@ -33,6 +47,8 @@ export class WhatsappWebhookService {
     @InjectRepository(Client)
     private readonly clientsRepository: Repository<Client>,
     private readonly whatsappInboundGateway: WhatsappInboundGateway,
+    private readonly whatsAppService: WhatsAppService,
+    private readonly accountSummaryService: AccountSummaryService,
   ) {}
 
   // Meta's one-time verification handshake — echoes hub.challenge back only
@@ -163,5 +179,45 @@ export class WhatsappWebhookService {
     // merges both sources into the same list/cache, so they need to look
     // the same.
     this.whatsappInboundGateway.emitInboundMessage({ ...saved, client });
+
+    await this.maybeTriggerTestMenuAction(event, client);
+  }
+
+  // See the TEST_MENU_ACCOUNT_SUMMARY_OPTION doc comment above — this whole
+  // method is test scaffolding, not the real menu-driven action resolution
+  // the phase doc describes. Never lets a failed send break webhook
+  // processing; logs and moves on, same as the rest of this service.
+  private async maybeTriggerTestMenuAction(
+    event: ParsedInboundEvent,
+    client: Client | null,
+  ): Promise<void> {
+    if (
+      !client ||
+      event.bodyText?.trim() !== TEST_MENU_ACCOUNT_SUMMARY_OPTION
+    ) {
+      return;
+    }
+
+    try {
+      await this.accountSummaryService.sendAccountSummary(client.id);
+    } catch (error) {
+      this.logger.warn(
+        `Test-menu account-summary trigger failed for client ${client.id}`,
+        error,
+      );
+    }
+  }
+
+  // Manual reply from the panel — a free-form session message, valid
+  // within the 24h window the client's own inbound message opened. See
+  // POST /whatsapp/inbound-messages/reply.
+  async sendManualReply(
+    rawPhoneNumber: string,
+    message: string,
+  ): Promise<boolean> {
+    return this.whatsAppService.sendTextMessage(
+      normalizeIncomingPhoneNumber(rawPhoneNumber),
+      message,
+    );
   }
 }

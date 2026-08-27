@@ -28,6 +28,7 @@ import { MessageType } from './messageType.enum';
 import { OverdueReminderService } from './overdueReminder.service';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
 import { QueryWhatsappInboundMessagesDto } from './webhook/dto/queryWhatsappInboundMessages.dto';
+import { ReplyToInboundMessageDto } from './webhook/dto/replyToInboundMessage.dto';
 import { WhatsappWebhookService } from './webhook/whatsappWebhook.service';
 import { WhatsappCronService } from './whatsappCron.service';
 
@@ -59,6 +60,26 @@ export class WhatsappController {
     @Query() query: QueryWhatsappInboundMessagesDto,
   ): Promise<PaginatedResult<WhatsappInboundMessage>> {
     return this.whatsappWebhookService.findAll(query);
+  }
+
+  @Post('inbound-messages/reply')
+  @ApiOperation({
+    summary: 'Manually reply to an inbound WhatsApp conversation (admin only)',
+    description:
+      'Sends a free-form session message — valid because the recipient already messaged in, opening the 24h window. Not tied to any template. See docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md\'s "Noted for later" section — this is the manual-reply half of that, ahead of the full human-handoff/queue flow.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Returns whether the send actually succeeded.',
+  })
+  async replyToInboundMessage(
+    @Body() dto: ReplyToInboundMessageDto,
+  ): Promise<{ sent: boolean }> {
+    const sent = await this.whatsappWebhookService.sendManualReply(
+      dto.phoneNumber,
+      dto.message,
+    );
+    return { sent };
   }
 
   @Get('cron/:type/status')

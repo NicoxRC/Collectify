@@ -6,10 +6,12 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { Client } from '../../clients/entities/client.entity';
+import { AccountSummaryService } from '../accountSummary.service';
 import {
   WhatsappInboundMessage,
   WhatsappInboundMessageType,
 } from '../entities/whatsappInboundMessage.entity';
+import { WhatsAppService } from '../whatsapp.service';
 
 import { WhatsappInboundGateway } from './whatsappInbound.gateway';
 import { WhatsappWebhookService } from './whatsappWebhook.service';
@@ -31,6 +33,8 @@ describe('WhatsappWebhookService', () => {
   let clientsRepository: { findOneBy: jest.Mock };
   let configGet: jest.Mock;
   let whatsappInboundGateway: { emitInboundMessage: jest.Mock };
+  let whatsAppService: { sendTextMessage: jest.Mock };
+  let accountSummaryService: { sendAccountSummary: jest.Mock };
 
   beforeEach(async () => {
     inboundMessagesRepository = {
@@ -44,6 +48,8 @@ describe('WhatsappWebhookService', () => {
       appSecret: APP_SECRET,
     });
     whatsappInboundGateway = { emitInboundMessage: jest.fn() };
+    whatsAppService = { sendTextMessage: jest.fn() };
+    accountSummaryService = { sendAccountSummary: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -58,6 +64,8 @@ describe('WhatsappWebhookService', () => {
           provide: WhatsappInboundGateway,
           useValue: whatsappInboundGateway,
         },
+        { provide: WhatsAppService, useValue: whatsAppService },
+        { provide: AccountSummaryService, useValue: accountSummaryService },
       ],
     }).compile();
 
@@ -283,6 +291,100 @@ describe('WhatsappWebhookService', () => {
         total: 45,
         totalPages: 5,
       });
+    });
+  });
+
+  describe('test-menu auto-trigger ("2" -> account summary)', () => {
+    function buildTextPayload(from: string, body: string) {
+      return {
+        entry: [
+          {
+            changes: [
+              {
+                value: {
+                  messages: [
+                    {
+                      from,
+                      timestamp: '1700000000',
+                      type: 'text',
+                      text: { body },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      };
+    }
+
+    it('sends the account summary when a matched client replies "2"', async () => {
+      clientsRepository.findOneBy.mockResolvedValue({ id: 'client-1' });
+
+      await service.handleIncomingPayload(
+        buildTextPayload('573001234567', '2'),
+      );
+
+      expect(accountSummaryService.sendAccountSummary).toHaveBeenCalledWith(
+        'client-1',
+      );
+    });
+
+    it('does nothing for "1" (human-reply option has no server-side effect)', async () => {
+      clientsRepository.findOneBy.mockResolvedValue({ id: 'client-1' });
+
+      await service.handleIncomingPayload(
+        buildTextPayload('573001234567', '1'),
+      );
+
+      expect(accountSummaryService.sendAccountSummary).not.toHaveBeenCalled();
+    });
+
+    it('does nothing for "2" from an unmatched phone number', async () => {
+      clientsRepository.findOneBy.mockResolvedValue(null);
+
+      await service.handleIncomingPayload(
+        buildTextPayload('573009999999', '2'),
+      );
+
+      expect(accountSummaryService.sendAccountSummary).not.toHaveBeenCalled();
+    });
+
+    it('does not throw when the account summary send fails', async () => {
+      clientsRepository.findOneBy.mockResolvedValue({ id: 'client-1' });
+      accountSummaryService.sendAccountSummary.mockRejectedValue(
+        new Error('no pending installments'),
+      );
+
+      await expect(
+        service.handleIncomingPayload(buildTextPayload('573001234567', '2')),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('sendManualReply', () => {
+    it('normalizes the phone number and sends via WhatsAppService', async () => {
+      whatsAppService.sendTextMessage.mockResolvedValue(true);
+
+      const result = await service.sendManualReply('573001234567', 'Hola!');
+
+      expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
+        '+573001234567',
+        'Hola!',
+      );
+      expect(result).toBe(true);
+    });
+
+    it('leaves an already-normalized number unchanged', async () => {
+      whatsAppService.sendTextMessage.mockResolvedValue(false);
+
+      const result = await service.sendManualReply('+573001234567', 'Hola!');
+
+      expect(whatsAppService.sendTextMessage).toHaveBeenCalledWith(
+        '+573001234567',
+        'Hola!',
+      );
+      expect(result).toBe(false);
     });
   });
 });
