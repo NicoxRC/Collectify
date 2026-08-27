@@ -6,7 +6,7 @@ Let a collector select several pending installments on a loan and register their
 
 ## Scope
 
-- [ ] Loan detail's installment list: allow selecting multiple pending installments (checkboxes, respecting the sequential-payment rule from `docs/phasesClient/PHASE_32_UI_FIXES.md`) and opening one payment dialog for the batch.
+- [ ] Loan detail's installment list: allow selecting multiple pending installments (checkboxes, respecting the sequential-payment rule from `docs/phasesClient/PHASE_25_REFINANCE_OVERDUE.md`) and opening one payment dialog for the batch.
 - [ ] `RegisterPaymentDialog` (or equivalent): support uploading multiple receipt images for a single installment's payment, not just one — reuse `apps/client/src/lib/imageUpload.ts` for each file.
 - [ ] Batch payment dialog shape follows whatever the backend's open question (amount split vs. per-installment entry) resolves to — do not build ahead of that confirmation.
 

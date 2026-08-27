@@ -206,14 +206,20 @@ Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_24_USUR
 
 **Exit criteria:** a loan cannot be created without that month's usury rate on file, and its interest-bearing concepts are priced at exactly that rate, non-editable.
 
-## Phase 25 — Refinancing with overdue installments
+## Phase 25 — Refinancing with overdue installments, UI fixes and small corrections
 
-Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_25_REFINANCE_OVERDUE.md`. Depends on Phase 23 (accrued interest/mora must be computed through the unified concept engine).
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_25_REFINANCE_OVERDUE.md`. Refinancing depends on Phase 23 (accrued interest/mora must be computed through the unified concept engine); the UI-fixes bundle below has no such dependency. Two bundles merged into one phase.
 
 - Removes the current block that prevents refinancing a loan with overdue installments
 - The new loan's principal is computed as: remaining capital + interest already accrued on the overdue installments (corriente) + mora already accrued on those same installments, on top of the existing refinancing capital calculation
+- An installment's "pay" button is only enabled once every earlier installment on the same loan is paid
+- Loan detail action buttons no longer resize/break the layout when there are many of them
+- Audit log detail no longer shows a raw unreadable code for a movement
+- Message history no longer shows a misleading "0 enviados" count
+- A confirmation step is added before liquidating a loan
+- "Cotizador" is renamed to "Proyector rápido"
 
-**Exit criteria:** a loan with overdue installments can be refinanced, and the new principal correctly folds in capital plus both kinds of interest already caused.
+**Exit criteria:** a loan with overdue installments can be refinanced, and the new principal correctly folds in capital plus both kinds of interest already caused; each listed UI bug/annoyance is fixed with no change to any financial calculation.
 
 ## Phase 26 — Co-debtor as a linked client
 
@@ -268,22 +274,9 @@ Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_31_LOAN
 
 **Exit criteria:** the loan section's labels and an added explanatory note match what the client actually asked for, with no lingering ambiguity between "with" and "without" mora increment.
 
-## Phase 32 — UI fixes and small corrections
+## Phase 32 — Required client fields
 
-Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_32_UI_FIXES.md`.
-
-- An installment's "pay" button is only enabled once every earlier installment on the same loan is paid
-- Loan detail action buttons no longer resize/break the layout when there are many of them
-- Audit log detail no longer shows a raw unreadable code for a movement
-- Message history no longer shows a misleading "0 enviados" count
-- A confirmation step is added before liquidating a loan
-- "Cotizador" is renamed to "Proyector rápido"
-
-**Exit criteria:** each listed bug/annoyance is fixed with no change to any financial calculation.
-
-## Phase 33 — Required client fields
-
-Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_33_CLIENT_REQUIRED_FIELDS.md`.
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_32_CLIENT_REQUIRED_FIELDS.md`.
 
 - `document_number` (cédula) becomes required on interactive client creation
 - At least one address field becomes required on interactive client creation
