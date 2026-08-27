@@ -1,4 +1,4 @@
-# Phase 24 — Refinancing With Overdue Installments
+# Phase 25 — Refinancing With Overdue Installments
 
 ## Goal
 
@@ -6,7 +6,7 @@ Remove `LoansService.refinance()`'s current block on refinancing a loan with ove
 
 ## Depends on
 
-`docs/phases/PHASE_22_DYNAMIC_CHARGES.md` — the new principal calculation needs both corriente and moratory interest computed through the unified concept engine, not the old hardcoded mora formula.
+`docs/phases/PHASE_23_DYNAMIC_CHARGES.md` — the new principal calculation needs both corriente and moratory interest computed through the unified concept engine, not the old hardcoded mora formula.
 
 ## Resolved — confirmed directly with the human (reunión 2026-08-25)
 
@@ -20,7 +20,7 @@ Remove `LoansService.refinance()`'s current block on refinancing a loan with ove
 
 ## Required reading before starting
 
-`docs/phases/PHASE_6_REFINANCING.md`, `docs/phases/PHASE_17_REFINANCING_RECALC.md` (the recalculation this phase extends), `docs/phases/PHASE_22_DYNAMIC_CHARGES.md`, `docs/GLOSSARY.md` ("Imputación del pago", "Refinanciado").
+`docs/phases/PHASE_6_REFINANCING.md`, `docs/phases/PHASE_17_REFINANCING_RECALC.md` (the recalculation this phase extends), `docs/phases/PHASE_23_DYNAMIC_CHARGES.md`, `docs/GLOSSARY.md` ("Imputación del pago", "Refinanciado").
 
 ## Scope (once the open questions above are confirmed)
 
@@ -51,5 +51,5 @@ Update `docs/phases/PHASE_17_REFINANCING_RECALC.md` and `docs/DATABASE.md`'s "Re
 ## Related documents
 
 - `docs/phases/PHASE_6_REFINANCING.md`, `docs/phases/PHASE_17_REFINANCING_RECALC.md` — the refinancing flow this phase changes
-- `docs/phases/PHASE_22_DYNAMIC_CHARGES.md` — the concept engine this phase's interest calculation depends on
+- `docs/phases/PHASE_23_DYNAMIC_CHARGES.md` — the concept engine this phase's interest calculation depends on
 - `docs/DATABASE.md`, `docs/GLOSSARY.md`

@@ -1,8 +1,8 @@
-# Phase 26 — Personalized Messaging Frequency (Client)
+# Phase 27 — Personalized Messaging Frequency (Client)
 
 ## Goal
 
-Replace the `overdue`/`upcoming_due` audience editor UI (Phase 18's checkbox-list group manager) with a simple per-client frequency control, and remove the warning copy about an empty audience meaning nobody gets reminded — that behavior no longer exists. See `docs/phases/PHASE_26_MESSAGE_FREQUENCY.md` for the backend model this consumes.
+Replace the `overdue`/`upcoming_due` audience editor UI (Phase 18's checkbox-list group manager) with a simple per-client frequency control, and remove the warning copy about an empty audience meaning nobody gets reminded — that behavior no longer exists. See `docs/phases/PHASE_27_MESSAGE_FREQUENCY.md` for the backend model this consumes.
 
 ## Scope
 
@@ -22,5 +22,5 @@ Replace the `overdue`/`upcoming_due` audience editor UI (Phase 18's checkbox-lis
 
 ## Related documents
 
-- `docs/phases/PHASE_26_MESSAGE_FREQUENCY.md` — backend model this phase consumes
+- `docs/phases/PHASE_27_MESSAGE_FREQUENCY.md` — backend model this phase consumes
 - `docs/phasesClient/PHASE_18_MESSAGE_AUDIENCES.md` — the audience editor UI this phase removes

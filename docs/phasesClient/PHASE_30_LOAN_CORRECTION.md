@@ -1,8 +1,8 @@
-# Phase 29 — Loan Correction Policy (Client)
+# Phase 30 — Loan Correction Policy (Client)
 
 ## Goal
 
-Expose a "delete loan" action on the loan detail view, available only when the backend allows it (no registered payments), with a clear confirmation step. See `docs/phases/PHASE_29_LOAN_CORRECTION.md` for the backend rule this consumes.
+Expose a "delete loan" action on the loan detail view, available only when the backend allows it (no registered payments), with a clear confirmation step. See `docs/phases/PHASE_30_LOAN_CORRECTION.md` for the backend rule this consumes.
 
 ## Scope
 
@@ -22,4 +22,4 @@ Expose a "delete loan" action on the loan detail view, available only when the b
 
 ## Related documents
 
-- `docs/phases/PHASE_29_LOAN_CORRECTION.md` — backend rule this phase consumes
+- `docs/phases/PHASE_30_LOAN_CORRECTION.md` — backend rule this phase consumes

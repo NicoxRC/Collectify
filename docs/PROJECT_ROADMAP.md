@@ -173,9 +173,20 @@ Phase 5 only covered the weekly overdue reminder. Real usage requires three more
 
 **Exit criteria:** the confirmed extended field set is captured, stored, and visible on a client's profile, with ID/selfie photos following the same externally-hosted-URL pattern as `Payment.imageUrl` (Phase 12).
 
-## Phase 22 — Unified dynamic charges (cargos corrientes y moratorios)
+## Phase 22 — Interactive templates and inbound WhatsApp webhook
 
-Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_22_DYNAMIC_CHARGES.md`.
+Requested by the client (reunión 2026-08-26) — the most important and most urgent item in this next round, ahead of everything else below. See `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md`.
+
+- Collectify's first-ever inbound WhatsApp capability: a webhook endpoint that receives what clients send back, instead of only ever sending
+- WhatsApp template messages that include quick-reply buttons (e.g. "¿quieres recibir el estado de tus cuentas? [Sí] [No]"), so a business-initiated message can ask a yes/no question outside the 24h session window
+- Tapping a button automatically triggers the corresponding follow-up (e.g. "Sí" → send the account summary) and notifies the admin
+- Also handles a client texting in on their own initiative, unprompted by any button — not just button-tap replies
+
+**Exit criteria:** an admin can configure a button-based template, a client's tap reliably triggers the correct automatic follow-up, and any inbound WhatsApp message (button tap or free text) is received and visible to the admin, not silently dropped.
+
+## Phase 23 — Unified dynamic charges (cargos corrientes y moratorios)
+
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_23_DYNAMIC_CHARGES.md`.
 
 - Moratory interest stops being a single hardcoded rate/formula and becomes just another dynamic concept in the Phase 14 catalog, alongside ordinary ("corriente") concepts — the admin can add as many moratory-related charges as needed, the same way they already do for corriente ones
 - A fixed-amount concept can be configured to either split its total evenly across every installment, or charge its full value only on the first installment
@@ -185,9 +196,9 @@ Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_22_DYNA
 
 **Exit criteria:** moratory interest is priced through the same concept engine as corriente interest, a fixed-amount concept's distribution mode is explicit and correct, and the loan detail view renders charges as a dynamic per-charge table.
 
-## Phase 23 — Usury rate becomes mandatory and self-applied
+## Phase 24 — Usury rate becomes mandatory and self-applied
 
-Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_23_USURY_MANDATORY.md`. Depends on Phase 22 (moratory interest must already be a concept before it can be auto-priced against the ceiling).
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_24_USURY_MANDATORY.md`. Depends on Phase 23 (moratory interest must already be a concept before it can be auto-priced against the ceiling).
 
 - A loan can no longer be created without the current month's certified usury rate on file — this changes Phase 15's enforcement from a warning to a hard block
 - The current usury rate is applied automatically as the value of a loan's interest-bearing concepts (corriente and moratorio) — no longer manually editable per loan, but shown to the admin at creation time for transparency
@@ -195,61 +206,61 @@ Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_23_USUR
 
 **Exit criteria:** a loan cannot be created without that month's usury rate on file, and its interest-bearing concepts are priced at exactly that rate, non-editable.
 
-## Phase 24 — Refinancing with overdue installments
+## Phase 25 — Refinancing with overdue installments
 
-Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_24_REFINANCE_OVERDUE.md`. Depends on Phase 22 (accrued interest/mora must be computed through the unified concept engine).
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_25_REFINANCE_OVERDUE.md`. Depends on Phase 23 (accrued interest/mora must be computed through the unified concept engine).
 
 - Removes the current block that prevents refinancing a loan with overdue installments
 - The new loan's principal is computed as: remaining capital + interest already accrued on the overdue installments (corriente) + mora already accrued on those same installments, on top of the existing refinancing capital calculation
 
 **Exit criteria:** a loan with overdue installments can be refinanced, and the new principal correctly folds in capital plus both kinds of interest already caused.
 
-## Phase 25 — Co-debtor as a linked client
+## Phase 26 — Co-debtor as a linked client
 
-Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_25_CODEBTOR_CLIENT.md`. Replaces Phase 21's flat `co_debtor_*` columns on `Loan`.
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_26_CODEBTOR_CLIENT.md`. Replaces Phase 21's flat `co_debtor_*` columns on `Loan`.
 
 - A co-debtor must already exist as a `Client` record before being attached to a loan — no more free-text co-debtor fields entered inline at loan creation
 - A loan references its co-debtor via a client relationship instead of duplicated flat columns
 
 **Exit criteria:** attaching a co-debtor to a loan means picking an existing client, not typing their details from scratch.
 
-## Phase 26 — Personalized messaging frequency (replaces message audiences)
+## Phase 27 — Personalized messaging frequency (replaces message audiences)
 
-Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_26_MESSAGE_FREQUENCY.md`. Replaces Phase 18's curated-audience-as-filter mechanism for `overdue`/`upcoming_due`.
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_27_MESSAGE_FREQUENCY.md`. Replaces Phase 18's curated-audience-as-filter mechanism for `overdue`/`upcoming_due`.
 
 - Removes the concept of a curated audience gating who receives a message — every client who dynamically qualifies (has an overdue installment, one approaching due) is messaged again, with no group to populate first
 - Adds a whitelist of clients with a custom send frequency (e.g. "preferential" clients get one message a week instead of every cron run) — membership changes *frequency*, not *eligibility*
 
 **Exit criteria:** a qualifying client is always messaged by default, and an admin can slow down (not silence) how often specific clients are contacted.
 
-## Phase 27 — Multi-installment payments
+## Phase 28 — Multi-installment payments
 
-Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_27_MULTI_INSTALLMENT_PAYMENT.md`.
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_28_MULTI_INSTALLMENT_PAYMENT.md`.
 
 - Register a payment covering several installments at once, in a single action
 - Attach more than one receipt photo to a single payment
 
 **Exit criteria:** a collector can settle multiple cuotas and upload every receipt the client sent, without registering each installment's payment separately.
 
-## Phase 28 — Principal paydowns (abonos al capital)
+## Phase 29 — Principal paydowns (abonos al capital)
 
-Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_28_PRINCIPAL_PAYDOWN.md`.
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_29_PRINCIPAL_PAYDOWN.md`.
 
 - A payment that reduces a loan's outstanding principal directly, separate from an ordinary installment payment
 
 **Exit criteria:** a principal-only paydown can be registered against a loan and correctly reduces what's owed going forward.
 
-## Phase 29 — Loan correction policy
+## Phase 30 — Loan correction policy
 
-Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_29_LOAN_CORRECTION.md`.
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_30_LOAN_CORRECTION.md`.
 
 - A loan created in error can be deleted, but only while it has no registered payments — once a payment exists, the loan is no longer eligible for deletion
 
 **Exit criteria:** an admin has a safe, explicit way to remove a mistaken loan without risking a loan that already has real payment history.
 
-## Phase 30 — Loan section terminology and copy
+## Phase 31 — Loan section terminology and copy
 
-Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_30_LOAN_TERMINOLOGY.md`. Depends on Phases 22–23 (the wording must describe the unified charges/usury model those phases build).
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_31_LOAN_TERMINOLOGY.md`. Depends on Phases 22–23 (the wording must describe the unified charges/usury model those phases build).
 
 - Renames confusing labels across the loan section ("tasa de interés" → "incremento consolidado en caso de mora", "saldo pendiente" → "saldo pendiente con incremento", "monto original" → "monto original sin incremento")
 - Adds a "saldo capital a la fecha" card to the loan detail view (the calculation already exists for refinancing; it just isn't shown as its own card yet)
@@ -257,9 +268,9 @@ Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_30_LOAN
 
 **Exit criteria:** the loan section's labels and an added explanatory note match what the client actually asked for, with no lingering ambiguity between "with" and "without" mora increment.
 
-## Phase 31 — UI fixes and small corrections
+## Phase 32 — UI fixes and small corrections
 
-Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_31_UI_FIXES.md`.
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_32_UI_FIXES.md`.
 
 - An installment's "pay" button is only enabled once every earlier installment on the same loan is paid
 - Loan detail action buttons no longer resize/break the layout when there are many of them
@@ -270,9 +281,9 @@ Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_31_UI_F
 
 **Exit criteria:** each listed bug/annoyance is fixed with no change to any financial calculation.
 
-## Phase 32 — Required client fields
+## Phase 33 — Required client fields
 
-Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_32_CLIENT_REQUIRED_FIELDS.md`.
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_33_CLIENT_REQUIRED_FIELDS.md`.
 
 - `document_number` (cédula) becomes required on interactive client creation
 - At least one address field becomes required on interactive client creation

@@ -1,8 +1,8 @@
-# Phase 30 — Loan Section Terminology and Copy (Client)
+# Phase 31 — Loan Section Terminology and Copy (Client)
 
 ## Goal
 
-Apply the confirmed label renames across the loan section, add a "saldo capital a la fecha" card to the loan detail view, and add a short justification note explaining the applied surcharge rate. See `docs/phases/PHASE_30_LOAN_TERMINOLOGY.md` for the backend field this consumes.
+Apply the confirmed label renames across the loan section, add a "saldo capital a la fecha" card to the loan detail view, and add a short justification note explaining the applied surcharge rate. See `docs/phases/PHASE_31_LOAN_TERMINOLOGY.md` for the backend field this consumes.
 
 ## Scope
 
@@ -26,4 +26,4 @@ Apply the confirmed label renames across the loan section, add a "saldo capital 
 
 ## Related documents
 
-- `docs/phases/PHASE_30_LOAN_TERMINOLOGY.md` — backend field this phase consumes
+- `docs/phases/PHASE_31_LOAN_TERMINOLOGY.md` — backend field this phase consumes

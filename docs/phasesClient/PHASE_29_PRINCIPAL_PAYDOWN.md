@@ -1,8 +1,8 @@
-# Phase 28 — Principal Paydowns (Client)
+# Phase 29 — Principal Paydowns (Client)
 
 ## Goal
 
-UI for registering a principal-only paydown against a loan, and reflecting its effect on the loan's remaining schedule/balance. See `docs/phases/PHASE_28_PRINCIPAL_PAYDOWN.md`.
+UI for registering a principal-only paydown against a loan, and reflecting its effect on the loan's remaining schedule/balance. See `docs/phases/PHASE_29_PRINCIPAL_PAYDOWN.md`.
 
 ## Status
 
@@ -10,8 +10,8 @@ UI for registering a principal-only paydown against a loan, and reflecting its e
 
 ## Scope
 
-Deliberately left unwritten pending `docs/phases/PHASE_28_PRINCIPAL_PAYDOWN.md`'s open questions.
+Deliberately left unwritten pending `docs/phases/PHASE_29_PRINCIPAL_PAYDOWN.md`'s open questions.
 
 ## Related documents
 
-- `docs/phases/PHASE_28_PRINCIPAL_PAYDOWN.md` — backend design this phase is blocked on
+- `docs/phases/PHASE_29_PRINCIPAL_PAYDOWN.md` — backend design this phase is blocked on

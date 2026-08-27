@@ -1,4 +1,4 @@
-# Phase 30 — Loan Section Terminology and Copy
+# Phase 31 — Loan Section Terminology and Copy
 
 ## Goal
 
@@ -6,7 +6,7 @@ Fix confusing labels across the loan section that the client reported real users
 
 ## Depends on
 
-`docs/phases/PHASE_22_DYNAMIC_CHARGES.md` and `docs/phases/PHASE_23_USURY_MANDATORY.md` — the copy below describes the unified, usury-priced charge model those phases build; do not ship this phase's wording ahead of that model actually existing, or the copy will describe behavior the app doesn't have yet.
+`docs/phases/PHASE_23_DYNAMIC_CHARGES.md` and `docs/phases/PHASE_24_USURY_MANDATORY.md` — the copy below describes the unified, usury-priced charge model those phases build; do not ship this phase's wording ahead of that model actually existing, or the copy will describe behavior the app doesn't have yet.
 
 ## Resolved — confirmed directly with the human (reunión 2026-08-25)
 
@@ -20,7 +20,7 @@ Fix confusing labels across the loan section that the client reported real users
 
 ## Required reading before starting
 
-`docs/phases/PHASE_22_DYNAMIC_CHARGES.md`, `docs/phases/PHASE_23_USURY_MANDATORY.md` (the model this copy describes), `docs/phases/PHASE_17_REFINANCING_RECALC.md` (where the current-balance calculation already exists).
+`docs/phases/PHASE_23_DYNAMIC_CHARGES.md`, `docs/phases/PHASE_24_USURY_MANDATORY.md` (the model this copy describes), `docs/phases/PHASE_17_REFINANCING_RECALC.md` (where the current-balance calculation already exists).
 
 ## Scope
 
@@ -46,6 +46,6 @@ Update `docs/GLOSSARY.md`'s "Interest rate / Tasa de mora" entry and `docs/DATAB
 
 ## Related documents
 
-- `docs/phases/PHASE_22_DYNAMIC_CHARGES.md`, `docs/phases/PHASE_23_USURY_MANDATORY.md` — the model this phase's copy describes
+- `docs/phases/PHASE_23_DYNAMIC_CHARGES.md`, `docs/phases/PHASE_24_USURY_MANDATORY.md` — the model this phase's copy describes
 - `docs/phases/PHASE_17_REFINANCING_RECALC.md` — the existing balance calculation this phase reuses
 - `docs/DATABASE.md`, `docs/GLOSSARY.md`
