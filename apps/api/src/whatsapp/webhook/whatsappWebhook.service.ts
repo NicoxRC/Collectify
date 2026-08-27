@@ -3,12 +3,14 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, ILike, Repository } from 'typeorm';
 
 import { Client } from '../../clients/entities/client.entity';
+import { PaginatedResult } from '../../common/interfaces/paginatedResult.interface';
 import { Configuration } from '../../config/configuration';
 import { WhatsappInboundMessage } from '../entities/whatsappInboundMessage.entity';
 
+import { QueryWhatsappInboundMessagesDto } from './dto/queryWhatsappInboundMessages.dto';
 import {
   extractInboundEvents,
   ParsedInboundEvent,
@@ -16,6 +18,8 @@ import {
 import { normalizeIncomingPhoneNumber } from './normalizeIncomingPhoneNumber';
 
 const HUB_SUBSCRIBE_MODE = 'subscribe';
+const DEFAULT_PAGE = 1;
+const DEFAULT_PAGE_SIZE = 20;
 
 @Injectable()
 export class WhatsappWebhookService {
@@ -91,6 +95,49 @@ export class WhatsappWebhookService {
     for (const event of events) {
       await this.persistEvent(event);
     }
+  }
+
+  // Admin-facing list — see docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md's
+  // inbound-message log view. Same pagination/search shape as
+  // MessageLogsService.findAll: search matches the matched client's
+  // first/last name, an unmatched message is simply excluded by that
+  // filter rather than special-cased.
+  async findAll(
+    query: QueryWhatsappInboundMessagesDto,
+  ): Promise<PaginatedResult<WhatsappInboundMessage>> {
+    const page = query.page ?? DEFAULT_PAGE;
+    const limit = query.limit ?? DEFAULT_PAGE_SIZE;
+
+    const base: FindOptionsWhere<WhatsappInboundMessage> = {};
+    if (query.clientId) {
+      base.clientId = query.clientId;
+    }
+    if (query.type) {
+      base.type = query.type;
+    }
+
+    const search = query.search ? `%${query.search}%` : undefined;
+    const where:
+      | FindOptionsWhere<WhatsappInboundMessage>[]
+      | FindOptionsWhere<WhatsappInboundMessage> = search
+      ? [
+          { ...base, client: { firstName: ILike(search) } },
+          { ...base, client: { lastName: ILike(search) } },
+        ]
+      : base;
+
+    const [items, total] = await this.inboundMessagesRepository.findAndCount({
+      where,
+      relations: { client: true },
+      order: { receivedAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return {
+      items,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
   }
 
   private async persistEvent(event: ParsedInboundEvent): Promise<void> {

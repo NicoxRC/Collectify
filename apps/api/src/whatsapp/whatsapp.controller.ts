@@ -6,6 +6,7 @@ import {
   ParseEnumPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -15,15 +16,19 @@ import {
 } from '@nestjs/swagger';
 
 import { Roles } from '../auth/decorators/roles.decorator';
+import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { UserRole } from '../users/entities/user.entity';
 
 import { AccountSummaryService } from './accountSummary.service';
 import { UpdateCronScheduleDto } from './dto/updateCronSchedule.dto';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageTemplate } from './entities/messageTemplate.entity';
+import { WhatsappInboundMessage } from './entities/whatsappInboundMessage.entity';
 import { MessageType } from './messageType.enum';
 import { OverdueReminderService } from './overdueReminder.service';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
+import { QueryWhatsappInboundMessagesDto } from './webhook/dto/queryWhatsappInboundMessages.dto';
+import { WhatsappWebhookService } from './webhook/whatsappWebhook.service';
 import { WhatsappCronService } from './whatsappCron.service';
 
 @ApiTags('whatsapp')
@@ -36,7 +41,25 @@ export class WhatsappController {
     private readonly upcomingDueReminderService: UpcomingDueReminderService,
     private readonly accountSummaryService: AccountSummaryService,
     private readonly whatsappCronService: WhatsappCronService,
+    private readonly whatsappWebhookService: WhatsappWebhookService,
   ) {}
+
+  @Get('inbound-messages')
+  @ApiOperation({
+    summary:
+      'List inbound WhatsApp messages (admin only) — paginated, filter by client/type/search',
+    description:
+      "Every button tap or free-text message received via the webhook, whether or not it matched a known client. search matches the matched client's first/last name — see docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns a page of inbound messages.',
+  })
+  findInboundMessages(
+    @Query() query: QueryWhatsappInboundMessagesDto,
+  ): Promise<PaginatedResult<WhatsappInboundMessage>> {
+    return this.whatsappWebhookService.findAll(query);
+  }
 
   @Get('cron/:type/status')
   @ApiOperation({

@@ -18,6 +18,7 @@ import { MessageLogsPage } from '@/features/messageLogs/MessageLogsPage';
 import { MessageTemplatesPage } from '@/features/messageTemplates/MessageTemplatesPage';
 import { UsersListPage } from '@/features/users/UsersListPage';
 import { UsuryRatesPage } from '@/features/usuryRates/UsuryRatesPage';
+import { WhatsappInboundMessagesPage } from '@/features/whatsappInboundMessages/WhatsappInboundMessagesPage';
 
 // Grows with each phase: Phase 4+ add one route block per feature, nesting
 // RequireRole where a route is admin-only. See docs/phasesClient.
@@ -126,6 +127,15 @@ export const router = createBrowserRouter([
                 // docs/phasesClient/PHASE_19_USER_MANAGEMENT.md.
                 path: 'usuarios',
                 element: <UsersListPage />,
+              },
+              {
+                // WhatsappController is admin-only server-side
+                // (@Roles(UserRole.Admin)) — see
+                // docs/phasesClient/PHASE_22_WHATSAPP_WEBHOOK.md. Read-only
+                // "not blocked" floor: no button-flow/menu management or
+                // preference UI here — those are blocked on open questions.
+                path: 'mensajes-entrantes',
+                element: <WhatsappInboundMessagesPage />,
               },
             ],
           },
