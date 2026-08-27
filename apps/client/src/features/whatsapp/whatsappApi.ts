@@ -66,4 +66,16 @@ export const whatsappApi = {
     );
     return data;
   },
+
+  // TEST-ONLY (see docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md) — sends the
+  // hardcoded "1/2" numbered menu as plain text, not a real template.
+  // Doesn't create a MessageLog row (no `test_menu` type exists), so it
+  // never shows up in the message history list, only in the toast/error
+  // this triggers.
+  sendTestMenu: async (clientId: string): Promise<{ sent: boolean }> => {
+    const { data } = await apiClient.post<{ sent: boolean }>(
+      `/whatsapp/clients/${clientId}/send-test-menu`,
+    );
+    return data;
+  },
 };
