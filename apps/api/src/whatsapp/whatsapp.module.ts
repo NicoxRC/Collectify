@@ -10,6 +10,7 @@ import { MessageAudience } from './entities/messageAudience.entity';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageTemplate } from './entities/messageTemplate.entity';
+import { WhatsappInboundMessage } from './entities/whatsappInboundMessage.entity';
 import { MessageAudiencesService } from './messageAudiences/messageAudiences.service';
 import { MessageLogsController } from './messageLogs/messageLogs.controller';
 import { MessageLogsService } from './messageLogs/messageLogs.service';
@@ -18,6 +19,8 @@ import { MessageTemplatesService } from './messageTemplates/messageTemplates.ser
 import { NewLoanReminderService } from './newLoanReminder.service';
 import { OverdueReminderService } from './overdueReminder.service';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
+import { WhatsappWebhookController } from './webhook/whatsappWebhook.controller';
+import { WhatsappWebhookService } from './webhook/whatsappWebhook.service';
 import { WhatsappController } from './whatsapp.controller';
 import { WhatsappCronService } from './whatsappCron.service';
 import { WhatsAppService } from './whatsapp.service';
@@ -29,6 +32,7 @@ import { WhatsAppService } from './whatsapp.service';
       MessageAudience,
       MessageLog,
       MessageLogItem,
+      WhatsappInboundMessage,
       Client,
       Installment,
       Loan,
@@ -38,6 +42,7 @@ import { WhatsAppService } from './whatsapp.service';
     WhatsappController,
     MessageTemplatesController,
     MessageLogsController,
+    WhatsappWebhookController,
   ],
   providers: [
     WhatsAppService,
@@ -49,6 +54,7 @@ import { WhatsAppService } from './whatsapp.service';
     UpcomingDueReminderService,
     AccountSummaryService,
     WhatsappCronService,
+    WhatsappWebhookService,
   ],
   // LoansService calls NewLoanReminderService synchronously after creating
   // a loan — see docs/phases/PHASE_9_MESSAGE_TYPES.md. WhatsappModule does

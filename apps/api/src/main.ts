@@ -9,7 +9,11 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
 import { Configuration } from './config/configuration';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: true keeps the exact request bytes available on req.rawBody —
+  // needed to verify Meta's X-Hub-Signature-256 HMAC on the WhatsApp
+  // webhook, which must be computed over the raw body, not the re-
+  // serialized parsed JSON. See WhatsappWebhookController.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   const configService =
     app.get<ConfigService<Configuration, true>>(ConfigService);
   const { port, clientUrl } = configService.get('app', { infer: true });
