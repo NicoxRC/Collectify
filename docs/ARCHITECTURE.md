@@ -72,10 +72,16 @@ apps/api/
     │   ├── messageTemplates/
     │   │   ├── messageTemplates.controller.ts
     │   │   └── messageTemplates.service.ts
+    │   ├── webhook/                   # Phase 22 — inbound events, the one
+    │   │   │                          # @Public() exception in this module
+    │   │   ├── whatsappWebhook.controller.ts
+    │   │   ├── whatsappWebhook.service.ts
+    │   │   └── extractInboundEvents.ts, normalizeIncomingPhoneNumber.ts
     │   ├── entities/
     │   │   ├── messageLog.entity.ts
     │   │   ├── messageLogItem.entity.ts
-    │   │   └── messageTemplate.entity.ts
+    │   │   ├── messageTemplate.entity.ts
+    │   │   └── whatsappInboundMessage.entity.ts
     │   └── overdueReminder.cron.ts    # weekly scheduled job — see note below
     │
     ├── dashboard/

@@ -121,6 +121,9 @@ A historical record of a reminder actually sent to a client — one row per clie
 ### Message log item
 A single installment's contribution to a sent message log — since one message covers several installments, this table records each one along with a **snapshot** of its overdue days and interest at the exact moment the message was sent (these values change daily, so the snapshot preserves what the client was actually told). In code: `MessageLogItem` entity, `message_log_items` table.
 
+### Inbound message
+Added Phase 22 — any WhatsApp event a client sends *to* the business: a template's quick-reply button tap, or free text sent unprompted. The first thing Collectify has ever received rather than only sent. Logged unconditionally, whether or not the sender's phone number matches a known client. In code: `WhatsappInboundMessage` entity, `whatsapp_inbound_messages` table. **What a button tap automatically triggers, whether a client's stated preference persists, and how an unprompted free-text message is handled are still open questions** — see `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md`. The button-flow/"menu" catalog terminology isn't settled yet, so it has no entry here.
+
 ## Financial terms
 
 ### Principal amount / Monto principal
