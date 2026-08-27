@@ -181,4 +181,23 @@ export class WhatsappController {
   sendAccountSummary(@Param('clientId') clientId: string): Promise<MessageLog> {
     return this.accountSummaryService.sendAccountSummary(clientId);
   }
+
+  @Post('clients/:clientId/send-test-menu')
+  @ApiOperation({
+    summary:
+      'Send the TEST-ONLY numbered menu (1/2) to one client (admin only)',
+    description:
+      'Plain text, not a real Meta-approved template — lets an admin kick off a manual test of the "1 = hablar con humano / 2 = recibir cuotas" flow. Only reaches the client if a 24h session window is already open. See the TEST_MENU_MESSAGE doc comment in WhatsappWebhookService.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Returns whether the send actually succeeded.',
+  })
+  @ApiResponse({ status: 404, description: 'Client not found.' })
+  async sendTestMenu(
+    @Param('clientId') clientId: string,
+  ): Promise<{ sent: boolean }> {
+    const sent = await this.whatsappWebhookService.sendTestMenu(clientId);
+    return { sent };
+  }
 }

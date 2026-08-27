@@ -1,6 +1,11 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, ILike, Repository } from 'typeorm';
@@ -35,6 +40,20 @@ const DEFAULT_PAGE_SIZE = 20;
 // WhatsappInboundMessagesPage.tsx. Rip this whole thing out once the real
 // catalog ships.
 const TEST_MENU_ACCOUNT_SUMMARY_OPTION = '2';
+
+// The outbound half of the same test scaffolding — a plain text message
+// (not a real, Meta-approved template) an admin can send from the client's
+// page to kick off a manual test of the flow above. Sent as a free-form
+// session message, so it only reaches the client if a 24h window is
+// already open (they messaged in recently) — same limitation as
+// sendManualReply.
+const TEST_MENU_MESSAGE = [
+  '¿En qué podemos ayudarte?',
+  '1. Hablar con un humano',
+  '2. Recibir el desglose de tus cuotas',
+  '',
+  'Responde con el número de la opción.',
+].join('\n');
 
 @Injectable()
 export class WhatsappWebhookService {
@@ -218,6 +237,22 @@ export class WhatsappWebhookService {
     return this.whatsAppService.sendTextMessage(
       normalizeIncomingPhoneNumber(rawPhoneNumber),
       message,
+    );
+  }
+
+  // See TEST_MENU_MESSAGE's doc comment — the "send the test menu" button
+  // on ClientDetailPage. Same free-form-session limitation as
+  // sendManualReply: only actually reaches the client if they've messaged
+  // in within the last 24h.
+  async sendTestMenu(clientId: string): Promise<boolean> {
+    const client = await this.clientsRepository.findOneBy({ id: clientId });
+    if (!client) {
+      throw new NotFoundException(`Client with id ${clientId} not found`);
+    }
+
+    return this.whatsAppService.sendTextMessage(
+      client.phoneNumber,
+      TEST_MENU_MESSAGE,
     );
   }
 }
