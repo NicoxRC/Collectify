@@ -173,6 +173,112 @@ Phase 5 only covered the weekly overdue reminder. Real usage requires three more
 
 **Exit criteria:** the confirmed extended field set is captured, stored, and visible on a client's profile, with ID/selfie photos following the same externally-hosted-URL pattern as `Payment.imageUrl` (Phase 12).
 
+## Phase 22 — Unified dynamic charges (cargos corrientes y moratorios)
+
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_22_DYNAMIC_CHARGES.md`.
+
+- Moratory interest stops being a single hardcoded rate/formula and becomes just another dynamic concept in the Phase 14 catalog, alongside ordinary ("corriente") concepts — the admin can add as many moratory-related charges as needed, the same way they already do for corriente ones
+- A fixed-amount concept can be configured to either split its total evenly across every installment, or charge its full value only on the first installment
+- The loan detail view shows a dynamic table — one column per charge actually assigned to the loan, one row per installment — instead of listing each concept underneath the installment amount
+- Fixes the amortizador's calculation discrepancy flagged against Juan's own numbers, and its visual polish (borders/grid, larger panel)
+- Collectors can create a loan without being able to view the amortizador's detail (resolves a permission gap the client flagged)
+
+**Exit criteria:** moratory interest is priced through the same concept engine as corriente interest, a fixed-amount concept's distribution mode is explicit and correct, and the loan detail view renders charges as a dynamic per-charge table.
+
+## Phase 23 — Usury rate becomes mandatory and self-applied
+
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_23_USURY_MANDATORY.md`. Depends on Phase 22 (moratory interest must already be a concept before it can be auto-priced against the ceiling).
+
+- A loan can no longer be created without the current month's certified usury rate on file — this changes Phase 15's enforcement from a warning to a hard block
+- The current usury rate is applied automatically as the value of a loan's interest-bearing concepts (corriente and moratorio) — no longer manually editable per loan, but shown to the admin at creation time for transparency
+- The "usury ceiling exceeded" warning banner and justification note (Phase 15) are removed — no longer reachable once the rate is self-applied
+
+**Exit criteria:** a loan cannot be created without that month's usury rate on file, and its interest-bearing concepts are priced at exactly that rate, non-editable.
+
+## Phase 24 — Refinancing with overdue installments
+
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_24_REFINANCE_OVERDUE.md`. Depends on Phase 22 (accrued interest/mora must be computed through the unified concept engine).
+
+- Removes the current block that prevents refinancing a loan with overdue installments
+- The new loan's principal is computed as: remaining capital + interest already accrued on the overdue installments (corriente) + mora already accrued on those same installments, on top of the existing refinancing capital calculation
+
+**Exit criteria:** a loan with overdue installments can be refinanced, and the new principal correctly folds in capital plus both kinds of interest already caused.
+
+## Phase 25 — Co-debtor as a linked client
+
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_25_CODEBTOR_CLIENT.md`. Replaces Phase 21's flat `co_debtor_*` columns on `Loan`.
+
+- A co-debtor must already exist as a `Client` record before being attached to a loan — no more free-text co-debtor fields entered inline at loan creation
+- A loan references its co-debtor via a client relationship instead of duplicated flat columns
+
+**Exit criteria:** attaching a co-debtor to a loan means picking an existing client, not typing their details from scratch.
+
+## Phase 26 — Personalized messaging frequency (replaces message audiences)
+
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_26_MESSAGE_FREQUENCY.md`. Replaces Phase 18's curated-audience-as-filter mechanism for `overdue`/`upcoming_due`.
+
+- Removes the concept of a curated audience gating who receives a message — every client who dynamically qualifies (has an overdue installment, one approaching due) is messaged again, with no group to populate first
+- Adds a whitelist of clients with a custom send frequency (e.g. "preferential" clients get one message a week instead of every cron run) — membership changes *frequency*, not *eligibility*
+
+**Exit criteria:** a qualifying client is always messaged by default, and an admin can slow down (not silence) how often specific clients are contacted.
+
+## Phase 27 — Multi-installment payments
+
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_27_MULTI_INSTALLMENT_PAYMENT.md`.
+
+- Register a payment covering several installments at once, in a single action
+- Attach more than one receipt photo to a single payment
+
+**Exit criteria:** a collector can settle multiple cuotas and upload every receipt the client sent, without registering each installment's payment separately.
+
+## Phase 28 — Principal paydowns (abonos al capital)
+
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_28_PRINCIPAL_PAYDOWN.md`.
+
+- A payment that reduces a loan's outstanding principal directly, separate from an ordinary installment payment
+
+**Exit criteria:** a principal-only paydown can be registered against a loan and correctly reduces what's owed going forward.
+
+## Phase 29 — Loan correction policy
+
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_29_LOAN_CORRECTION.md`.
+
+- A loan created in error can be deleted, but only while it has no registered payments — once a payment exists, the loan is no longer eligible for deletion
+
+**Exit criteria:** an admin has a safe, explicit way to remove a mistaken loan without risking a loan that already has real payment history.
+
+## Phase 30 — Loan section terminology and copy
+
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_30_LOAN_TERMINOLOGY.md`. Depends on Phases 22–23 (the wording must describe the unified charges/usury model those phases build).
+
+- Renames confusing labels across the loan section ("tasa de interés" → "incremento consolidado en caso de mora", "saldo pendiente" → "saldo pendiente con incremento", "monto original" → "monto original sin incremento")
+- Adds a "saldo capital a la fecha" card to the loan detail view (the calculation already exists for refinancing; it just isn't shown as its own card yet)
+- Adds a short explanatory note on the loan detail view justifying why the total surcharge rate was applied
+
+**Exit criteria:** the loan section's labels and an added explanatory note match what the client actually asked for, with no lingering ambiguity between "with" and "without" mora increment.
+
+## Phase 31 — UI fixes and small corrections
+
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_31_UI_FIXES.md`.
+
+- An installment's "pay" button is only enabled once every earlier installment on the same loan is paid
+- Loan detail action buttons no longer resize/break the layout when there are many of them
+- Audit log detail no longer shows a raw unreadable code for a movement
+- Message history no longer shows a misleading "0 enviados" count
+- A confirmation step is added before liquidating a loan
+- "Cotizador" is renamed to "Proyector rápido"
+
+**Exit criteria:** each listed bug/annoyance is fixed with no change to any financial calculation.
+
+## Phase 32 — Required client fields
+
+Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_32_CLIENT_REQUIRED_FIELDS.md`.
+
+- `document_number` (cédula) becomes required on interactive client creation
+- At least one address field becomes required on interactive client creation
+
+**Exit criteria:** a client can't be created interactively without a cédula and at least one address, matching Phase 21's existing exemption for Excel imports.
+
 ---
 
 ## Explicitly out of scope for now
