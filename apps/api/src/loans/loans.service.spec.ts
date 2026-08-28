@@ -22,6 +22,7 @@ import { Installment, InstallmentStatus } from './entities/installment.entity';
 import { InstallmentFrequency, Loan, LoanStatus } from './entities/loan.entity';
 import { LoanInstallmentConcept } from './entities/loanInstallmentConcept.entity';
 import { Payment } from './entities/payment.entity';
+import { PaymentImage } from './entities/paymentImage.entity';
 import { LoansService } from './loans.service';
 
 describe('LoansService', () => {
@@ -46,6 +47,7 @@ describe('LoansService', () => {
     create: jest.Mock;
     save: jest.Mock;
   };
+  let paymentImagesRepository: { find: jest.Mock };
   let loanInstallmentConceptsRepository: {
     create: jest.Mock;
     save: jest.Mock;
@@ -118,6 +120,9 @@ describe('LoansService', () => {
       find: jest.fn(),
       create: jest.fn((dto: Partial<Payment>) => dto),
       save: jest.fn((payments: unknown[]) => Promise.resolve(payments)),
+    };
+    paymentImagesRepository = {
+      find: jest.fn().mockResolvedValue([]),
     };
     loanInstallmentConceptsRepository = {
       create: jest.fn((dto: Partial<LoanInstallmentConcept>) => dto),
@@ -196,6 +201,10 @@ describe('LoansService', () => {
         {
           provide: getRepositoryToken(Payment),
           useValue: paymentsRepository,
+        },
+        {
+          provide: getRepositoryToken(PaymentImage),
+          useValue: paymentImagesRepository,
         },
         {
           provide: getRepositoryToken(LoanInstallmentConcept),
@@ -1410,7 +1419,10 @@ describe('LoansService', () => {
 
       const result = await service.getPayments(mockLoan.id);
 
-      expect(result).toBe(payments);
+      // Phase 28 — getPayments() now maps each payment (imageUrl replaced
+      // with imageUrls), so the result is a new array, not the same
+      // reference; compare by value instead.
+      expect(result).toEqual([{ ...payments[0], imageUrls: [] }]);
       expect(installmentsRepository.find).toHaveBeenCalledWith({
         where: { loanId: mockLoan.id },
         select: ['id'],

@@ -27,11 +27,11 @@ import { PreviewScheduleDto } from './dto/previewSchedule.dto';
 import { QueryLoansDto } from './dto/queryLoans.dto';
 import { RefinanceLoanDto } from './dto/refinanceLoan.dto';
 import { Loan } from './entities/loan.entity';
-import { Payment } from './entities/payment.entity';
 import {
   LoansService,
   LoanDetail,
   LoanSummary,
+  PaymentWithImages,
   RefinanceQuote,
   SchedulePreview,
 } from './loans.service';
@@ -218,11 +218,13 @@ export class LoansController {
     summary: "List a loan's payment history, oldest first",
     description:
       'Joins across every installment belonging to this loan — payments are ' +
-      'stored per installment, not per loan (docs/DATABASE.md).',
+      'stored per installment, not per loan (docs/DATABASE.md). Each payment ' +
+      'includes imageUrls (Phase 28) — a payment can carry more than one ' +
+      'receipt photo.',
   })
   @ApiResponse({ status: 200, description: "Returns the loan's payments." })
   @ApiResponse({ status: 404, description: 'Loan not found.' })
-  getPayments(@Param('id') id: string): Promise<Payment[]> {
+  getPayments(@Param('id') id: string): Promise<PaymentWithImages[]> {
     return this.loansService.getPayments(id);
   }
 
