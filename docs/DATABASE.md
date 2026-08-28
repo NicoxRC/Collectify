@@ -25,7 +25,7 @@ Tables and columns use **snake_case**; TypeORM maps this automatically to camelC
 
 ### Table names — plural, snake_case
 
-`clients`, `loans`, `installments`, `payments`, `message_templates`, `message_audiences`, `message_audience_clients`, `message_logs`, `message_log_items`, `users`, `audit_logs`.
+`clients`, `loans`, `installments`, `payments`, `payment_images`, `message_templates`, `message_audiences`, `message_audience_clients`, `message_logs`, `message_log_items`, `users`, `audit_logs`.
 
 ### Timestamps — every table has them
 
@@ -279,8 +279,21 @@ This matches the manual calculations found across both source spreadsheets — v
 | `amount_paid` | DECIMAL(12,2) | |
 | `paid_at` | DATE | |
 | `observation` | TEXT | nullable — the source data has many free-text notes like "pagó en el local", "recibió en el Bordo" |
-| `image_url` | VARCHAR, nullable | Added Phase 12 — URL of the deposit receipt photo, hosted externally (Cloudinary). The api only stores this string; it never receives or processes the image itself, same "absence means not provided" convention as `observation`. See `docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md`. |
+| `image_url` | VARCHAR, nullable | Added Phase 12. **Deprecated as of Phase 28** — a payment can now carry more than one receipt photo, tracked in `payment_images` below. Kept (not dropped) as a read-only fallback for any row created before Phase 28's migration backfilled it into `payment_images`; new payments no longer write to this column. |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
+
+### `payment_images`
+
+Added Phase 28 — lets a payment carry more than one receipt photo (clients often send several proof-of-payment images for one cuota). Append-only, no soft delete, same convention as other photo-holding tables. `payments.image_url` above is deprecated in favor of this table; a data migration backfilled every pre-existing non-null `image_url` into its own row here.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `payment_id` | UUID | FK → `payments.id`, `ON DELETE CASCADE`, indexed |
+| `image_url` | VARCHAR | required — same "externally hosted, api never touches the bytes" convention as the old `payments.image_url` |
+| `created_at` | TIMESTAMPTZ | |
+
+Also added Phase 28: `POST /installments/payments/bulk` registers payments against several installments in one request (one amount entered individually per installment, not a total split across them — confirmed with the human). The batch requires **full** payment of every installment in it; a short amount rejects the entire request (rolled back atomically) before anything is persisted. Partial payment stays on the existing single-installment endpoint, which already supported it via multiple `payments` rows per installment.
 
 ### `interest_concept_types`
 
