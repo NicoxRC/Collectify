@@ -85,8 +85,6 @@ describe('LoansService', () => {
     refinancedFromLoan: null,
     description: null,
     initialPayment: null,
-    usuryCeilingExceededAtCreation: false,
-    usuryJustification: null,
     newLoanMessageSentAt: null,
     coDebtorFullName: null,
     coDebtorDocumentType: null,
@@ -129,12 +127,21 @@ describe('LoansService', () => {
     interestConceptTypesService = {
       findOneOrThrow: jest.fn().mockResolvedValue(mockConceptType),
     };
-    // Default: no rate on file — every pre-existing test below, which
-    // doesn't care about Phase 15 at all, keeps passing unaffected (no
-    // ceiling to compare against means no warning). Tests that DO care
-    // override this.
+    // Default: a valid, non-stale current-month rate — every pre-existing
+    // test below implicitly depends on loan creation/preview succeeding
+    // (Phase 24 hard-blocks otherwise, see getCurrentUsuryRateOrThrow).
+    // Tests that specifically exercise the missing/stale-rate block or the
+    // percentage-auto-fill rule override this.
     usuryRateService = {
-      getCurrentRate: jest.fn().mockResolvedValue(null),
+      getCurrentRate: jest.fn().mockResolvedValue({
+        id: 'rate-1',
+        effectiveMonth: '2026-08-01',
+        ratePercentage: 20,
+        createdBy: null,
+        createdByUser: null,
+        createdAt: new Date(),
+        isStale: false,
+      }),
     };
     newLoanReminderService = {
       sendNewLoanMessage: jest.fn().mockResolvedValue(undefined),
@@ -355,28 +362,39 @@ describe('LoansService', () => {
       expect(loansRepository.save).not.toHaveBeenCalled();
     });
 
-    it('creates the loan without a usury warning when no rate is on file', async () => {
-      await service.create(createDto);
+    // Phase 24 — a loan cannot be created at all without the current
+    // month's usury rate on file (hard block, replacing Phase 15's
+    // warning-only model).
+    it('rejects loan creation when no usury rate is on file', async () => {
+      usuryRateService.getCurrentRate.mockResolvedValue(null);
 
-      expect(loansRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          usuryCeilingExceededAtCreation: false,
-          usuryJustification: null,
-        }),
+      await expect(service.create(createDto)).rejects.toThrow(
+        BadRequestException,
       );
+      expect(loansRepository.save).not.toHaveBeenCalled();
     });
 
-    it('creates the loan anyway when the schedule exceeds the current ceiling, flagging it rather than blocking', async () => {
+    it('rejects loan creation when the most recent usury rate is stale (a prior month)', async () => {
       usuryRateService.getCurrentRate.mockResolvedValue({
         id: 'rate-1',
-        effectiveMonth: '2026-01-01',
-        ratePercentage: 1,
+        effectiveMonth: '2026-07-01',
+        ratePercentage: 20,
         createdBy: null,
         createdByUser: null,
         createdAt: new Date(),
-        isStale: false,
+        isStale: true,
       });
 
+      await expect(service.create(createDto)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(loansRepository.save).not.toHaveBeenCalled();
+    });
+
+    // Phase 24 — every percentage-type concept (corriente here,
+    // moratorio in its own describe block below) is forced to exactly
+    // the current usury rate, ignoring whatever value the request sends.
+    it("forces a percentage concept's value to the current usury rate, ignoring the request's own value", async () => {
       await service.create({
         ...createDto,
         concepts: [
@@ -386,16 +404,13 @@ describe('LoansService', () => {
             value: 5,
           },
         ],
-        usuryJustification: 'Cliente antiguo, aprobado por el dueño.',
       });
 
-      expect(loansRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          usuryCeilingExceededAtCreation: true,
-          usuryJustification: 'Cliente antiguo, aprobado por el dueño.',
-        }),
-      );
-      expect(loansRepository.save).toHaveBeenCalled();
+      expect(loanInstallmentConceptsRepository.save).toHaveBeenCalledWith([
+        expect.objectContaining({ value: 20 }),
+        expect.objectContaining({ value: 20 }),
+        expect.objectContaining({ value: 20 }),
+      ]);
     });
 
     it('propagates NotFoundException when a concept references an unknown concept type', async () => {
@@ -421,6 +436,18 @@ describe('LoansService', () => {
     });
 
     it('persists a LoanInstallmentConcept row per concept, with its snapshotted name and computed amount', async () => {
+      // Rate matches the requested value so this test's own arithmetic
+      // stays unaffected by the Phase 24 auto-fill rule under test above.
+      usuryRateService.getCurrentRate.mockResolvedValue({
+        id: 'rate-1',
+        effectiveMonth: '2026-08-01',
+        ratePercentage: 2,
+        createdBy: null,
+        createdByUser: null,
+        createdAt: new Date(),
+        isStale: false,
+      });
+
       await service.create({
         ...createDto,
         concepts: [
@@ -802,17 +829,21 @@ describe('LoansService', () => {
       );
     });
 
-    it('flags a refinance whose new concepts exceed the current usury ceiling (Phase 17: no new code needed, existing check applies)', async () => {
-      usuryRateService.getCurrentRate.mockResolvedValue({
-        id: 'rate-1',
-        effectiveMonth: '2026-01-01',
-        ratePercentage: 1,
-        createdBy: null,
-        createdByUser: null,
-        createdAt: new Date(),
-        isStale: false,
-      });
+    // Phase 24 — same hard block and percentage-auto-fill rules as
+    // create(), since both share persistLoanWithInstallments().
+    it('rejects refinancing when no usury rate is on file', async () => {
+      usuryRateService.getCurrentRate.mockResolvedValue(null);
 
+      // Not asserting loansRepository.save wasn't called here — the old
+      // loan's status flip to 'refinanced' happens before
+      // persistLoanWithInstallments's hard block runs, within the same
+      // (mocked) transaction; only the new loan is never created.
+      await expect(
+        service.refinance(mockLoan.id, refinanceDto),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("forces a percentage concept's value to the current usury rate on refinance too", async () => {
       await service.refinance(mockLoan.id, {
         ...refinanceDto,
         concepts: [
@@ -824,8 +855,8 @@ describe('LoansService', () => {
         ],
       });
 
-      expect(loansRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({ usuryCeilingExceededAtCreation: true }),
+      expect(loanInstallmentConceptsRepository.save).toHaveBeenCalledWith(
+        expect.arrayContaining([expect.objectContaining({ value: 20 })]),
       );
     });
 
@@ -1223,6 +1254,18 @@ describe('LoansService', () => {
 
   describe('previewSchedule', () => {
     it('returns the generated schedule without persisting anything', async () => {
+      // Rate matches the requested value so this test's own arithmetic
+      // stays unaffected by the Phase 24 auto-fill rule tested below.
+      usuryRateService.getCurrentRate.mockResolvedValue({
+        id: 'rate-1',
+        effectiveMonth: '2026-08-01',
+        ratePercentage: 2,
+        createdBy: null,
+        createdByUser: null,
+        createdAt: new Date(),
+        isStale: false,
+      });
+
       const result = await service.previewSchedule({
         principalAmount: 900000,
         disbursedAt: '2026-01-01',
@@ -1260,23 +1303,29 @@ describe('LoansService', () => {
           amount: 312079.2,
         }),
       ]);
-      expect(result.usuryWarning).toBeNull();
       expect(loansRepository.save).not.toHaveBeenCalled();
       expect(installmentsRepository.save).not.toHaveBeenCalled();
       expect(loanInstallmentConceptsRepository.save).not.toHaveBeenCalled();
     });
 
-    it('returns a usuryWarning when the schedule exceeds the current ceiling', async () => {
-      usuryRateService.getCurrentRate.mockResolvedValue({
-        id: 'rate-1',
-        effectiveMonth: '2026-01-01',
-        ratePercentage: 3,
-        createdBy: null,
-        createdByUser: null,
-        createdAt: new Date(),
-        isStale: false,
-      });
+    // Phase 24 — preview must apply the same hard block and auto-fill
+    // rules as create()/refinance(), so what's previewed always matches
+    // what a real submit would persist.
+    it('rejects the preview when no usury rate is on file', async () => {
+      usuryRateService.getCurrentRate.mockResolvedValue(null);
 
+      await expect(
+        service.previewSchedule({
+          principalAmount: 900000,
+          disbursedAt: '2026-01-01',
+          installmentFrequency: InstallmentFrequency.Monthly,
+          totalInstallments: 1,
+          concepts: [],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("forces a percentage concept's value to the current usury rate in the preview", async () => {
       const result = await service.previewSchedule({
         principalAmount: 900000,
         disbursedAt: '2026-01-01',
@@ -1291,10 +1340,14 @@ describe('LoansService', () => {
         ],
       });
 
-      expect(result.usuryWarning).toEqual({
-        maxEffectiveInstallmentRate: 5,
-        currentCeilingRate: 3,
-      });
+      // Uses the default beforeEach rate (20%), not the requested 5%.
+      expect(result.installments[0].conceptBreakdown).toEqual([
+        {
+          name: mockConceptType.name,
+          amount: 180000,
+          category: ConceptCategory.Corriente,
+        },
+      ]);
     });
 
     it('propagates NotFoundException when a concept references an unknown concept type', async () => {

@@ -74,8 +74,6 @@ describe('NewLoanReminderService', () => {
     refinancedFromLoan: null,
     description: 'Compra de Apple MacBook Air M5',
     initialPayment: null,
-    usuryCeilingExceededAtCreation: false,
-    usuryJustification: null,
     newLoanMessageSentAt: null,
     coDebtorFullName: null,
     coDebtorDocumentType: null,

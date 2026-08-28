@@ -95,7 +95,7 @@ export class LoansController {
     summary:
       'Create a loan and generate its installments (admin or granted the loans module)',
     description:
-      'The installment schedule is generated automatically from principalAmount, totalInstallments, and concepts (interest/fee concepts picked from the InterestConceptTypes catalog), solved as a level total payment ("cuota fija") — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md. Concepts apply to every installment for the whole term of the loan; they cannot vary per installment. moratoryConcepts (Phase 23) are assigned the same way but never affect the schedule — they only take effect once an installment is overdue. Due dates are auto-generated from disbursedAt + installmentFrequency. interestRate is the legacy fallback used for moratory interest only when no moratoryConcepts are assigned. If the schedule exceeds the current usury ceiling, the loan is still created (usuryCeilingExceededAtCreation is set true on the response) — this is a warning, not a block; usuryJustification records an optional admin note. See docs/phases/PHASE_15_USURY_RATE.md.',
+      'The installment schedule is generated automatically from principalAmount, totalInstallments, and concepts (interest/fee concepts picked from the InterestConceptTypes catalog), solved as a level total payment ("cuota fija") — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md. Concepts apply to every installment for the whole term of the loan; they cannot vary per installment. moratoryConcepts (Phase 23) are assigned the same way but never affect the schedule — they only take effect once an installment is overdue. Due dates are auto-generated from disbursedAt + installmentFrequency. interestRate is the legacy fallback used for moratory interest only when no moratoryConcepts are assigned. As of Phase 24, a loan cannot be created without the current calendar month\'s usury rate on file (see GET /usury-rates/current), and any percentage-type concept (corriente or moratorio) is automatically priced at exactly that rate, ignoring whatever value is sent for it — only fixed_amount concepts stay admin-set. See docs/phases/PHASE_24_USURY_MANDATORY.md.',
   })
   @ApiResponse({
     status: 201,
@@ -104,9 +104,9 @@ export class LoansController {
   @ApiResponse({
     status: 400,
     description:
-      'The client is mora-blocked (an installment more than 30 days overdue), OR the ' +
-      "principal exceeds the client's available cupo — see the error " +
-      'message for which one applies.',
+      'The client is mora-blocked (an installment more than 30 days overdue), the ' +
+      "principal exceeds the client's available cupo, or the current month's usury rate " +
+      'has not been entered yet — see the error message for which one applies.',
   })
   @ApiResponse({
     status: 404,
@@ -133,9 +133,13 @@ export class LoansController {
     summary:
       'Preview the generated installment schedule without creating a loan',
     description:
-      "Runs the same amortization generation as POST /loans, for review before committing. usuryWarning is present (and non-null) only when the schedule's highest per-installment effective rate exceeds the current usury ceiling — a warning, not a hard block, see docs/phases/PHASE_15_USURY_RATE.md.",
+      "Runs the same amortization generation as POST /loans, for review before committing — including the same Phase 24 hard block and percentage-concept auto-fill, so what's previewed always matches what a real submit would persist. See docs/phases/PHASE_24_USURY_MANDATORY.md.",
   })
   @ApiResponse({ status: 201, description: 'Returns the previewed schedule.' })
+  @ApiResponse({
+    status: 400,
+    description: "The current month's usury rate has not been entered yet.",
+  })
   @ApiResponse({
     status: 404,
     description: 'A concept references an unknown concept type id.',
@@ -258,7 +262,8 @@ export class LoansController {
       'most overdue installment reaches 8 days past due — if the installment right after it is ' +
       'also unpaid, even though its own due date has not arrived yet. ' +
       'GET /loans/:id/refinance-quote surfaces the same check in advance via ' +
-      'blockedByPendingInstallments.',
+      'blockedByPendingInstallments. As of Phase 24, the same hard block and percentage-concept ' +
+      'auto-fill rules POST /loans uses apply here too — see docs/phases/PHASE_24_USURY_MANDATORY.md.',
   })
   @ApiResponse({
     status: 201,
@@ -267,8 +272,9 @@ export class LoansController {
   @ApiResponse({
     status: 400,
     description:
-      'The loan is not active (already paid or already refinanced), or the client is not yet ' +
-      'current on it — see the description above.',
+      'The loan is not active (already paid or already refinanced), the client is not yet ' +
+      "current on it, or the current month's usury rate has not been entered yet — see the " +
+      'description above.',
   })
   @ApiResponse({ status: 404, description: 'Loan not found.' })
   @ApiResponse({
