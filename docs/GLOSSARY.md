@@ -59,13 +59,19 @@ interest = installment_amount × (interest_rate / 100) / 30 × overdue_days
 
 Confirmed by cross-checking multiple real examples in `LIBRO_PARA_COBRAR.xlsx` — the formula matches exactly. This is distinct from any interest that might be part of the original loan terms; this specifically refers to the penalty/mora interest accruing because a payment is late.
 
+**Changed after Phase 23:** this formula is now only the *fallback* used for a loan with no moratory concepts assigned (every loan created before Phase 23, and any new loan the admin doesn't attach moratory concepts to). A loan with at least one moratory concept sums that loan's own concepts instead — each computed live, on read, the same way as this formula (percentage concepts use the identical shape; a fixed-amount moratory concept is a flat one-time charge, unscaled by `overdue_days`) — see "Interest concept type" / "Interest concept" below and `docs/phases/PHASE_23_DYNAMIC_CHARGES.md`.
+
 ### Interest rate / Tasa de mora
 The percentage used in the interest formula above. **Confirmed to vary per loan** in real data (values of 4%, 5%, and 6% found across loans, not cleanly tied to loan amount despite an informal rule the client mentioned). Current working assumption: this is a fixed value set manually per loan, editable, defaulting to a system-configured standard rate. **The exact business rule for how this rate is chosen or whether it changes over time is still pending confirmation with the client** — see the open questions in `DATABASE.md`.
 
 **Changed after Phase 14:** this is now moratory-only — a loan's ordinary cost is priced entirely through interest concepts (see "Interest concept type" / "Interest concept" below) instead of this single rate. `interest_rate` still drives the mora formula above on overdue installments, unchanged in that role.
 
+**Superseded after Phase 23:** even its moratory role is now just the fallback for a loan with no moratory concepts assigned — see "Interest / Interés (mora interest)" above.
+
 ### Interest concept type / Tipo de concepto de interés
 Added Phase 14 — an admin-managed, reusable definition of a kind of charge a loan can carry (e.g. "Interés remuneratorio", "Gastos de cobranza", "Uso de plataforma"): a name, a default calculation type (percentage or fixed amount), and an optional default value. The admin can create, edit, or deactivate these at any time — confirmed with the client this must never require a code change to add or reprice a concept. In code: `InterestConceptType` entity, `interest_concept_types` table. See `docs/phases/PHASE_14_INTEREST_CONCEPTS.md`.
+
+**Extended Phase 23:** every type now also has a `category` (`corriente` or `moratorio` — see "Interest / Interés (mora interest)" above) and, for a fixed-amount `corriente` type, a required `fixedAmountDistribution` choosing whether its total splits evenly across every installment or is charged in full once on the first installment. See `docs/phases/PHASE_23_DYNAMIC_CHARGES.md`.
 
 ### Interest concept / Concepto de interés
 Added Phase 14 — one instance of an interest/fee concept applied to a specific installment, snapshotted from an `InterestConceptType` at the moment the loan's amortization schedule was generated (name, calculation type, value, and the resulting currency amount all copied at that point). A loan's concepts are fixed for its whole term, set once at creation — not overridable per installment (corrected after client QA, 2026-08-18: this is what makes the level-payment "cuota fija" schedule well-defined). Editing or deactivating the catalog type afterward never changes an already-created loan's numbers — this snapshot behavior is deliberate and confirmed with the client. In code: `LoanInstallmentConcept` entity, `loan_installment_concepts` table.
