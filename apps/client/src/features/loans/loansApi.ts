@@ -2,6 +2,7 @@ import { apiClient } from '@/lib/apiClient';
 
 import type { DocumentType } from '@/features/clients/clientsApi';
 import type {
+  ConceptBreakdownItem,
   Installment,
   Payment,
 } from '@/features/installments/installmentsApi';
@@ -137,6 +138,13 @@ export interface CreateLoanInput {
   installmentFrequency: InstallmentFrequency;
   totalInstallments: number;
   concepts: LoanConceptAssignment[];
+  // Phase 23 — moratory concepts assigned to this loan. Never baked into
+  // the schedule/level payment (unlike concepts above) — they only take
+  // effect once an installment is overdue, computed live on read. Omit or
+  // leave empty for a loan with no moratory concepts, which keeps using
+  // the legacy interestRate formula. See
+  // docs/phases/PHASE_23_DYNAMIC_CHARGES.md.
+  moratoryConcepts?: LoanConceptAssignment[];
   // The "cuota inicial" — purely informational, doesn't affect the
   // schedule. Undefined when there was no down payment. See
   // docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
@@ -174,7 +182,10 @@ export interface PreviewedInstallment {
   dueDate: string;
   principalPortion: number;
   amount: number;
-  conceptBreakdown: { name: string; amount: number }[];
+  // Moratory items always preview at amount 0 — nothing is overdue in a
+  // hypothetical schedule; shown so the admin can see which ones they
+  // picked before committing. See docs/phases/PHASE_23_DYNAMIC_CHARGES.md.
+  conceptBreakdown: ConceptBreakdownItem[];
 }
 
 // Matches apps/api/src/loans/loans.service.ts's UsuryWarning exactly —
@@ -221,6 +232,9 @@ export interface RefinanceQuote {
   payoff: PayoffQuote;
   suggestedPrincipalAmount: number;
   concepts: LoanConceptAssignment[];
+  // Phase 23 — same carry-over as concepts above, filtered to the loan's
+  // assigned moratory concepts.
+  moratoryConcepts: LoanConceptAssignment[];
   // Installment numbers that must be paid in full before this loan can
   // actually be refinanced — confirmed with the human (2026-08-18): the
   // client must be current first. Empty when nothing blocks refinancing.
@@ -252,6 +266,8 @@ export interface RefinanceLoanInput {
   installmentFrequency: InstallmentFrequency;
   totalInstallments: number;
   concepts: LoanConceptAssignment[];
+  // See CreateLoanInput.moratoryConcepts.
+  moratoryConcepts?: LoanConceptAssignment[];
   // The new loan's own "cuota inicial" — see CreateLoanInput.
   initialPayment?: number;
   description?: string;

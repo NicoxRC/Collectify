@@ -6,6 +6,24 @@ export enum ConceptCalculationType {
   FixedAmount = 'fixed_amount',
 }
 
+// Phase 23 — which side of the concept engine a type belongs to. Corriente
+// concepts price a loan's ordinary cost at generation time (unchanged since
+// Phase 14); moratorio concepts only apply once an installment is overdue,
+// computed live instead of stored. See
+// docs/phases/PHASE_23_DYNAMIC_CHARGES.md.
+export enum ConceptCategory {
+  Corriente = 'corriente',
+  Moratorio = 'moratorio',
+}
+
+// Only meaningful when defaultCalculationType is FixedAmount and category is
+// Corriente — a moratorio fixed_amount concept is always charged once, flat,
+// the moment an installment goes overdue, so it has no distribution to pick.
+export enum FixedAmountDistribution {
+  SplitAcrossInstallments = 'split_across_installments',
+  FirstInstallmentOnly = 'first_installment_only',
+}
+
 // Admin-managed catalog of interest/fee concepts (e.g. "Interés
 // remuneratorio", "Gastos de cobranza") — confirmed with the client this
 // must stay open-ended, not a fixed list. See
@@ -15,6 +33,8 @@ export interface InterestConceptType {
   name: string;
   defaultCalculationType: ConceptCalculationType;
   defaultValue: number | null;
+  category: ConceptCategory;
+  fixedAmountDistribution: FixedAmountDistribution | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -30,6 +50,10 @@ export interface InterestConceptTypesQueryParams {
 export interface CreateInterestConceptTypeInput {
   name: string;
   defaultCalculationType: ConceptCalculationType;
+  category: ConceptCategory;
+  // Required (enforced server-side, "no silent default") when
+  // defaultCalculationType is FixedAmount and category is Corriente.
+  fixedAmountDistribution?: FixedAmountDistribution;
   defaultValue?: number;
 }
 
@@ -37,7 +61,11 @@ export type UpdateInterestConceptTypeInput =
   Partial<CreateInterestConceptTypeInput>;
 
 export const interestConceptTypesApi = {
-  // Admin only — enforced server-side via @Roles(UserRole.Admin).
+  // Reading the catalog is open to any authenticated user as of Phase 23
+  // (needed by the loan-creation concept picker); only create/update/
+  // deactivate below stay restricted to admins or those granted the
+  // interest_concept_types module. See
+  // docs/phases/PHASE_23_DYNAMIC_CHARGES.md "Permissions".
   getAll: async (
     params: InterestConceptTypesQueryParams = {},
   ): Promise<InterestConceptType[]> => {

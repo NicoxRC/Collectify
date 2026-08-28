@@ -96,6 +96,20 @@ export const router = createBrowserRouter([
             ],
           },
           {
+            // InterestConceptTypesController migrated to Phase 20's module
+            // permissions (@RequireModule(AppModule.InterestConceptTypes))
+            // as part of Phase 23 — gated here the same way, not by role,
+            // so client and server never drift apart for this module. See
+            // docs/phases/PHASE_23_DYNAMIC_CHARGES.md.
+            element: <RequirePermission module="interest_concept_types" />,
+            children: [
+              {
+                path: 'cargos-adicionales',
+                element: <InterestConceptTypesPage />,
+              },
+            ],
+          },
+          {
             // Every controller below is still admin-only server-side via
             // the older @Roles(UserRole.Admin) — gated here too so a
             // collector can't reach it by typing the URL, not just by
@@ -104,12 +118,6 @@ export const router = createBrowserRouter([
             // controller — see docs/phases/PHASE_20_MODULE_PERMISSIONS.md.
             element: <RequireRole allowedRoles={['admin']} />,
             children: [
-              {
-                // InterestConceptTypesController is admin-only server-side
-                // (@Roles(UserRole.Admin)) — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md.
-                path: 'cargos-adicionales',
-                element: <InterestConceptTypesPage />,
-              },
               {
                 path: 'auditoria',
                 element: <AuditLogsPage />,

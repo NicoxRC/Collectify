@@ -10,7 +10,10 @@ import {
   DocumentType,
 } from '@/features/clients/clientsApi';
 import { InterestConceptTypeForm } from '@/features/interestConceptTypes/InterestConceptTypeForm';
-import { ConceptCalculationType } from '@/features/interestConceptTypes/interestConceptTypesApi';
+import {
+  ConceptCalculationType,
+  ConceptCategory,
+} from '@/features/interestConceptTypes/interestConceptTypesApi';
 import {
   useCreateInterestConceptType,
   useInterestConceptTypes,
@@ -73,6 +76,7 @@ type FieldName =
   | 'firstDueDate'
   | 'totalInstallments'
   | 'concepts'
+  | 'moratoryConcepts'
   | 'coDebtorFullName';
 type FieldErrors = Partial<Record<FieldName, string>>;
 
@@ -120,6 +124,8 @@ export function RefinanceLoanForm({
   );
   const [totalInstallments, setTotalInstallments] = useState('');
   const [concepts, setConcepts] = useState<ConceptRow[]>([]);
+  // Phase 23 — see LoanForm.tsx's identical field.
+  const [moratoryConcepts, setMoratoryConcepts] = useState<ConceptRow[]>([]);
   const [description, setDescription] = useState('');
   // Only meaningful when preview?.usuryWarning fired — see
   // docs/phases/PHASE_15_USURY_RATE.md ("warning, not a hard block").
@@ -159,7 +165,9 @@ export function RefinanceLoanForm({
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [showNewConceptTypeForm, setShowNewConceptTypeForm] = useState(false);
+  const [newConceptTypeTarget, setNewConceptTypeTarget] = useState<
+    'corriente' | 'moratorio' | null
+  >(null);
   const [preview, setPreview] = useState<SchedulePreview | null>(null);
   const [refinanceQuote, setRefinanceQuote] = useState<RefinanceQuote | null>(
     null,
@@ -184,6 +192,12 @@ export function RefinanceLoanForm({
         setPrincipalAmount(quote.suggestedPrincipalAmount);
         setConcepts(
           quote.concepts.map((concept) => ({
+            rowId: makeRowId(),
+            ...concept,
+          })),
+        );
+        setMoratoryConcepts(
+          quote.moratoryConcepts.map((concept) => ({
             rowId: makeRowId(),
             ...concept,
           })),
@@ -222,13 +236,25 @@ export function RefinanceLoanForm({
     refinanceQuote?.blockedByPendingInstallments ?? [];
   const isBlocked = blockingInstallments.length > 0;
 
-  const conceptTypeOptions = (conceptTypes ?? []).map((conceptType) => ({
+  const corrienteConceptTypes = (conceptTypes ?? []).filter(
+    (conceptType) => conceptType.category === ConceptCategory.Corriente,
+  );
+  const moratoryConceptTypes = (conceptTypes ?? []).filter(
+    (conceptType) => conceptType.category === ConceptCategory.Moratorio,
+  );
+  const conceptTypeOptions = corrienteConceptTypes.map((conceptType) => ({
     value: conceptType.id,
     label: conceptType.name,
   }));
+  const moratoryConceptTypeOptions = moratoryConceptTypes.map(
+    (conceptType) => ({
+      value: conceptType.id,
+      label: conceptType.name,
+    }),
+  );
 
   const addConceptRow = () => {
-    const firstType = conceptTypes?.[0];
+    const firstType = corrienteConceptTypes[0];
     setConcepts((prev) => [
       ...prev,
       {
@@ -252,6 +278,36 @@ export function RefinanceLoanForm({
       prev.map((row) => (row.rowId === rowId ? { ...row, ...changes } : row)),
     );
     setFieldErrors((prev) => ({ ...prev, concepts: undefined }));
+  };
+
+  const addMoratoryConceptRow = () => {
+    const firstType = moratoryConceptTypes[0];
+    setMoratoryConcepts((prev) => [
+      ...prev,
+      {
+        rowId: makeRowId(),
+        conceptTypeId: firstType?.id ?? '',
+        calculationType:
+          firstType?.defaultCalculationType ??
+          ConceptCalculationType.Percentage,
+        value: firstType?.defaultValue ?? 0,
+      },
+    ]);
+    setFieldErrors((prev) => ({ ...prev, moratoryConcepts: undefined }));
+  };
+
+  const removeMoratoryConceptRow = (rowId: string) => {
+    setMoratoryConcepts((prev) => prev.filter((row) => row.rowId !== rowId));
+  };
+
+  const updateMoratoryConceptRow = (
+    rowId: string,
+    changes: Partial<ConceptRow>,
+  ) => {
+    setMoratoryConcepts((prev) =>
+      prev.map((row) => (row.rowId === rowId ? { ...row, ...changes } : row)),
+    );
+    setFieldErrors((prev) => ({ ...prev, moratoryConcepts: undefined }));
   };
 
   const validate = (): FieldErrors => {
@@ -281,6 +337,10 @@ export function RefinanceLoanForm({
       errors.concepts =
         'Selecciona un tipo para cada cargo adicional agregado.';
     }
+    if (moratoryConcepts.some((row) => !row.conceptTypeId)) {
+      errors.moratoryConcepts =
+        'Selecciona un tipo para cada cargo moratorio agregado.';
+    }
     if (hasCoDebtor && !coDebtorFullName.trim()) {
       errors.coDebtorFullName =
         'El nombre del codeudor es obligatorio si se marca esta sección.';
@@ -295,6 +355,13 @@ export function RefinanceLoanForm({
 
   const toConceptAssignments = (): LoanConceptAssignment[] =>
     concepts.map(({ conceptTypeId, calculationType, value }) => ({
+      conceptTypeId,
+      calculationType,
+      value,
+    }));
+
+  const toMoratoryConceptAssignments = (): LoanConceptAssignment[] =>
+    moratoryConcepts.map(({ conceptTypeId, calculationType, value }) => ({
       conceptTypeId,
       calculationType,
       value,
@@ -316,6 +383,7 @@ export function RefinanceLoanForm({
         installmentFrequency,
         totalInstallments: count,
         concepts: toConceptAssignments(),
+        moratoryConcepts: toMoratoryConceptAssignments(),
       });
       setPreview(result);
     } catch {
@@ -368,6 +436,7 @@ export function RefinanceLoanForm({
         installmentFrequency,
         totalInstallments: count,
         concepts: toConceptAssignments(),
+        moratoryConcepts: toMoratoryConceptAssignments(),
         description: description.trim() || undefined,
         usuryJustification: preview?.usuryWarning
           ? usuryJustification.trim() || undefined
@@ -693,7 +762,82 @@ export function RefinanceLoanForm({
                       <PlusIcon />
                       Agregar cargo
                     </ChipButton>
-                    <ChipButton onClick={() => setShowNewConceptTypeForm(true)}>
+                    <ChipButton
+                      onClick={() => setNewConceptTypeTarget('corriente')}
+                    >
+                      <PlusIcon />
+                      Crear nuevo tipo
+                    </ChipButton>
+                  </div>
+                </div>
+              </Field>
+
+              <Field
+                label="Cargos moratorios (opcional)"
+                error={fieldErrors.moratoryConcepts}
+              >
+                <div className="flex flex-col gap-2">
+                  {moratoryConcepts.length === 0 && (
+                    <p className="text-meta text-muted">
+                      Sin cargos moratorios — la mora seguirá calculándose con
+                      la tasa moratoria de arriba. Si agregás al menos uno acá,
+                      esa tasa deja de aplicarse.
+                    </p>
+                  )}
+                  {moratoryConcepts.map((row) => (
+                    <div key={row.rowId} className="flex items-center gap-2">
+                      <Select
+                        value={row.conceptTypeId}
+                        onChange={(conceptTypeId) => {
+                          const type = conceptTypes?.find(
+                            (c) => c.id === conceptTypeId,
+                          );
+                          updateMoratoryConceptRow(row.rowId, {
+                            conceptTypeId,
+                            calculationType:
+                              type?.defaultCalculationType ??
+                              row.calculationType,
+                            value: type?.defaultValue ?? row.value,
+                          });
+                        }}
+                        options={moratoryConceptTypeOptions}
+                        className="flex-1"
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={row.value}
+                        onChange={(event) =>
+                          updateMoratoryConceptRow(row.rowId, {
+                            value: parseFloat(event.target.value) || 0,
+                          })
+                        }
+                        placeholder={
+                          row.calculationType ===
+                          ConceptCalculationType.Percentage
+                            ? '%'
+                            : '$'
+                        }
+                        className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeMoratoryConceptRow(row.rowId)}
+                        className="text-meta text-muted hover:text-red-400"
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                  ))}
+                  <div className="mt-1 flex items-center gap-4">
+                    <ChipButton onClick={addMoratoryConceptRow}>
+                      <PlusIcon />
+                      Agregar cargo moratorio
+                    </ChipButton>
+                    <ChipButton
+                      onClick={() => setNewConceptTypeTarget('moratorio')}
+                    >
                       <PlusIcon />
                       Crear nuevo tipo
                     </ChipButton>
@@ -931,21 +1075,28 @@ export function RefinanceLoanForm({
         </form>
       </div>
 
-      {showNewConceptTypeForm && (
+      {newConceptTypeTarget && (
         <InterestConceptTypeForm
+          defaultCategory={
+            newConceptTypeTarget === 'moratorio'
+              ? ConceptCategory.Moratorio
+              : ConceptCategory.Corriente
+          }
           onSubmit={async (input) => {
             const created = await createConceptType.mutateAsync(input);
-            setConcepts((prev) => [
-              ...prev,
-              {
-                rowId: makeRowId(),
-                conceptTypeId: created.id,
-                calculationType: created.defaultCalculationType,
-                value: created.defaultValue ?? 0,
-              },
-            ]);
+            const newRow = {
+              rowId: makeRowId(),
+              conceptTypeId: created.id,
+              calculationType: created.defaultCalculationType,
+              value: created.defaultValue ?? 0,
+            };
+            if (newConceptTypeTarget === 'moratorio') {
+              setMoratoryConcepts((prev) => [...prev, newRow]);
+            } else {
+              setConcepts((prev) => [...prev, newRow]);
+            }
           }}
-          onClose={() => setShowNewConceptTypeForm(false)}
+          onClose={() => setNewConceptTypeTarget(null)}
         />
       )}
     </div>

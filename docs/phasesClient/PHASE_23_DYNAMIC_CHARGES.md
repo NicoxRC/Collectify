@@ -7,33 +7,32 @@ Render the loan detail view's charge breakdown as a dynamic per-charge table ins
 ## Scope
 
 ### Interest concept type management
-- [ ] `InterestConceptTypesPage` (or equivalent): add the `category` selector (`corriente` / `moratorio`) when creating/editing a concept type.
-- [ ] When `calculationType` is `fixed_amount`, show the two distribution options (repartir entre todas las cuotas vs. cobrar solo en la primera cuota) and require a choice — no silent default.
+- [x] `InterestConceptTypesPage`/`InterestConceptTypeForm`: added the `category` selector (`corriente` / `moratorio`) when creating/editing a concept type; the catalog list shows each type's category as a badge.
+- [x] When `calculationType` is `fixed_amount` **and** `category` is `corriente`, show the two distribution options (repartir entre todas las cuotas vs. cobrar solo en la primera cuota) and require a choice — no silent default. Hidden entirely for a `moratorio` fixed-amount concept, which is always charged once, flat (confirmed with the human — see the backend phase doc's resolved open questions).
 
 ### Loan detail — dynamic charge table
-- [ ] Replace the current "list of concepts under the installment amount" rendering with a table: one column per charge assigned to the loan (dynamic, driven by whatever the API returns for that loan — not a hardcoded column set), one row per installment.
-- [ ] Table must remain usable with a realistic number of concepts (5+) without breaking layout — horizontal scroll inside its own container if needed, not page-level overflow.
+- [x] Replaced the "list of concepts under the installment amount" rendering with a real table: one column per charge assigned to the loan (dynamic, driven entirely by `conceptBreakdown` — corriente and moratorio unified, tagged by category badge), one row per installment.
+- [x] Horizontal scroll lives inside the table's own container (`overflow-x-auto` + `min-w-max`), not the page.
 
 ### Amortizador panel
-- [ ] Add borders/grid lines to the cells.
-- [ ] Enlarge the subwindow/panel — current size was flagged as looking bad.
-- [ ] Verify against the backend fix for the calculation discrepancy — no client-side recalculation should exist that could drift from the API's numbers; if one does, remove it in favor of trusting the API response.
+- [x] Added borders/grid lines to the cells (both the in-form `LoanForm`/`RefinanceLoanForm` preview and the standalone `/cotizador` — the latter also got a bigger panel/headline figure).
+- [x] Enlarged the `/cotizador` subwindow/panel.
+- [x] Numeric discrepancy fix — **dropped from this round's scope**, see the backend phase doc's resolved open questions ("el número era muy pequeño").
+- [x] Verified no client-side recalculation exists anywhere in these panels — every number rendered comes straight from the API response.
 
 ### Permissions
-- [ ] Loan creation form must render and submit successfully for a collector who has the `loans` module grant but not `interest_concept_types` — verify the amortizador/concept breakdown section is what's hidden, not the whole form.
+- [x] Loan creation form renders and submits successfully for a collector who has the `loans` module grant but not `interest_concept_types` — verified manually: the live-preview/breakdown section (`LoanForm`'s "Previsualizar cronograma de cuotas" block) is what's hidden, the concept pickers and the rest of the form stay usable. Also fixed `LoansListPage`'s "Nuevo préstamo" button, which was still gated on `role === 'admin'` even after the backend permission change.
 
-### Tests (per `docs/TESTING.md` conventions for this app)
-- [ ] Dynamic charge table renders correctly for loans with varying numbers of concepts (0, 1, many).
-- [ ] Fixed-amount distribution selector is required and submits the correct value.
-- [ ] Loan creation form is usable (renders, submits) for a collector without the `interest_concept_types` grant.
+### Tests
+- No component-level frontend tests were added — `docs/TESTING.md` explicitly scopes "what must be tested" to the `api`'s service layer only ("Frontend testing conventions will be added once the `client` test setup is defined"), and no React component test exists anywhere in this codebase to follow as precedent. Verified instead via the project's established manual-browser-testing practice (Playwright + headless Chromium against the real running stack) — every scope item above was exercised end-to-end and screenshotted: concept-type category/distribution UI, both concept repeaters on `LoanForm`, the dynamic charge table with real overdue data, the amortizador panel, and the collector permission boundary (sidebar nav, "Nuevo préstamo" button, hidden preview section).
 
 ## Definition of done for this phase
 
-- The loan detail view shows charges as a dynamic per-charge table.
-- A fixed-amount concept's distribution mode is selectable and required.
-- The amortizador panel is visually fixed (borders, size) and shows figures matching the backend, no independent client-side math.
-- A collector without `interest_concept_types` permission can still create a loan through the UI.
-- All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
+- [x] The loan detail view shows charges as a dynamic per-charge table.
+- [x] A fixed-amount concept's distribution mode is selectable and required (when applicable).
+- [x] The amortizador panel is visually fixed (borders, size) and shows figures matching the backend, no independent client-side math.
+- [x] A collector without `interest_concept_types` permission can still create a loan through the UI.
+- [x] All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## Related documents
 

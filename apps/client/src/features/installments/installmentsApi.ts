@@ -1,10 +1,23 @@
 import { apiClient } from '@/lib/apiClient';
 
+import type { ConceptCategory } from '@/features/interestConceptTypes/interestConceptTypesApi';
+
 // Matches apps/api/src/loans/entities/installment.entity.ts exactly.
 export enum InstallmentStatus {
   Pending = 'pending',
   Paid = 'paid',
   Cancelled = 'cancelled',
+}
+
+// Matches apps/api/src/loans/installments/enrichInstallment.ts's
+// ConceptBreakdownItem exactly. Phase 23 unified corriente (stored, real
+// amount) and moratorio (computed live once overdue, 0 otherwise) items
+// into this one array, tagged by category, so the dynamic charge table can
+// render both together.
+export interface ConceptBreakdownItem {
+  name: string;
+  amount: number;
+  category: ConceptCategory;
 }
 
 // Matches apps/api/src/loans/installments/enrichInstallment.ts's
@@ -31,7 +44,7 @@ export interface Installment {
   overdueDays: number;
   interest: number;
   totalDue: number;
-  conceptBreakdown: { name: string; amount: number }[];
+  conceptBreakdown: ConceptBreakdownItem[];
 }
 
 export interface InstallmentsQueryParams {

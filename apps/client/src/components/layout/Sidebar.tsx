@@ -36,10 +36,13 @@ const NAV_ITEMS: NavItem[] = [
   // docs/phasesClient/PHASE_14_INTEREST_CONCEPTS.md.
   { label: 'Cotizador', to: '/cotizador' },
   { label: 'Plantillas', to: '/plantillas', module: 'message_templates' },
+  // Phase 23 — migrated from roles: ['admin'] to module, matching
+  // InterestConceptTypesController's move to @RequireModule(). See
+  // docs/phases/PHASE_23_DYNAMIC_CHARGES.md.
   {
     label: 'Cargos adicionales',
     to: '/cargos-adicionales',
-    roles: ['admin'],
+    module: 'interest_concept_types',
   },
   // Not in the original Figma nav (no frame exists for Phase 11) —
   // admin-only, same treatment as Plantillas. See

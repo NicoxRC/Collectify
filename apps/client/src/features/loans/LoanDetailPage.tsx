@@ -13,6 +13,7 @@ import { useClient } from '@/features/clients/useClients';
 import { InstallmentStatus } from '@/features/installments/installmentsApi';
 import { RegisterPaymentDialog } from '@/features/installments/RegisterPaymentDialog';
 import { useRegisterPayment } from '@/features/installments/useInstallments';
+import { ConceptCategory } from '@/features/interestConceptTypes/interestConceptTypesApi';
 import { EditLoanDialog } from '@/features/loans/EditLoanDialog';
 import {
   estadoBadge,
@@ -36,6 +37,7 @@ import { MessageType } from '@/features/messageTemplates/messageTemplatesApi';
 import { formatCurrency, formatDateOnly, isPdfUrl } from '@/lib/format';
 
 import type { Installment } from '@/features/installments/installmentsApi';
+import type { LoanDetail } from '@/features/loans/loansApi';
 import type { ReactNode } from 'react';
 
 // Matches Figma frame 52:537 ("F-19 / Detalle préstamo — Desktop 1440"),
@@ -403,117 +405,10 @@ export function LoanDetailPage() {
         </div>
       )}
 
-      <div className="flex flex-col gap-2.5">
-        <span className="text-section-label font-medium tracking-[0.36px] text-muted">
-          CUOTAS
-        </span>
-        <div className="overflow-hidden rounded bg-surface">
-          <table className="w-full">
-            <thead className="bg-input">
-              <tr>
-                <Th>Cuota</Th>
-                <Th>Vence</Th>
-                <Th>Monto</Th>
-                <Th>Mora</Th>
-                <Th>Interés</Th>
-                <Th>Total</Th>
-                <Th>Estado</Th>
-                <Th>Acciones</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {loan.installments.map((installment) => {
-                // Phase 6: cancelled installments (remaining pending ones
-                // on a loan at the moment it's refinanced — see
-                // docs/DATABASE.md "Refinancing") are kept, not hidden, but
-                // shown visually de-emphasized so they read as historical
-                // record rather than something still actionable.
-                const isCancelled =
-                  installment.status === InstallmentStatus.Cancelled;
-                return (
-                  <tr
-                    key={installment.id}
-                    className={`border-t border-border ${isCancelled ? 'opacity-50' : ''}`}
-                  >
-                    <Td>{installment.installmentNumber}</Td>
-                    <Td>{formatDateOnly(installment.dueDate)}</Td>
-                    {/* Phase 14: capital/concept breakdown shown inline
-                        under the total — this is the "so a client can be
-                        told exactly what they owe and why" requirement
-                        from docs/phases/PHASE_14_INTEREST_CONCEPTS.md.
-                        Empty for installments generated before that phase
-                        (conceptBreakdown is []). */}
-                    <Td>
-                      {formatCurrency(installment.amount)}
-                      {installment.conceptBreakdown.length > 0 && (
-                        <div className="mt-0.5 flex flex-col text-meta text-mid">
-                          {installment.principalPortion != null && (
-                            <span>
-                              Capital:{' '}
-                              {formatCurrency(installment.principalPortion)}
-                            </span>
-                          )}
-                          {installment.conceptBreakdown.map((concept) => (
-                            <span key={concept.name}>
-                              {concept.name}: {formatCurrency(concept.amount)}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </Td>
-                    <Td>
-                      {installment.status === InstallmentStatus.Pending &&
-                      installment.overdueDays > 0 ? (
-                        <span
-                          className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${moraBadgeClasses(installment.overdueDays)}`}
-                        >
-                          {installment.overdueDays} días
-                        </span>
-                      ) : (
-                        <span className="text-mid">—</span>
-                      )}
-                    </Td>
-                    <Td>
-                      {installment.interest > 0
-                        ? formatCurrency(installment.interest)
-                        : '—'}
-                    </Td>
-                    <Td className="font-medium text-white">
-                      {formatCurrency(
-                        installment.status === InstallmentStatus.Pending
-                          ? installment.totalDue
-                          : installment.amount,
-                      )}
-                    </Td>
-                    <Td>
-                      {isCancelled ? (
-                        <span className="rounded-[3px] border border-mid bg-surface px-2 py-[3px] text-meta font-medium text-mid">
-                          Cancelada
-                        </span>
-                      ) : (
-                        installmentStatusLabel(installment.status)
-                      )}
-                    </Td>
-                    <Td>
-                      {installment.status === InstallmentStatus.Pending ? (
-                        <button
-                          type="button"
-                          onClick={() => setPayingInstallment(installment)}
-                          className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-muted hover:text-white"
-                        >
-                          Pagar
-                        </button>
-                      ) : (
-                        <span className="text-meta text-mid">—</span>
-                      )}
-                    </Td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <InstallmentsTable
+        loan={loan}
+        onPay={(installment) => setPayingInstallment(installment)}
+      />
 
       <div className="flex flex-col gap-2.5">
         <span className="text-section-label font-medium tracking-[0.36px] text-muted">
@@ -670,6 +565,160 @@ export function LoanDetailPage() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// Phase 23 — replaces the old "list every concept underneath the amount"
+// rendering with a genuine dynamic table: one column per charge actually
+// assigned to this loan (corriente + moratorio unified, per
+// enrichInstallment.ts), one row per installment. Column set is derived
+// entirely from whatever the API returns — never a hardcoded list — so a
+// loan with 0, 1, or many concepts all render correctly with no code
+// change. Horizontal scroll lives inside this table's own container
+// (min-w-max + overflow-x-auto), not the page, for a loan with 5+ concepts.
+// No client-side recalculation happens anywhere here — every number is
+// read straight from the API response.
+function InstallmentsTable({
+  loan,
+  onPay,
+}: {
+  loan: LoanDetail;
+  onPay: (installment: Installment) => void;
+}) {
+  const chargeCategoryByName = new Map<string, ConceptCategory>();
+  for (const installment of loan.installments) {
+    for (const concept of installment.conceptBreakdown) {
+      if (!chargeCategoryByName.has(concept.name)) {
+        chargeCategoryByName.set(concept.name, concept.category);
+      }
+    }
+  }
+  const chargeNames = Array.from(chargeCategoryByName.keys());
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <span className="text-section-label font-medium tracking-[0.36px] text-muted">
+        CUOTAS
+      </span>
+      <div className="overflow-x-auto rounded border border-border bg-surface">
+        <table className="w-full min-w-max border-collapse">
+          <thead className="bg-input">
+            <tr>
+              <Th>Cuota</Th>
+              <Th>Vence</Th>
+              <Th>Monto</Th>
+              {chargeNames.map((name) => (
+                <Th key={name}>
+                  {name}
+                  <span
+                    className={`ml-1.5 rounded px-1 py-0.5 text-[9px] font-medium normal-case tracking-normal ${
+                      chargeCategoryByName.get(name) ===
+                      ConceptCategory.Moratorio
+                        ? 'bg-red-500/15 text-red-400'
+                        : 'bg-white/10 text-mid'
+                    }`}
+                  >
+                    {chargeCategoryByName.get(name) ===
+                    ConceptCategory.Moratorio
+                      ? 'Moratorio'
+                      : 'Corriente'}
+                  </span>
+                </Th>
+              ))}
+              <Th>Mora</Th>
+              <Th>Interés</Th>
+              <Th>Total</Th>
+              <Th>Estado</Th>
+              <Th>Acciones</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {loan.installments.map((installment) => {
+              // Phase 6: cancelled installments (remaining pending ones on
+              // a loan at the moment it's refinanced — see
+              // docs/DATABASE.md "Refinancing") are kept, not hidden, but
+              // shown visually de-emphasized so they read as historical
+              // record rather than something still actionable.
+              const isCancelled =
+                installment.status === InstallmentStatus.Cancelled;
+              return (
+                <tr
+                  key={installment.id}
+                  className={`border-t border-border ${isCancelled ? 'opacity-50' : ''}`}
+                >
+                  <Td>{installment.installmentNumber}</Td>
+                  <Td>{formatDateOnly(installment.dueDate)}</Td>
+                  <Td>
+                    {formatCurrency(installment.amount)}
+                    {installment.principalPortion != null && (
+                      <div className="mt-0.5 text-meta text-mid">
+                        Capital: {formatCurrency(installment.principalPortion)}
+                      </div>
+                    )}
+                  </Td>
+                  {chargeNames.map((name) => {
+                    const charge = installment.conceptBreakdown.find(
+                      (concept) => concept.name === name,
+                    );
+                    return (
+                      <Td key={name} muted={!charge}>
+                        {charge ? formatCurrency(charge.amount) : '—'}
+                      </Td>
+                    );
+                  })}
+                  <Td>
+                    {installment.status === InstallmentStatus.Pending &&
+                    installment.overdueDays > 0 ? (
+                      <span
+                        className={`rounded-[3px] border px-2 py-[3px] text-meta font-medium ${moraBadgeClasses(installment.overdueDays)}`}
+                      >
+                        {installment.overdueDays} días
+                      </span>
+                    ) : (
+                      <span className="text-mid">—</span>
+                    )}
+                  </Td>
+                  <Td>
+                    {installment.interest > 0
+                      ? formatCurrency(installment.interest)
+                      : '—'}
+                  </Td>
+                  <Td className="font-medium text-white">
+                    {formatCurrency(
+                      installment.status === InstallmentStatus.Pending
+                        ? installment.totalDue
+                        : installment.amount,
+                    )}
+                  </Td>
+                  <Td>
+                    {isCancelled ? (
+                      <span className="rounded-[3px] border border-mid bg-surface px-2 py-[3px] text-meta font-medium text-mid">
+                        Cancelada
+                      </span>
+                    ) : (
+                      installmentStatusLabel(installment.status)
+                    )}
+                  </Td>
+                  <Td>
+                    {installment.status === InstallmentStatus.Pending ? (
+                      <button
+                        type="button"
+                        onClick={() => onPay(installment)}
+                        className="rounded-[3px] border border-border bg-input px-1.75 py-1 text-meta text-muted hover:text-white"
+                      >
+                        Pagar
+                      </button>
+                    ) : (
+                      <span className="text-meta text-mid">—</span>
+                    )}
+                  </Td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

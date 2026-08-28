@@ -2,7 +2,10 @@ import { useState } from 'react';
 
 import { Header } from '@/components/layout/Header';
 import { InterestConceptTypeForm } from '@/features/interestConceptTypes/InterestConceptTypeForm';
-import { ConceptCalculationType } from '@/features/interestConceptTypes/interestConceptTypesApi';
+import {
+  ConceptCalculationType,
+  ConceptCategory,
+} from '@/features/interestConceptTypes/interestConceptTypesApi';
 import {
   useCreateInterestConceptType,
   useDeactivateInterestConceptType,
@@ -51,7 +54,7 @@ export function InterestConceptTypesPage() {
       <div className="flex items-center justify-between">
         <Header
           title="Cargos adicionales"
-          subtitle="Solo ADMIN — catálogo usado al crear préstamos"
+          subtitle="Catálogo de cargos corrientes y moratorios usado al crear préstamos"
         />
         <button
           type="button"
@@ -114,9 +117,22 @@ export function InterestConceptTypesPage() {
             className="flex items-center justify-between rounded bg-surface px-5 py-3.5"
           >
             <div className="flex flex-col gap-0.5">
-              <span className="text-card-title font-medium text-white">
-                {conceptType.name}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-card-title font-medium text-white">
+                  {conceptType.name}
+                </span>
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                    conceptType.category === ConceptCategory.Moratorio
+                      ? 'bg-red-500/15 text-red-400'
+                      : 'bg-white/10 text-muted'
+                  }`}
+                >
+                  {conceptType.category === ConceptCategory.Moratorio
+                    ? 'Moratorio'
+                    : 'Corriente'}
+                </span>
+              </div>
               <span className="text-meta text-muted">
                 {conceptType.defaultCalculationType ===
                 ConceptCalculationType.Percentage
