@@ -1,10 +1,17 @@
-import { ConceptCalculationType } from '../../interestConceptTypes/entities/interestConceptType.entity';
+import {
+  ConceptCalculationType,
+  FixedAmountDistribution,
+} from '../../interestConceptTypes/entities/interestConceptType.entity';
 
 export interface ConceptAssignment {
   conceptTypeId: string;
   name: string;
   calculationType: ConceptCalculationType;
   value: number;
+  // Required (validated at the DTO layer — "no silent default", see
+  // docs/phases/PHASE_23_DYNAMIC_CHARGES.md) whenever calculationType is
+  // FixedAmount. Unused for Percentage concepts.
+  fixedAmountDistribution?: FixedAmountDistribution;
 }
 
 export interface GeneratedInstallmentConcept extends ConceptAssignment {
@@ -49,6 +56,26 @@ export function generateAmortizationSchedule(
     throw new Error('totalInstallments must be at least 1');
   }
 
+  const fixedAmountSchedules = new Map<string, number[]>();
+  for (const concept of concepts) {
+    if (concept.calculationType !== ConceptCalculationType.FixedAmount) {
+      continue;
+    }
+    if (!concept.fixedAmountDistribution) {
+      throw new Error(
+        `Concept "${concept.name}" is fixed_amount but has no fixedAmountDistribution configured — edit it in the catalog before assigning it to a loan.`,
+      );
+    }
+    fixedAmountSchedules.set(
+      concept.conceptTypeId,
+      buildFixedAmountSchedule(
+        concept.value,
+        totalInstallments,
+        concept.fixedAmountDistribution,
+      ),
+    );
+  }
+
   const percentageConcepts = concepts.filter(
     (concept) => concept.calculationType === ConceptCalculationType.Percentage,
   );
@@ -70,11 +97,12 @@ export function generateAmortizationSchedule(
 
     const computedConcepts = concepts.map((concept) => ({
       ...concept,
-      computedAmount: roundCurrency(
+      computedAmount:
         concept.calculationType === ConceptCalculationType.Percentage
-          ? (runningBalance * concept.value) / 100
-          : concept.value,
-      ),
+          ? roundCurrency((runningBalance * concept.value) / 100)
+          : // Non-null: every fixed_amount concept got a schedule above, or
+            // the function already threw before reaching this loop.
+            fixedAmountSchedules.get(concept.conceptTypeId)![index],
     }));
 
     const percentageConceptsTotal = computedConcepts
@@ -104,4 +132,25 @@ export function generateAmortizationSchedule(
 
 function roundCurrency(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+// split_across_installments divides value evenly, remainder absorbed into
+// the last installment — same convention as principalPortion's own
+// rounding. first_installment_only charges the full value once, zero
+// elsewhere. See docs/phases/PHASE_23_DYNAMIC_CHARGES.md.
+function buildFixedAmountSchedule(
+  value: number,
+  totalInstallments: number,
+  distribution: FixedAmountDistribution,
+): number[] {
+  if (distribution === FixedAmountDistribution.FirstInstallmentOnly) {
+    return [value, ...Array<number>(totalInstallments - 1).fill(0)];
+  }
+
+  const base = roundCurrency(value / totalInstallments);
+  const schedule = Array<number>(totalInstallments).fill(base);
+  schedule[totalInstallments - 1] = roundCurrency(
+    value - base * (totalInstallments - 1),
+  );
+  return schedule;
 }

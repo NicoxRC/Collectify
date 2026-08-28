@@ -1,8 +1,11 @@
 import { addDays, subDays } from 'date-fns';
 
+import { ConceptCalculationType } from '../../interestConceptTypes/entities/interestConceptType.entity';
+
 import {
   calculateDaysUntilDue,
   calculateInterest,
+  calculateMoratoryCharges,
   calculateOverdueDays,
   calculateTotalDue,
 } from './installmentCalculations';
@@ -73,6 +76,80 @@ describe('installmentCalculations', () => {
 
     it('returns 0 when there are no overdue days', () => {
       expect(calculateInterest(210000, 6, 0)).toBe(0);
+    });
+  });
+
+  describe('calculateMoratoryCharges', () => {
+    it('matches calculateInterest exactly for a single percentage concept at the same rate — no regression when a loan migrates onto the new engine', () => {
+      const [installmentAmount, rate, overdueDays, expected] = [
+        210000, 6, 740, 310800,
+      ];
+
+      const result = calculateMoratoryCharges(installmentAmount, overdueDays, [
+        {
+          name: 'Interés moratorio',
+          calculationType: ConceptCalculationType.Percentage,
+          value: rate,
+        },
+      ]);
+
+      expect(result[0].name).toBe('Interés moratorio');
+      expect(result[0].amount).toBeCloseTo(expected, 6);
+    });
+
+    it('charges a fixed_amount concept in full, unscaled by overdueDays, once the installment is overdue', () => {
+      const result = calculateMoratoryCharges(210000, 45, [
+        {
+          name: 'Gastos de cobranza',
+          calculationType: ConceptCalculationType.FixedAmount,
+          value: 15000,
+        },
+      ]);
+
+      expect(result).toEqual([{ name: 'Gastos de cobranza', amount: 15000 }]);
+    });
+
+    it('every concept is 0 when the installment is not yet overdue', () => {
+      const result = calculateMoratoryCharges(210000, 0, [
+        {
+          name: 'Interés moratorio',
+          calculationType: ConceptCalculationType.Percentage,
+          value: 6,
+        },
+        {
+          name: 'Gastos de cobranza',
+          calculationType: ConceptCalculationType.FixedAmount,
+          value: 15000,
+        },
+      ]);
+
+      expect(result).toEqual([
+        { name: 'Interés moratorio', amount: 0 },
+        { name: 'Gastos de cobranza', amount: 0 },
+      ]);
+    });
+
+    it('sums multiple concepts independently, mixing percentage and fixed_amount', () => {
+      const result = calculateMoratoryCharges(210000, 30, [
+        {
+          name: 'Interés moratorio',
+          calculationType: ConceptCalculationType.Percentage,
+          value: 6,
+        },
+        {
+          name: 'Gastos de cobranza',
+          calculationType: ConceptCalculationType.FixedAmount,
+          value: 15000,
+        },
+      ]);
+
+      // 210000 * 0.06 / 30 * 30 = 12600
+      expect(result[0].amount).toBeCloseTo(12600, 6);
+      expect(result[1].amount).toBe(15000);
+    });
+
+    it('returns an empty array when no moratory concepts are assigned', () => {
+      expect(calculateMoratoryCharges(210000, 30, [])).toEqual([]);
     });
   });
 

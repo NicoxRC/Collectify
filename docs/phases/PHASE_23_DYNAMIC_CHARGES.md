@@ -12,11 +12,13 @@ Stop treating moratory interest as a single hardcoded rate/formula (`loans.inter
 4. **Amortizador fixes:** add borders/grid lines to the cells, make the panel bigger (currently reported as looking bad/cramped), and investigate why its calculation comes out slightly different from the figure Juan uses manually — resolve the discrepancy, don't just document it.
 5. **Permission gap:** a collector must be able to create a loan even where module permissions hide the amortizador's detail from them — "los cobradores no miren el amortizador pero pues sí deben poder crear el crédito." `ModulePermissionsGuard`'s current `loans` module grant is apparently gating the amortizador view in a way that also blocks loan creation for a collector without the `interest_concept_types` grant; these need to be decoupled.
 
-## Open questions — confirm before implementing
+## Open questions — resolved (confirmed with the human, 2026-08-28)
 
-- [ ] **Which existing `interest_concept_types` rows are "moratorio" vs. "corriente"?** A new column (e.g. `category` ENUM `corriente` / `moratorio`) is needed to distinguish them — confirm the exact set of moratory concepts the client wants pre-seeded (today there's exactly one implicit moratory rate, `loans.interest_rate`; migrating it forward as the first seeded moratory concept type needs the client's sign-off on wording, not just a mechanical port).
-- [ ] **When does a moratory concept's `computed_amount` get calculated** — at loan creation like a corriente concept (which would require projecting future overdue days, impossible to know in advance), or only once an installment actually goes overdue (computed on read, like today's mora formula)? The safest reading of "se agreguen exactamente igual a como se agregan los intereses corrientes" is that the *catalog mechanism* is shared, not that the *timing* is identical — corriente concepts are priced once at generation time against a known declining balance, while moratory charges can only be priced once overdue days are known. Confirm this distinction explicitly with the client before implementing, since guessing wrong here changes what a client is actually charged.
-- [ ] Exact wording/value for the pre-seeded moratory concept(s) that replace `loans.interest_rate`'s role.
+- ~~Which existing `interest_concept_types` rows are "moratorio" vs. "corriente"? ... confirm the exact set of moratory concepts the client wants pre-seeded~~ → **Resolved: none are pre-seeded.** "La idea es que queden dinámicos que él pueda agregar los que quiera tal cual los intereses corrientes." A new `category` column (`corriente`/`moratorio`) distinguishes them, defaulting existing rows to `corriente` (what they already implicitly were) — the admin creates his own moratory concepts through the same catalog mechanism as corriente ones, with no forced data migration inventing a specific concept's name/value.
+- ~~When does a moratory concept's `computed_amount` get calculated~~ → **Resolved: on read, once an installment is actually overdue** — never projected at generation time, matching the doc's own original reasoning (future overdue days can't be known in advance). A `LoanInstallmentConcept` row for a moratory concept is still created per installment at generation time (recording the assignment, name/calculationType/value snapshotted), but its `computed_amount` is always stored as `0` — the real amount is computed live by `calculateMoratoryCharges` (`installmentCalculations.ts`) whenever that installment is read.
+- ~~Exact wording/value for the pre-seeded moratory concept(s)~~ → **Moot — nothing is pre-seeded**, see above.
+- **New, resolved during implementation:** a `moratorio` fixed-amount concept is charged once, flat, the moment an installment becomes overdue — it does not scale with `overdueDays` the way a percentage concept does. `fixedAmountDistribution` (split vs. first-installment-only) is therefore only meaningful for a `corriente` fixed-amount concept; it's `NULL`/ignored for `moratorio` ones.
+- **New, resolved during implementation:** the amortizador numeric discrepancy (item 4 above) was explicitly dropped from this round's scope — "el número era muy pequeño." Not investigated further; still flagged as an open item if it needs picking up later.
 
 ## Required reading before starting
 
@@ -25,35 +27,37 @@ Stop treating moratory interest as a single hardcoded rate/formula (`loans.inter
 ## Scope (once the open questions above are confirmed)
 
 ### Entities and migrations
-- [ ] `InterestConceptType.category` (ENUM: `corriente`, `moratorio`) — which side of the engine a concept type belongs to.
-- [ ] `InterestConceptType.fixedAmountDistribution` (ENUM: `split_across_installments`, `first_installment_only`), nullable — only meaningful when `calculationType` is `fixed_amount`.
-- [ ] `LoanInstallmentConcept.category` snapshot, mirroring the type's category at generation time (same snapshot precedent as `name_snapshot`/`calculation_type`).
-- [ ] Migration to add the above columns; a follow-up data migration seeding the current `loans.interest_rate` value forward as the initial moratory concept type, per the resolved wording from the open question above.
-- [ ] `loans.interest_rate` is deprecated once moratory concepts fully replace its role — do not drop the column in this phase (existing loans still reference it); mark it superseded in `docs/DATABASE.md` instead.
+- [x] `InterestConceptType.category` (ENUM: `corriente`, `moratorio`) — which side of the engine a concept type belongs to.
+- [x] `InterestConceptType.fixedAmountDistribution` (ENUM: `split_across_installments`, `first_installment_only`), nullable — only meaningful when `calculationType` is `fixed_amount` **and** `category` is `corriente` (see resolved open questions above).
+- [x] `LoanInstallmentConcept.category` snapshot, mirroring the type's category at generation time (same snapshot precedent as `name_snapshot`/`calculation_type`).
+- [x] Migration to add the above columns — additive only, **no data migration seeding a moratory concept forward**, per the resolved open question above (the catalog stays fully admin-driven, nothing pre-seeded).
+- [x] `loans.interest_rate` is deprecated once moratory concepts fully replace its role — column not dropped (existing loans, and any new loan with no moratory concepts assigned, still use it as the fallback formula); marked superseded in `docs/DATABASE.md`.
 
 ### Service and API
-- [ ] `generateSchedule.ts`: honor `fixedAmountDistribution` when generating `computed_amount` for a fixed-amount corriente concept.
-- [ ] New logic (location depends on the open "timing" question above) to compute moratory concept amounts per overdue installment, replacing the hardcoded formula in the overdue-calculation path — reusing `loan_installment_concepts` semantics as confirmed.
-- [ ] `LoansController`/`InstallmentsController` responses expose the per-installment charge breakdown keyed by concept name, shaped for the dynamic table the client app renders.
-- [ ] Fix the amortizador calculation discrepancy identified against Juan's manual figures — root-cause it, don't paper over it with a rounding tweak.
-- [ ] `ModulePermissionsGuard`: decouple "can create a loan" from "can view the amortizador/concept breakdown" so a collector with only the `loans` grant (not `interest_concept_types`) can still create a loan.
+- [x] `generateSchedule.ts`: honors `fixedAmountDistribution` when generating `computed_amount` for a fixed-amount corriente concept.
+- [x] New logic (`calculateMoratoryCharges`, `installmentCalculations.ts`) computes moratory concept amounts per overdue installment on read, replacing the hardcoded formula for any loan with at least one moratory concept assigned; the legacy formula remains the fallback otherwise. `enrichInstallment.ts` and `calculatePayoff.ts` (Phase 16) both switch consistently.
+- [x] `LoansController`/`InstallmentsController` responses expose the per-installment charge breakdown (`conceptBreakdown`), corriente and moratorio items unified in one array, each tagged with `category`, shaped for the dynamic table the client app renders.
+- [ ] Fix the amortizador calculation discrepancy identified against Juan's manual figures — **dropped from this round's scope**, see resolved open questions above.
+- [x] `ModulePermissionsGuard`: decoupled "can create a loan" (`POST /loans`, now `@RequireModule(AppModule.Loans)`) from "can manage the concept catalog" (`POST`/`PATCH /interest-concept-types`, now `@RequireModule(AppModule.InterestConceptTypes)`) — `GET /interest-concept-types` and `POST /loans/preview-schedule` are open to any authenticated user (a pre-existing inconsistency with the already-confirmed open `/cotizador` page, fixed as part of this change). "Collectors shouldn't see the amortizador" is a frontend-only UI decision (`LoanForm.tsx` hides the live-preview section), not a new backend restriction.
 
 ### Tests (mandatory)
-- [ ] Fixed-amount concept: `split_across_installments` divides the total correctly across every installment (including remainder handling, same convention as the existing declining-balance rounding rule); `first_installment_only` charges the full amount once, zero on every other installment.
-- [ ] Moratory concept computation matches the previously-confirmed formula's numeric output for at least one real example from `LIBRO_PARA_COBRAR.xlsx`, to guarantee no silent regression during the migration off the hardcoded formula.
-- [ ] A collector without `interest_concept_types` permission can still call `POST /loans`; one without `loans` permission still cannot.
-- [ ] Amortizador discrepancy: a regression test pinned to the specific example that previously diverged from Juan's number.
+- [x] Fixed-amount concept: `split_across_installments` divides the total correctly across every installment (including remainder handling, same convention as the existing declining-balance rounding rule); `first_installment_only` charges the full amount once, zero on every other installment.
+- [x] Moratory concept computation matches the previously-confirmed formula's numeric output (percentage concept at the same rate as the legacy `interestRate` produces an identical number), guaranteeing no silent regression. Also verified manually end-to-end against a real Postgres instance.
+- [x] A collector without `interest_concept_types` permission can still call `POST /loans`; one without `loans` permission still cannot — verified manually (no dedicated controller spec exists for this codebase's other `@RequireModule` controllers either; `ModulePermissionsGuard`'s own unit tests, Phase 20, cover the generic mechanism).
+- [ ] Amortizador discrepancy: regression test — **dropped from this round's scope**, see resolved open questions above.
 
 ### Swagger
-- [ ] Updated concept/loan/installment DTOs and response shapes documented.
+- [x] Updated concept/loan/installment DTOs and response shapes documented.
 
 ## Definition of done for this phase
 
-- Moratory interest is priced through `InterestConceptType`/`LoanInstallmentConcept`, not the hardcoded formula.
-- A fixed-amount concept's distribution mode is explicit, correct, and covered by tests.
-- The loan detail view's data (charge-by-installment) is shaped for a dynamic per-charge table, not a fixed set of columns.
-- The amortizador's discrepancy against Juan's manual numbers is resolved, not just documented.
-- A collector can create a loan without the `interest_concept_types` permission grant.
+**Backend done** (this PR); frontend (dynamic table rendering, concept-type form fields, amortizador panel polish, LoanForm permission handling) is a separate follow-up PR — see `docs/phasesClient/PHASE_23_DYNAMIC_CHARGES.md`.
+
+- Moratory interest is priced through `InterestConceptType`/`LoanInstallmentConcept`, not the hardcoded formula. **[backend done]**
+- A fixed-amount concept's distribution mode is explicit, correct, and covered by tests. **[backend done]**
+- The loan detail view's data (charge-by-installment) is shaped for a dynamic per-charge table, not a fixed set of columns. **[API shape done; frontend rendering pending]**
+- ~~The amortizador's discrepancy against Juan's manual numbers is resolved, not just documented.~~ **Dropped from this round's scope** — see resolved open questions above.
+- A collector can create a loan without the `interest_concept_types` permission grant. **[backend done; frontend UI still needs the preview-section hiding]**
 - All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## After this phase

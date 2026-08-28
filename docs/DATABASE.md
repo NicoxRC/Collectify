@@ -50,6 +50,7 @@ Before looking at the tables, understand the real structure confirmed from the c
    interest = installment_amount × (interest_rate / 100) / 30 × overdue_days
    total_due_for_installment = installment_amount + interest
    ```
+   Added Phase 23: this remains the exact fallback formula for any loan with no `moratorio`-category concepts assigned (see `interest_concept_types`/`loan_installment_concepts` below) — zero regression for every pre-Phase-23 loan. Once a loan has at least one moratory concept assigned, this single-rate formula is replaced by the sum of that loan's own moratory concepts, each computed the same way (percentage: `installment_amount × (value / 100) / 30 × overdue_days`; fixed_amount: the flat `value`, charged once, unscaled by `overdue_days`) — see `docs/phases/PHASE_23_DYNAMIC_CHARGES.md`.
 5. The **weekly WhatsApp reminder groups every overdue installment for a client — across all of their loans — into a single message**, with a grand total to pay. This is confirmed from the real message examples the client shared.
 6. Loans can be **refinanced**: an old loan is closed out and a new loan is created in its place, typically consolidating remaining balance plus accrued interest into a new set of installments.
 
@@ -236,6 +237,8 @@ Represents a *pagaré* — see `GLOSSARY.md`.
 
 **Changed after Phase 14:** `interest_rate` is no longer used to price new loans — a loan's actual cost is now expressed entirely through named concepts (see `interest_concept_types` / `loan_installment_concepts` below). The column was not removed or renamed: it is kept, unchanged in shape, as the base rate `installmentCalculations.ts` uses for moratory (mora) interest on overdue installments — the open question above about how this rate is assigned/changes over time is still unresolved, just now scoped specifically to its moratory role rather than to ordinary loan pricing.
 
+**Superseded after Phase 23:** `interest_rate` is now only the *fallback* moratory formula, used exclusively for a loan with zero `moratorio`-category concepts assigned (every loan created before this phase, and any new loan the admin doesn't attach moratory concepts to). Once a loan has at least one moratory concept, `interest_rate` plays no role in its numbers at all — moratory interest is priced entirely through that loan's own `loan_installment_concepts` rows instead, computed live on read. The column is still not removed — dropping it would break every loan still on the fallback path. See `docs/phases/PHASE_23_DYNAMIC_CHARGES.md`.
+
 **On why there's no `status: 'overdue'` at the loan level:** a loan can have some installments overdue and others current, or even fully current with a future installment pending. "Overdue" is a derived state of an *installment*, not the loan as a whole. The loan's own dashboard/detail view aggregates its installments' statuses for display purposes but doesn't store a redundant "overdue" flag.
 
 ### `installments`
@@ -291,6 +294,8 @@ Added Phase 14 — the admin-managed catalog of interest/fee concepts (e.g. "Int
 | `name` | VARCHAR | |
 | `default_calculation_type` | ENUM (`percentage`, `fixed_amount`) | |
 | `default_value` | DECIMAL(12,2), nullable | a suggested starting value, always overridable per installment |
+| `category` | ENUM (`corriente`, `moratorio`), default `corriente` | Added Phase 23 — which side of the concept engine this type belongs to. `corriente` concepts price a loan's ordinary cost at generation time, unchanged since Phase 14. `moratorio` concepts only apply once an installment is overdue, computed live on read (never projected at generation time — future overdue days can't be known in advance). The default keeps every pre-Phase-23 row `corriente`, matching what it already implicitly was; no moratory concepts are pre-seeded — the admin creates his own, the same way as corriente ones. See `docs/phases/PHASE_23_DYNAMIC_CHARGES.md`. |
+| `fixed_amount_distribution` | ENUM (`split_across_installments`, `first_installment_only`), nullable | Added Phase 23 — required (enforced at the DTO layer, "no silent default") when `default_calculation_type` is `fixed_amount` and `category` is `corriente`; meaningless (left `NULL`) for a `percentage` concept or for a `moratorio` fixed-amount concept, which is always charged once, flat, the moment an installment goes overdue. |
 | `is_active` | BOOLEAN, default `true` | deactivating removes the type from the picker for new loans without touching `loan_installment_concepts` rows already generated from it — those snapshot their own name/value, unaffected by later catalog edits |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
@@ -305,8 +310,9 @@ Added Phase 14 — one row per interest/fee concept applied to a specific instal
 | `interest_concept_type_id` | UUID, nullable | FK → `interest_concept_types.id`, `ON DELETE SET NULL` — kept only as a soft reference for reporting; everything needed to display or recompute this concept already lives on this row |
 | `name_snapshot` | VARCHAR | copied from the type at generation time |
 | `calculation_type` | ENUM (`percentage`, `fixed_amount`) | snapshotted |
+| `category` | ENUM (`corriente`, `moratorio`) | Added Phase 23 — snapshotted from the type at assignment time, same precedent as `name_snapshot`/`calculation_type`. |
 | `value` | DECIMAL(12,2) | snapshotted — the % or flat figure actually used for this installment |
-| `computed_amount` | DECIMAL(12,2) | the resulting currency amount this concept contributed to this installment, calculated once at generation time against the balance at that point, then stored — the schedule doesn't change with the passage of time the way mora does |
+| `computed_amount` | DECIMAL(12,2) | For a `corriente` row: the resulting currency amount this concept contributed to this installment, calculated once at generation time against the balance at that point, then stored — the schedule doesn't change with the passage of time the way mora does. For a `moratorio` row (Phase 23): always `0` — the row only records that the concept is assigned to the loan; the real charge is computed live on read once the installment is overdue (see `installments.dueDate` / mora formula below), never stored. |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
 ### `message_templates`
@@ -530,10 +536,10 @@ npm run migration:revert
 
 ## Added in Phase 14
 
-- `interest_concept_types` — the admin-managed catalog of interest/fee concepts, extendable without a code change. See "`interest_concept_types`" above.
+- `interest_concept_types` — the admin-managed catalog of interest/fee concepts, extendable without a code change. Split by `category` (`corriente`/`moratorio`) as of Phase 23. See "`interest_concept_types`" above.
 - `loan_installment_concepts` — the per-installment snapshot of concepts actually applied, immune to later catalog edits. See "`loan_installment_concepts`" above.
 - `installments.principal_portion` — the capital-only part of an installment's `amount`, generated by the amortization schedule. Nullable for installments created before this phase.
-- `loans.interest_rate` is no longer used to price new loans — see the "Changed after Phase 14" note under `loans` above. It remains, unchanged in shape, as the base rate for moratory interest on overdue installments.
+- `loans.interest_rate` is no longer used to price new loans — see the "Changed after Phase 14" note under `loans` above. As of Phase 23 it's also superseded for moratory interest on any loan that has its own moratory concepts assigned — see "Superseded after Phase 23" under `loans` above. It remains only as the fallback formula for a loan with no moratory concepts.
 - The amortization algorithm (declining balance, percentage concepts calculated against the balance before that installment's principal is subtracted, rounding remainder absorbed into the last installment) lives in `loans/amortization/generateSchedule.ts` — see `docs/phases/PHASE_14_INTEREST_CONCEPTS.md` for the full spec.
 - **Not yet built:** the quote/simulator tool ("amortizador proyector") — the catalog and amortization engine it would reuse shipped first; see `docs/phases/PHASE_14_INTEREST_CONCEPTS.md`'s "Open question carried forward" section.
 

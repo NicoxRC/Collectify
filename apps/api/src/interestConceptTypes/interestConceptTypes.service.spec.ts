@@ -4,6 +4,8 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 
 import {
   ConceptCalculationType,
+  ConceptCategory,
+  FixedAmountDistribution,
   InterestConceptType,
 } from './entities/interestConceptType.entity';
 import { InterestConceptTypesService } from './interestConceptTypes.service';
@@ -22,6 +24,8 @@ describe('InterestConceptTypesService', () => {
     name: 'Gastos de cobranza',
     defaultCalculationType: ConceptCalculationType.Percentage,
     defaultValue: 3,
+    category: ConceptCategory.Corriente,
+    fixedAmountDistribution: null,
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -89,6 +93,9 @@ describe('InterestConceptTypesService', () => {
       await service.create({
         name: 'Seguro',
         defaultCalculationType: ConceptCalculationType.FixedAmount,
+        category: ConceptCategory.Corriente,
+        fixedAmountDistribution:
+          FixedAmountDistribution.SplitAcrossInstallments,
       });
 
       expect(repository.create).toHaveBeenCalledWith(
@@ -111,6 +118,7 @@ describe('InterestConceptTypesService', () => {
         name: 'Interés remuneratorio',
         defaultCalculationType: ConceptCalculationType.Percentage,
         defaultValue: 2,
+        category: ConceptCategory.Corriente,
       });
 
       expect(repository.create).toHaveBeenCalledWith(

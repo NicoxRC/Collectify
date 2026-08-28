@@ -1,10 +1,11 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
   IsDateString,
   IsEnum,
   IsInt,
+  IsOptional,
   IsPositive,
   Min,
   ValidateNested,
@@ -40,4 +41,15 @@ export class PreviewScheduleDto {
   @ValidateNested({ each: true })
   @Type(() => LoanConceptAssignmentDto)
   concepts!: LoanConceptAssignmentDto[];
+
+  @ApiPropertyOptional({
+    type: [LoanConceptAssignmentDto],
+    description:
+      "Moratory concepts to preview (Phase 23) — shown in each installment's conceptBreakdown at amount 0, since nothing is overdue in a preview. See CreateLoanDto.",
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => LoanConceptAssignmentDto)
+  moratoryConcepts?: LoanConceptAssignmentDto[];
 }

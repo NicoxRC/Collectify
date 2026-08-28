@@ -5,6 +5,7 @@ import { ClientsService } from '../clients/clients.service';
 import { Client } from '../clients/entities/client.entity';
 import {
   ConceptCalculationType,
+  ConceptCategory,
   InterestConceptType,
 } from '../interestConceptTypes/entities/interestConceptType.entity';
 import { LoansService } from '../loans/loans.service';
@@ -63,6 +64,8 @@ describe('ClientLoanImportService', () => {
     name: 'Gastos de cobranza',
     defaultCalculationType: ConceptCalculationType.Percentage,
     defaultValue: null,
+    category: ConceptCategory.Corriente,
+    fixedAmountDistribution: null,
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date(),

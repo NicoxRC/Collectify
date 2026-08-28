@@ -14,8 +14,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
-import { Roles } from '../auth/decorators/roles.decorator';
-import { UserRole } from '../users/entities/user.entity';
+import { RequireModule } from '../auth/decorators/requireModule.decorator';
+import { AppModule } from '../users/entities/userModulePermission.entity';
 
 import { CreateInterestConceptTypeDto } from './dto/createInterestConceptType.dto';
 import { QueryInterestConceptTypesDto } from './dto/queryInterestConceptTypes.dto';
@@ -31,12 +31,17 @@ export class InterestConceptTypesController {
     private readonly interestConceptTypesService: InterestConceptTypesService,
   ) {}
 
+  // Deliberately open to any authenticated user (no @Roles/@RequireModule)
+  // — reading the catalog to populate the loan-creation concept picker is
+  // needed by every collector who can create a loan, not just an admin or
+  // someone specifically granted interest_concept_types. Managing the
+  // catalog (create/update/deactivate below) stays restricted. See
+  // docs/phases/PHASE_23_DYNAMIC_CHARGES.md "Permissions".
   @Get()
-  @Roles(UserRole.Admin)
   @ApiOperation({
-    summary: 'List interest concept types, active by default (admin only)',
+    summary: 'List interest concept types, active by default',
     description:
-      'Pass isActive=false to list deactivated types. Used to populate the concept picker at loan creation.',
+      'Pass isActive=false to list deactivated types. Used to populate the concept picker at loan creation — open to any authenticated user.',
   })
   @ApiResponse({ status: 200, description: 'Returns the list of types.' })
   findAll(
@@ -46,9 +51,10 @@ export class InterestConceptTypesController {
   }
 
   @Post()
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.InterestConceptTypes)
   @ApiOperation({
-    summary: 'Create a new interest concept type (admin only)',
+    summary:
+      'Create a new interest concept type (admin or granted the interest_concept_types module)',
     description:
       'Lets the admin add a new kind of interest/fee concept at any time, without a code change.',
   })
@@ -60,9 +66,10 @@ export class InterestConceptTypesController {
   }
 
   @Patch(':id')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.InterestConceptTypes)
   @ApiOperation({
-    summary: 'Update an interest concept type (admin only)',
+    summary:
+      'Update an interest concept type (admin or granted the interest_concept_types module)',
     description:
       'Loans already using this type keep the name/value they were generated with — this only affects the catalog definition for future loans.',
   })
@@ -76,9 +83,10 @@ export class InterestConceptTypesController {
   }
 
   @Patch(':id/deactivate')
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.InterestConceptTypes)
   @ApiOperation({
-    summary: 'Deactivate an interest concept type (admin only)',
+    summary:
+      'Deactivate an interest concept type (admin or granted the interest_concept_types module)',
     description:
       'Removes it from the picker for new loans. Existing loans that already used it are unaffected.',
   })

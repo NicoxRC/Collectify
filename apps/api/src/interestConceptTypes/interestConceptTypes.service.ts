@@ -38,6 +38,8 @@ export class InterestConceptTypesService {
       name: dto.name,
       defaultCalculationType: dto.defaultCalculationType,
       defaultValue: dto.defaultValue ?? null,
+      category: dto.category,
+      fixedAmountDistribution: dto.fixedAmountDistribution ?? null,
       isActive: true,
     });
     return this.repository.save(conceptType);
@@ -55,6 +57,12 @@ export class InterestConceptTypesService {
     }
     if (dto.defaultValue !== undefined) {
       conceptType.defaultValue = dto.defaultValue;
+    }
+    if (dto.category !== undefined) {
+      conceptType.category = dto.category;
+    }
+    if (dto.fixedAmountDistribution !== undefined) {
+      conceptType.fixedAmountDistribution = dto.fixedAmountDistribution;
     }
 
     return this.repository.save(conceptType);

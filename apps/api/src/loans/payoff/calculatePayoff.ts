@@ -1,7 +1,9 @@
 import {
   calculateDaysUntilDue,
   calculateInterest,
+  calculateMoratoryCharges,
   calculateOverdueDays,
+  MoratoryConceptAssignment,
 } from '../installments/installmentCalculations';
 
 export interface PayoffInstallmentInput {
@@ -13,6 +15,12 @@ export interface PayoffInstallmentInput {
   // used elsewhere for this column.
   principalPortion: number | null;
   dueDate: string;
+  // Phase 23 — moratory concepts assigned to this installment, if any.
+  // Empty means the loan predates Phase 23 (or was never given any),
+  // falling back to the legacy interestRate formula below — kept
+  // consistent with enrichInstallment.ts's identical fallback rule, so a
+  // payoff quote never disagrees with what the installment view shows.
+  moratoryConcepts: MoratoryConceptAssignment[];
 }
 
 export interface PayoffInstallmentBreakdown {
@@ -107,11 +115,14 @@ function calculateInstallmentPayoff(
 
   const conceptsInterest = installment.amount - principalPortion;
   const overdueDays = calculateOverdueDays(dueDate, today);
-  const moratoryInterest = calculateInterest(
-    installment.amount,
-    interestRate,
-    overdueDays,
-  );
+  const moratoryInterest =
+    installment.moratoryConcepts.length > 0
+      ? calculateMoratoryCharges(
+          installment.amount,
+          overdueDays,
+          installment.moratoryConcepts,
+        ).reduce((sum, item) => sum + item.amount, 0)
+      : calculateInterest(installment.amount, interestRate, overdueDays);
   const interestApplied = conceptsInterest + moratoryInterest;
 
   return {

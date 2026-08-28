@@ -78,6 +78,17 @@ export class RefinanceLoanDto {
   concepts!: LoanConceptAssignmentDto[];
 
   @ApiPropertyOptional({
+    type: [LoanConceptAssignmentDto],
+    description:
+      'Moratory concepts assigned to the new loan — see CreateLoanDto.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => LoanConceptAssignmentDto)
+  moratoryConcepts?: LoanConceptAssignmentDto[];
+
+  @ApiPropertyOptional({
     example: 50000,
     description:
       'The new loan\'s own "cuota inicial" — see CreateLoanDto. Purely informational, unrelated to the loan being refinanced.',

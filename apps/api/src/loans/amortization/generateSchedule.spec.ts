@@ -1,4 +1,7 @@
-import { ConceptCalculationType } from '../../interestConceptTypes/entities/interestConceptType.entity';
+import {
+  ConceptCalculationType,
+  FixedAmountDistribution,
+} from '../../interestConceptTypes/entities/interestConceptType.entity';
 
 import {
   ConceptAssignment,
@@ -44,7 +47,45 @@ describe('generateAmortizationSchedule', () => {
     expect(schedule[2].principalPortion).toBe(333.34);
   });
 
-  it('applies a fixed-amount concept identically regardless of the declining balance', () => {
+  it('split_across_installments divides a fixed-amount concept evenly, remainder on the last installment', () => {
+    const concept: ConceptAssignment = {
+      conceptTypeId: 'concept-1',
+      name: 'Gastos de cobranza',
+      calculationType: ConceptCalculationType.FixedAmount,
+      value: 5000,
+      fixedAmountDistribution: FixedAmountDistribution.SplitAcrossInstallments,
+    };
+
+    const schedule = generateAmortizationSchedule(300000, 3, [concept]);
+
+    expect(schedule.map((i) => i.concepts[0].computedAmount)).toEqual([
+      1666.67, 1666.67, 1666.66,
+    ]);
+    expect(
+      schedule.reduce((sum, i) => sum + i.concepts[0].computedAmount, 0),
+    ).toBeCloseTo(5000, 6);
+  });
+
+  it('first_installment_only charges the full fixed-amount concept once, zero on every other installment', () => {
+    const concept: ConceptAssignment = {
+      conceptTypeId: 'concept-1',
+      name: 'Gastos de cobranza',
+      calculationType: ConceptCalculationType.FixedAmount,
+      value: 5000,
+      fixedAmountDistribution: FixedAmountDistribution.FirstInstallmentOnly,
+    };
+
+    const schedule = generateAmortizationSchedule(300000, 3, [concept]);
+
+    expect(schedule.map((i) => i.concepts[0].computedAmount)).toEqual([
+      5000, 0, 0,
+    ]);
+    // With no percentage concept, principal is split evenly (100000 each);
+    // only the first installment carries the flat fee on top.
+    expect(schedule.map((i) => i.amount)).toEqual([105000, 100000, 100000]);
+  });
+
+  it('throws when a fixed-amount concept has no distribution mode configured', () => {
     const concept: ConceptAssignment = {
       conceptTypeId: 'concept-1',
       name: 'Gastos de cobranza',
@@ -52,14 +93,9 @@ describe('generateAmortizationSchedule', () => {
       value: 5000,
     };
 
-    const schedule = generateAmortizationSchedule(300000, 3, [concept]);
-
-    expect(schedule.map((i) => i.concepts[0].computedAmount)).toEqual([
-      5000, 5000, 5000,
-    ]);
-    // With no percentage concept, the level payment is just principal
-    // split evenly plus the flat fee every period.
-    expect(schedule.map((i) => i.amount)).toEqual([105000, 105000, 105000]);
+    expect(() => generateAmortizationSchedule(300000, 3, [concept])).toThrow(
+      /fixedAmountDistribution/,
+    );
   });
 
   it('supports a mix of percentage and fixed-amount concepts on the same installment', () => {
@@ -74,6 +110,7 @@ describe('generateAmortizationSchedule', () => {
       name: 'Gastos de cobranza',
       calculationType: ConceptCalculationType.FixedAmount,
       value: 5000,
+      fixedAmountDistribution: FixedAmountDistribution.FirstInstallmentOnly,
     };
 
     const schedule = generateAmortizationSchedule(300000, 1, [

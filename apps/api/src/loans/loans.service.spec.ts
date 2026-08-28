@@ -11,6 +11,7 @@ import { ClientsService } from '../clients/clients.service';
 import { DocumentType } from '../clients/entities/client.entity';
 import {
   ConceptCalculationType,
+  ConceptCategory,
   InterestConceptType,
 } from '../interestConceptTypes/entities/interestConceptType.entity';
 import { InterestConceptTypesService } from '../interestConceptTypes/interestConceptTypes.service';
@@ -61,6 +62,8 @@ describe('LoansService', () => {
     name: 'Interés remuneratorio',
     defaultCalculationType: ConceptCalculationType.Percentage,
     defaultValue: 2,
+    category: ConceptCategory.Corriente,
+    fixedAmountDistribution: null,
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -922,6 +925,7 @@ describe('LoansService', () => {
         {
           installmentId: 'inst-1',
           nameSnapshot: 'Interés remuneratorio',
+          category: ConceptCategory.Corriente,
           computedAmount: 6000,
         },
       ]);
@@ -929,7 +933,11 @@ describe('LoansService', () => {
       const result = await service.findOne(mockLoan.id);
 
       expect(result.installments[0].conceptBreakdown).toEqual([
-        { name: 'Interés remuneratorio', amount: 6000 },
+        {
+          name: 'Interés remuneratorio',
+          amount: 6000,
+          category: ConceptCategory.Corriente,
+        },
       ]);
       expect(result.installments[0].principalPortion).toBe(300000);
     });
@@ -1235,7 +1243,13 @@ describe('LoansService', () => {
           dueDate: '2026-02-01',
           principalPortion: 294079.21,
           amount: 312079.21,
-          conceptBreakdown: [{ name: mockConceptType.name, amount: 18000 }],
+          conceptBreakdown: [
+            {
+              name: mockConceptType.name,
+              amount: 18000,
+              category: ConceptCategory.Corriente,
+            },
+          ],
         }),
         expect.objectContaining({
           installmentNumber: 2,
@@ -1553,6 +1567,7 @@ describe('LoansService', () => {
           interestConceptTypeId: mockConceptType.id,
           nameSnapshot: mockConceptType.name,
           calculationType: ConceptCalculationType.Percentage,
+          category: ConceptCategory.Corriente,
           value: 2,
           computedAmount: 6000,
         },
@@ -1562,6 +1577,7 @@ describe('LoansService', () => {
           interestConceptTypeId: null,
           nameSnapshot: 'Concepto eliminado',
           calculationType: ConceptCalculationType.FixedAmount,
+          category: ConceptCategory.Corriente,
           value: 5000,
           computedAmount: 5000,
         },

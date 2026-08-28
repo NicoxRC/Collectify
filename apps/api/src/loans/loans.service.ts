@@ -17,6 +17,10 @@ import {
 
 import { ClientsService } from '../clients/clients.service';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
+import {
+  ConceptCalculationType,
+  ConceptCategory,
+} from '../interestConceptTypes/entities/interestConceptType.entity';
 import { InterestConceptTypesService } from '../interestConceptTypes/interestConceptTypes.service';
 import { calculateMaxEffectiveInstallmentRate } from '../usuryRates/calculateLoanEffectiveRate';
 import { UsuryRateService } from '../usuryRates/usuryRates.service';
@@ -60,7 +64,11 @@ export interface PreviewedInstallment {
   dueDate: string;
   principalPortion: number;
   amount: number;
-  conceptBreakdown: { name: string; amount: number }[];
+  conceptBreakdown: {
+    name: string;
+    amount: number;
+    category: ConceptCategory;
+  }[];
 }
 
 // Present only when the loan's highest per-installment effective rate
@@ -83,6 +91,9 @@ export interface RefinanceQuote {
   payoff: PayoffQuote;
   suggestedPrincipalAmount: number;
   concepts: LoanConceptAssignmentDto[];
+  // Phase 23 — same carry-over as concepts above, filtered to the loan's
+  // assigned moratory concepts instead of corriente ones.
+  moratoryConcepts: LoanConceptAssignmentDto[];
   // Installment numbers that must be paid in full before this loan can
   // actually be refinanced — confirmed with the human (2026-08-18): the
   // client must be current first. Empty when nothing blocks refinancing.
@@ -151,6 +162,9 @@ interface PersistLoanParams {
   installmentFrequency: InstallmentFrequency;
   totalInstallments: number;
   concepts: LoanConceptAssignmentDto[];
+  // Phase 23 — must all reference concept types with category "moratorio";
+  // never baked into the schedule/level payment, see resolveMoratoryConcepts.
+  moratoryConcepts: LoanConceptAssignmentDto[];
   // Purely informational — the down payment the client already made
   // outside the credit system to cover the part of the purchase this
   // loan doesn't finance. It is not one of the loan's installments, has
@@ -227,6 +241,7 @@ export class LoansService {
           installmentFrequency: dto.installmentFrequency,
           totalInstallments: dto.totalInstallments,
           concepts: dto.concepts,
+          moratoryConcepts: dto.moratoryConcepts ?? [],
           initialPayment: dto.initialPayment,
           description: dto.description,
           usuryJustification: dto.usuryJustification,
@@ -253,6 +268,9 @@ export class LoansService {
   // docs/phasesClient/PHASE_14_INTEREST_CONCEPTS.md.
   async previewSchedule(dto: PreviewScheduleDto): Promise<SchedulePreview> {
     const concepts = await this.resolveConcepts(dto.concepts);
+    const moratoryConcepts = await this.resolveMoratoryConcepts(
+      dto.moratoryConcepts ?? [],
+    );
     const schedule = generateAmortizationSchedule(
       dto.principalAmount,
       dto.totalInstallments,
@@ -268,10 +286,21 @@ export class LoansService {
       ),
       principalPortion: generated.principalPortion,
       amount: generated.amount,
-      conceptBreakdown: generated.concepts.map((concept) => ({
-        name: concept.name,
-        amount: concept.computedAmount,
-      })),
+      // Moratory concepts always preview at amount 0 — nothing is overdue
+      // in a hypothetical schedule. Shown purely so the admin can see which
+      // ones they picked before committing. See docs/phases/PHASE_23_DYNAMIC_CHARGES.md.
+      conceptBreakdown: [
+        ...generated.concepts.map((concept) => ({
+          name: concept.name,
+          amount: concept.computedAmount,
+          category: ConceptCategory.Corriente,
+        })),
+        ...moratoryConcepts.map((concept) => ({
+          name: concept.name,
+          amount: 0,
+          category: ConceptCategory.Moratorio,
+        })),
+      ],
     }));
 
     const usuryWarning = await this.buildUsuryWarning(
@@ -330,6 +359,7 @@ export class LoansService {
           installmentFrequency: dto.installmentFrequency,
           totalInstallments: dto.totalInstallments,
           concepts: dto.concepts,
+          moratoryConcepts: dto.moratoryConcepts ?? [],
           initialPayment: dto.initialPayment,
           description: dto.description,
           usuryJustification: dto.usuryJustification,
@@ -433,13 +463,24 @@ export class LoansService {
           where: { loanId: In(loanIds) },
         })
       : [];
+    // Needed so a loan with moratory concepts assigned (Phase 23) reports
+    // the same outstandingBalance/overdueBalance here as its detail view —
+    // omitting this would silently fall back to the legacy interestRate
+    // formula for the list screen only, disagreeing with GET /loans/:id.
+    const conceptsByInstallmentId = await this.findConceptsByInstallmentId(
+      installments.map((installment) => installment.id),
+    );
 
     return loans.map((loan) => {
       const { client, ...loanFields } = loan;
       const enriched = installments
         .filter((installment) => installment.loanId === loan.id)
         .map((installment) =>
-          enrichInstallment(installment, loan.interestRate),
+          enrichInstallment(
+            installment,
+            loan.interestRate,
+            conceptsByInstallmentId.get(installment.id) ?? [],
+          ),
         );
 
       return {
@@ -529,6 +570,28 @@ export class LoansService {
     return map;
   }
 
+  // Same grouping as findConceptsByInstallmentId, filtered to moratorio
+  // rows only — used by the payoff/payoff-quote/refinance-quote call sites
+  // below, which need calculatePayoff() to use the Phase 23 engine when a
+  // loan has moratory concepts assigned, kept consistent with
+  // enrichInstallment.ts's identical filtering.
+  private async findMoratoryConceptsByInstallmentId(
+    installmentIds: string[],
+  ): Promise<Map<string, LoanInstallmentConcept[]>> {
+    const byInstallmentId =
+      await this.findConceptsByInstallmentId(installmentIds);
+    const map = new Map<string, LoanInstallmentConcept[]>();
+    for (const [installmentId, concepts] of byInstallmentId) {
+      const moratory = concepts.filter(
+        (concept) => concept.category === ConceptCategory.Moratorio,
+      );
+      if (moratory.length > 0) {
+        map.set(installmentId, moratory);
+      }
+    }
+    return map;
+  }
+
   async update(id: string, dto: UpdateLoanDto): Promise<Loan> {
     const loan = await this.findLoanOrThrow(id);
     Object.assign(loan, dto);
@@ -574,8 +637,17 @@ export class LoansService {
   async getPayoffQuote(id: string): Promise<PayoffQuote> {
     const loan = await this.findLoanOrThrow(id);
     const pending = await this.findPendingInstallments(id);
+    const moratoryByInstallmentId =
+      await this.findMoratoryConceptsByInstallmentId(
+        pending.map((installment) => installment.id),
+      );
     return calculatePayoff(
-      pending.map(toPayoffInstallmentInput),
+      pending.map((installment) =>
+        toPayoffInstallmentInput(
+          installment,
+          moratoryByInstallmentId.get(installment.id) ?? [],
+        ),
+      ),
       loan.interestRate,
     );
   }
@@ -595,8 +667,17 @@ export class LoansService {
     }
 
     const pending = await this.findPendingInstallments(id);
+    const moratoryByInstallmentId =
+      await this.findMoratoryConceptsByInstallmentId(
+        pending.map((installment) => installment.id),
+      );
     const quote = calculatePayoff(
-      pending.map(toPayoffInstallmentInput),
+      pending.map((installment) =>
+        toPayoffInstallmentInput(
+          installment,
+          moratoryByInstallmentId.get(installment.id) ?? [],
+        ),
+      ),
       loan.interestRate,
     );
 
@@ -647,8 +728,17 @@ export class LoansService {
   async getRefinanceQuote(id: string): Promise<RefinanceQuote> {
     const loan = await this.findLoanOrThrow(id);
     const pending = await this.findPendingInstallments(id);
+    const moratoryByInstallmentId =
+      await this.findMoratoryConceptsByInstallmentId(
+        pending.map((installment) => installment.id),
+      );
     const payoff = calculatePayoff(
-      pending.map(toPayoffInstallmentInput),
+      pending.map((installment) =>
+        toPayoffInstallmentInput(
+          installment,
+          moratoryByInstallmentId.get(installment.id) ?? [],
+        ),
+      ),
       loan.interestRate,
     );
     const blockedByPendingInstallments =
@@ -663,17 +753,31 @@ export class LoansService {
           where: { installmentId: firstInstallment.id },
         })
       : [];
+    const toAssignmentDto = (
+      concept: LoanInstallmentConcept,
+    ): LoanConceptAssignmentDto => ({
+      conceptTypeId: concept.interestConceptTypeId as string,
+      calculationType: concept.calculationType,
+      value: concept.value,
+    });
 
     return {
       payoff,
       suggestedPrincipalAmount: payoff.totalDue,
       concepts: concepts
-        .filter((concept) => concept.interestConceptTypeId !== null)
-        .map((concept) => ({
-          conceptTypeId: concept.interestConceptTypeId as string,
-          calculationType: concept.calculationType,
-          value: concept.value,
-        })),
+        .filter(
+          (concept) =>
+            concept.interestConceptTypeId !== null &&
+            concept.category === ConceptCategory.Corriente,
+        )
+        .map(toAssignmentDto),
+      moratoryConcepts: concepts
+        .filter(
+          (concept) =>
+            concept.interestConceptTypeId !== null &&
+            concept.category === ConceptCategory.Moratorio,
+        )
+        .map(toAssignmentDto),
       blockedByPendingInstallments,
     };
   }
@@ -822,6 +926,9 @@ export class LoansService {
     );
 
     const concepts = await this.resolveConcepts(params.concepts);
+    const moratoryConcepts = await this.resolveMoratoryConcepts(
+      params.moratoryConcepts,
+    );
     const schedule = generateAmortizationSchedule(
       params.principalAmount,
       params.totalInstallments,
@@ -882,18 +989,34 @@ export class LoansService {
     );
     const savedInstallments = await installmentsRepository.save(installments);
 
-    const conceptRows = savedInstallments.flatMap((installment, index) =>
-      schedule[index].concepts.map((concept) =>
+    const conceptRows = savedInstallments.flatMap((installment, index) => [
+      ...schedule[index].concepts.map((concept) =>
         loanInstallmentConceptsRepository.create({
           installmentId: installment.id,
           interestConceptTypeId: concept.conceptTypeId,
           nameSnapshot: concept.name,
           calculationType: concept.calculationType,
+          category: ConceptCategory.Corriente,
           value: concept.value,
           computedAmount: concept.computedAmount,
         }),
       ),
-    );
+      // computedAmount is always 0 for a moratorio row — it's a pure
+      // assignment record, never baked into installment.amount. The real
+      // charge is computed live once the installment is overdue, see
+      // enrichInstallment.ts. See docs/phases/PHASE_23_DYNAMIC_CHARGES.md.
+      ...moratoryConcepts.map((concept) =>
+        loanInstallmentConceptsRepository.create({
+          installmentId: installment.id,
+          interestConceptTypeId: concept.conceptTypeId,
+          nameSnapshot: concept.name,
+          calculationType: concept.calculationType,
+          category: ConceptCategory.Moratorio,
+          value: concept.value,
+          computedAmount: 0,
+        }),
+      ),
+    ]);
     if (conceptRows.length > 0) {
       await loanInstallmentConceptsRepository.save(conceptRows);
     }
@@ -915,10 +1038,67 @@ export class LoansService {
       concepts.map((concept) => concept.conceptTypeId),
     );
 
+    const typeById = new Map<
+      string,
+      {
+        name: string;
+        fixedAmountDistribution: ConceptAssignment['fixedAmountDistribution'];
+      }
+    >();
+    for (const conceptTypeId of distinctConceptTypeIds) {
+      const conceptType =
+        await this.interestConceptTypesService.findOneOrThrow(conceptTypeId);
+      if (conceptType.category !== ConceptCategory.Corriente) {
+        throw new BadRequestException(
+          `Concept type "${conceptType.name}" is category "${conceptType.category}", not "corriente" — it cannot be assigned as an ordinary concept. Use moratoryConcepts instead.`,
+        );
+      }
+      typeById.set(conceptTypeId, {
+        name: conceptType.name,
+        fixedAmountDistribution:
+          conceptType.fixedAmountDistribution ?? undefined,
+      });
+    }
+
+    return concepts.map((concept) => ({
+      conceptTypeId: concept.conceptTypeId,
+      name: typeById.get(concept.conceptTypeId)?.name ?? '',
+      calculationType: concept.calculationType,
+      value: concept.value,
+      fixedAmountDistribution: typeById.get(concept.conceptTypeId)
+        ?.fixedAmountDistribution,
+    }));
+  }
+
+  // Phase 23 — mirrors resolveConcepts above, but for moratory concepts:
+  // validates every referenced type is category "moratorio" and skips
+  // fixedAmountDistribution entirely (meaningless here — a moratory
+  // fixed_amount concept is always charged once, flat, on the overdue
+  // installment, confirmed with the human, see
+  // docs/phases/PHASE_23_DYNAMIC_CHARGES.md).
+  private async resolveMoratoryConcepts(
+    concepts: LoanConceptAssignmentDto[],
+  ): Promise<
+    {
+      conceptTypeId: string;
+      name: string;
+      calculationType: ConceptCalculationType;
+      value: number;
+    }[]
+  > {
+    const distinctConceptTypeIds = new Set(
+      concepts.map((concept) => concept.conceptTypeId),
+    );
+
     const nameByConceptTypeId = new Map<string, string>();
     for (const conceptTypeId of distinctConceptTypeIds) {
       const conceptType =
         await this.interestConceptTypesService.findOneOrThrow(conceptTypeId);
+      if (conceptType.category !== ConceptCategory.Moratorio) {
+        throw new BadRequestException(
+          `Concept type "${conceptType.name}" is category "${conceptType.category}", not "moratorio" — it cannot be assigned as a moratory concept. Use concepts instead.`,
+        );
+      }
       nameByConceptTypeId.set(conceptTypeId, conceptType.name);
     }
 
@@ -1007,6 +1187,7 @@ export class LoansService {
 
 function toPayoffInstallmentInput(
   installment: Installment,
+  moratoryConcepts: LoanInstallmentConcept[] = [],
 ): PayoffInstallmentInput {
   return {
     installmentId: installment.id,
@@ -1014,6 +1195,11 @@ function toPayoffInstallmentInput(
     amount: installment.amount,
     principalPortion: installment.principalPortion,
     dueDate: installment.dueDate,
+    moratoryConcepts: moratoryConcepts.map((concept) => ({
+      name: concept.nameSnapshot,
+      calculationType: concept.calculationType,
+      value: concept.value,
+    })),
   };
 }
 

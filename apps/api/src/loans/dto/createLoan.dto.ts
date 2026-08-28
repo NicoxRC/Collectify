@@ -75,6 +75,17 @@ export class CreateLoanDto {
   concepts!: LoanConceptAssignmentDto[];
 
   @ApiPropertyOptional({
+    type: [LoanConceptAssignmentDto],
+    description:
+      'Moratory concepts assigned to this loan (Phase 23) — each referenced concept type must have category "moratorio". Unlike concepts above, these are never baked into the installment amount or computed at generation time: they only take effect once an installment is actually overdue, computed live on read. Omit or leave empty for a loan with no moratory concepts, which keeps using the legacy interestRate formula.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => LoanConceptAssignmentDto)
+  moratoryConcepts?: LoanConceptAssignmentDto[];
+
+  @ApiPropertyOptional({
     example: 50000,
     description:
       'The "cuota inicial" — a down payment the client already made outside the credit system to cover the part of the purchase this loan doesn\'t finance. Purely informational: it is not one of the loan\'s installments, has no due date, and never affects the amortization schedule. Omit if there was no down payment. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.',
