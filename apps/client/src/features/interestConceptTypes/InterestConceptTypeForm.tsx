@@ -2,7 +2,11 @@ import { useState } from 'react';
 
 import { CloseButton } from '@/components/ui/CloseButton';
 import { Select } from '@/components/ui/Select';
-import { ConceptCalculationType } from '@/features/interestConceptTypes/interestConceptTypesApi';
+import {
+  ConceptCalculationType,
+  ConceptCategory,
+  FixedAmountDistribution,
+} from '@/features/interestConceptTypes/interestConceptTypesApi';
 import { ApiError } from '@/lib/apiClient';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
@@ -15,16 +19,36 @@ import type { FormEvent } from 'react';
 interface InterestConceptTypeFormProps {
   // Present = editing; absent = creating — same convention as ClientForm.tsx.
   conceptType?: InterestConceptType;
+  // Pre-selects the category when creating from a context that already
+  // knows which side it needs (e.g. LoanForm.tsx's "Cargos moratorios"
+  // section) — ignored when editing (conceptType.category wins).
+  defaultCategory?: ConceptCategory;
   onSubmit: (input: CreateInterestConceptTypeInput) => Promise<unknown>;
   onClose: () => void;
 }
 
-type FieldName = 'name';
+type FieldName = 'name' | 'fixedAmountDistribution';
 type FieldErrors = Partial<Record<FieldName, string>>;
 
 const CALCULATION_TYPE_OPTIONS = [
   { value: ConceptCalculationType.Percentage, label: 'Porcentaje (%)' },
   { value: ConceptCalculationType.FixedAmount, label: 'Monto fijo ($)' },
+];
+
+const CATEGORY_OPTIONS = [
+  { value: ConceptCategory.Corriente, label: 'Corriente' },
+  { value: ConceptCategory.Moratorio, label: 'Moratorio (solo en mora)' },
+];
+
+const DISTRIBUTION_OPTIONS = [
+  {
+    value: FixedAmountDistribution.SplitAcrossInstallments,
+    label: 'Repartir entre todas las cuotas',
+  },
+  {
+    value: FixedAmountDistribution.FirstInstallmentOnly,
+    label: 'Cobrar solo en la primera cuota',
+  },
 ];
 
 // The admin can create new charge types at any time, not pick from a fixed
@@ -34,6 +58,7 @@ const CALCULATION_TYPE_OPTIONS = [
 // peso amount.
 export function InterestConceptTypeForm({
   conceptType,
+  defaultCategory,
   onSubmit,
   onClose,
 }: InterestConceptTypeFormProps) {
@@ -42,6 +67,12 @@ export function InterestConceptTypeForm({
   const [name, setName] = useState(conceptType?.name ?? '');
   const [calculationType, setCalculationType] = useState(
     conceptType?.defaultCalculationType ?? ConceptCalculationType.Percentage,
+  );
+  const [category, setCategory] = useState(
+    conceptType?.category ?? defaultCategory ?? ConceptCategory.Corriente,
+  );
+  const [fixedAmountDistribution, setFixedAmountDistribution] = useState(
+    conceptType?.fixedAmountDistribution ?? undefined,
   );
   const [defaultValue, setDefaultValue] = useState(
     conceptType?.defaultValue != null ? String(conceptType.defaultValue) : '',
@@ -52,10 +83,21 @@ export function InterestConceptTypeForm({
 
   useEscapeKey(onClose);
 
+  // Only a corriente fixed_amount concept needs a distribution mode — a
+  // moratorio one is always charged once, flat, on the overdue installment
+  // (confirmed with the human), and a percentage concept has no "amount" to
+  // distribute at all. See docs/phases/PHASE_23_DYNAMIC_CHARGES.md.
+  const requiresDistribution =
+    calculationType === ConceptCalculationType.FixedAmount &&
+    category === ConceptCategory.Corriente;
+
   const validate = (): FieldErrors => {
     const errors: FieldErrors = {};
     if (!name.trim()) {
       errors.name = 'El nombre es obligatorio.';
+    }
+    if (requiresDistribution && !fixedAmountDistribution) {
+      errors.fixedAmountDistribution = 'Elegí cómo se reparte este cargo.';
     }
     return errors;
   };
@@ -78,6 +120,10 @@ export function InterestConceptTypeForm({
       await onSubmit({
         name: name.trim(),
         defaultCalculationType: calculationType,
+        category,
+        fixedAmountDistribution: requiresDistribution
+          ? fixedAmountDistribution
+          : undefined,
         defaultValue: Number.isFinite(parsedDefaultValue)
           ? parsedDefaultValue
           : undefined,
@@ -131,6 +177,34 @@ export function InterestConceptTypeForm({
               options={CALCULATION_TYPE_OPTIONS}
             />
           </Field>
+
+          <Field label="Categoría">
+            <Select
+              value={category}
+              onChange={(value) => setCategory(value as ConceptCategory)}
+              options={CATEGORY_OPTIONS}
+            />
+          </Field>
+
+          {requiresDistribution && (
+            <Field
+              label="Cómo se reparte"
+              error={fieldErrors.fixedAmountDistribution}
+            >
+              <Select
+                value={fixedAmountDistribution ?? ''}
+                onChange={(value) => {
+                  setFixedAmountDistribution(value as FixedAmountDistribution);
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    fixedAmountDistribution: undefined,
+                  }));
+                }}
+                options={DISTRIBUTION_OPTIONS}
+                placeholder="Elegí una opción"
+              />
+            </Field>
+          )}
 
           <Field label="Valor por defecto (opcional)">
             <input
