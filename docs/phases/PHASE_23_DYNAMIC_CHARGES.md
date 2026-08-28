@@ -51,13 +51,13 @@ Stop treating moratory interest as a single hardcoded rate/formula (`loans.inter
 
 ## Definition of done for this phase
 
-**Backend done** (this PR); frontend (dynamic table rendering, concept-type form fields, amortizador panel polish, LoanForm permission handling) is a separate follow-up PR — see `docs/phasesClient/PHASE_23_DYNAMIC_CHARGES.md`.
+**Backend and frontend both done** — backend in PR #59 (`feature/dynamic-charges-backend`), frontend in `feature/dynamic-charges-frontend` — see `docs/phasesClient/PHASE_23_DYNAMIC_CHARGES.md` for the frontend scope.
 
-- Moratory interest is priced through `InterestConceptType`/`LoanInstallmentConcept`, not the hardcoded formula. **[backend done]**
-- A fixed-amount concept's distribution mode is explicit, correct, and covered by tests. **[backend done]**
-- The loan detail view's data (charge-by-installment) is shaped for a dynamic per-charge table, not a fixed set of columns. **[API shape done; frontend rendering pending]**
+- Moratory interest is priced through `InterestConceptType`/`LoanInstallmentConcept`, not the hardcoded formula.
+- A fixed-amount concept's distribution mode is explicit, correct, and covered by tests.
+- The loan detail view's data (charge-by-installment) is shaped for a dynamic per-charge table, not a fixed set of columns, and rendered as one by the client.
 - ~~The amortizador's discrepancy against Juan's manual numbers is resolved, not just documented.~~ **Dropped from this round's scope** — see resolved open questions above.
-- A collector can create a loan without the `interest_concept_types` permission grant. **[backend done; frontend UI still needs the preview-section hiding]**
+- A collector can create a loan without the `interest_concept_types` permission grant, end to end (backend + UI).
 - All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## After this phase
