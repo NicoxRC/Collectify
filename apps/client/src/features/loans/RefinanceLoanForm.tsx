@@ -28,6 +28,7 @@ import {
   useRefinanceQuote,
 } from '@/features/loans/useLoans';
 import { StaleUsuryRateBanner } from '@/features/usuryRates/StaleUsuryRateBanner';
+import { useCurrentUsuryRate } from '@/features/usuryRates/useUsuryRates';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatDateOnly } from '@/lib/format';
 import { ImageUploadError, uploadDocument } from '@/lib/imageUpload';
@@ -127,9 +128,6 @@ export function RefinanceLoanForm({
   // Phase 23 — see LoanForm.tsx's identical field.
   const [moratoryConcepts, setMoratoryConcepts] = useState<ConceptRow[]>([]);
   const [description, setDescription] = useState('');
-  // Only meaningful when preview?.usuryWarning fired — see
-  // docs/phases/PHASE_15_USURY_RATE.md ("warning, not a hard block").
-  const [usuryJustification, setUsuryJustification] = useState('');
 
   // Phase 21 — pre-filled from the loan being refinanced (oldLoanCoDebtor)
   // but fully editable, same as the backend's own
@@ -179,6 +177,11 @@ export function RefinanceLoanForm({
   const createConceptType = useCreateInterestConceptType();
   const previewSchedule = usePreviewSchedule();
   const refinanceQuoteMutation = useRefinanceQuote();
+  // Phase 24 — see LoanForm.tsx's identical fields.
+  const { data: currentUsuryRate } = useCurrentUsuryRate();
+  const hasUsableUsuryRate = Boolean(
+    currentUsuryRate && !currentUsuryRate.isStale,
+  );
 
   // Pre-fills principalAmount and concepts as soon as the old loan's quote
   // is available — both remain fully editable afterward. A failed fetch
@@ -438,9 +441,6 @@ export function RefinanceLoanForm({
         concepts: toConceptAssignments(),
         moratoryConcepts: toMoratoryConceptAssignments(),
         description: description.trim() || undefined,
-        usuryJustification: preview?.usuryWarning
-          ? usuryJustification.trim() || undefined
-          : undefined,
         ...(hasCoDebtor
           ? {
               coDebtorFullName: coDebtorFullName.trim(),
@@ -734,11 +734,26 @@ export function RefinanceLoanForm({
                         type="number"
                         min={0}
                         step="0.01"
-                        value={row.value}
+                        disabled={
+                          row.calculationType ===
+                          ConceptCalculationType.Percentage
+                        }
+                        value={
+                          row.calculationType ===
+                          ConceptCalculationType.Percentage
+                            ? (currentUsuryRate?.ratePercentage ?? '')
+                            : row.value
+                        }
                         onChange={(event) =>
                           updateConceptRow(row.rowId, {
                             value: parseFloat(event.target.value) || 0,
                           })
+                        }
+                        title={
+                          row.calculationType ===
+                          ConceptCalculationType.Percentage
+                            ? 'Se aplica la tasa de usura vigente automáticamente — no editable.'
+                            : undefined
                         }
                         placeholder={
                           row.calculationType ===
@@ -746,7 +761,7 @@ export function RefinanceLoanForm({
                             ? '%'
                             : '$'
                         }
-                        className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none"
+                        className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                       />
                       <button
                         type="button"
@@ -807,11 +822,26 @@ export function RefinanceLoanForm({
                         type="number"
                         min={0}
                         step="0.01"
-                        value={row.value}
+                        disabled={
+                          row.calculationType ===
+                          ConceptCalculationType.Percentage
+                        }
+                        value={
+                          row.calculationType ===
+                          ConceptCalculationType.Percentage
+                            ? (currentUsuryRate?.ratePercentage ?? '')
+                            : row.value
+                        }
                         onChange={(event) =>
                           updateMoratoryConceptRow(row.rowId, {
                             value: parseFloat(event.target.value) || 0,
                           })
+                        }
+                        title={
+                          row.calculationType ===
+                          ConceptCalculationType.Percentage
+                            ? 'Se aplica la tasa de usura vigente automáticamente — no editable.'
+                            : undefined
                         }
                         placeholder={
                           row.calculationType ===
@@ -819,7 +849,7 @@ export function RefinanceLoanForm({
                             ? '%'
                             : '$'
                         }
-                        className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none"
+                        className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                       />
                       <button
                         type="button"
@@ -850,7 +880,9 @@ export function RefinanceLoanForm({
                   <div className="flex items-center justify-between">
                     <ChipButton
                       onClick={handlePreview}
-                      disabled={previewSchedule.isPending}
+                      disabled={
+                        previewSchedule.isPending || !hasUsableUsuryRate
+                      }
                     >
                       {previewSchedule.isPending
                         ? 'Calculando…'
@@ -900,30 +932,7 @@ export function RefinanceLoanForm({
                       </table>
                     </div>
                   )}
-                  {preview?.usuryWarning && (
-                    <p className="mt-2.5 text-meta text-red-400" role="alert">
-                      Este cronograma supera la tasa de usura vigente (
-                      {preview.usuryWarning.maxEffectiveInstallmentRate}% vs.{' '}
-                      {preview.usuryWarning.currentCeilingRate}% permitido). El
-                      préstamo puede crearse igual, pero considera dejar una
-                      justificación abajo.
-                    </p>
-                  )}
                 </div>
-              )}
-
-              {preview?.usuryWarning && (
-                <Field label="Justificación de la tasa de usura (opcional)">
-                  <textarea
-                    value={usuryJustification}
-                    onChange={(event) =>
-                      setUsuryJustification(event.target.value)
-                    }
-                    placeholder="Ej: Cliente antiguo, aprobado por el dueño."
-                    rows={2}
-                    className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
-                  />
-                </Field>
               )}
             </FormSection>
 
@@ -1062,7 +1071,9 @@ export function RefinanceLoanForm({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || isUploading || isBlocked}
+              disabled={
+                isSubmitting || isUploading || isBlocked || !hasUsableUsuryRate
+              }
               className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isUploading
