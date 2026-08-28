@@ -41,11 +41,13 @@ export class Payment {
   @Column({ type: 'text', nullable: true })
   observation!: string | null;
 
-  // The api never touches image bytes — the client uploads the deposit
-  // receipt photo directly to an external provider (Cloudinary, see
-  // docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md) and only sends the
-  // resulting URL here. Nullable: a payment can be registered without a
-  // photo, same "absence means not provided" convention as `observation`.
+  // Deprecated as of Phase 28 — superseded by the payment_images table
+  // (see PaymentImage entity), which supports more than one receipt photo
+  // per payment. No longer written for new payments; kept, unchanged in
+  // shape, only as a fallback for rows created before that migration (its
+  // value was backfilled into payment_images at that point, so this is
+  // read as a last resort, not the primary source). See
+  // docs/phases/PHASE_28_MULTI_INSTALLMENT_PAYMENT.md.
   @Column({ type: 'varchar', nullable: true })
   imageUrl!: string | null;
 
