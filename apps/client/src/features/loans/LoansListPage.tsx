@@ -32,7 +32,6 @@ const STATUS_FILTER_OPTIONS = [
 
 export function LoansListPage() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin';
   // Phase 23 — POST /loans moved off @Roles(Admin) onto
   // @RequireModule(AppModule.Loans), so a collector granted the loans
   // module can create a loan too. Mirrors RequirePermission.tsx's check.
@@ -60,7 +59,7 @@ export function LoansListPage() {
     <div className="flex flex-col gap-5">
       <Header title="Préstamos" subtitle="Gestión de todos los préstamos" />
 
-      {isAdmin && <StaleUsuryRateBanner />}
+      {canCreateLoan && <StaleUsuryRateBanner />}
 
       <div className="border-t border-border" />
 

@@ -37,10 +37,6 @@ export interface Loan {
   // finance. Purely informational: null when there was no down payment.
   // See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
   initialPayment: number | null;
-  // Snapshotted once at creation/refinance time, not recomputed later — a
-  // warning, never a block. See docs/phases/PHASE_15_USURY_RATE.md.
-  usuryCeilingExceededAtCreation: boolean;
-  usuryJustification: string | null;
   // --- Co-debtor (codeudor), Phase 21 — belongs to the loan, not the
   // client: whether a given loan has one varies per loan. At most one per
   // loan, all nullable. See docs/phases/PHASE_21_CLIENT_PROFILE.md
@@ -150,12 +146,8 @@ export interface CreateLoanInput {
   // docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
   initialPayment?: number;
   description?: string;
-  // Optional note explaining why the loan proceeds despite exceeding the
-  // current usury ceiling — only meaningful when usuryWarning from
-  // previewSchedule() actually fired. See docs/phases/PHASE_15_USURY_RATE.md.
-  usuryJustification?: string;
   // Optional co-debtor (codeudor), Phase 21 — omit entirely for a loan with
-  // none. See docs/phases/PHASE_21_CLIENT_PROFILE.md decision 7.
+  // none. See docs/phasesClient/PHASE_21_CLIENT_PROFILE.md decision 7.
   coDebtorFullName?: string;
   coDebtorDocumentType?: DocumentType;
   coDebtorDocumentNumber?: string;
@@ -169,11 +161,7 @@ export interface CreateLoanInput {
 // schedule-relevant subset of CreateLoanInput, for POST /loans/preview-schedule.
 export type PreviewScheduleInput = Omit<
   CreateLoanInput,
-  | 'clientId'
-  | 'promissoryNoteNumber'
-  | 'interestRate'
-  | 'description'
-  | 'usuryJustification'
+  'clientId' | 'promissoryNoteNumber' | 'interestRate' | 'description'
 >;
 
 // Matches apps/api/src/loans/loans.service.ts's PreviewedInstallment exactly.
@@ -188,18 +176,13 @@ export interface PreviewedInstallment {
   conceptBreakdown: ConceptBreakdownItem[];
 }
 
-// Matches apps/api/src/loans/loans.service.ts's UsuryWarning exactly —
-// present (non-null) only when the schedule's highest per-installment
-// effective rate exceeds the current usury ceiling. A warning the admin
-// can proceed past, never a hard block.
-export interface UsuryWarning {
-  maxEffectiveInstallmentRate: number;
-  currentCeilingRate: number;
-}
-
+// Matches apps/api/src/loans/loans.service.ts's SchedulePreview exactly. As
+// of Phase 24, a percentage concept in conceptBreakdown is always priced at
+// the current usury rate (see useCurrentUsuryRate) — there's no
+// usuryWarning anymore, since a loan can no longer exceed the ceiling by
+// construction. See docs/phases/PHASE_24_USURY_MANDATORY.md.
 export interface SchedulePreview {
   installments: PreviewedInstallment[];
-  usuryWarning: UsuryWarning | null;
 }
 
 // Matches apps/api/src/loans/payoff/calculatePayoff.ts's PayoffQuote
@@ -271,8 +254,6 @@ export interface RefinanceLoanInput {
   // The new loan's own "cuota inicial" — see CreateLoanInput.
   initialPayment?: number;
   description?: string;
-  // See CreateLoanInput.usuryJustification.
-  usuryJustification?: string;
   // Optional co-debtor, Phase 21 — omitting all seven fields carries the
   // old loan's co-debtor over unchanged (LoansService.refinance's
   // confirmed default); sending any of them overrides just that field. See
