@@ -13,6 +13,7 @@ import { Payment } from '../entities/payment.entity';
 
 import { CreatePaymentDto } from './dto/createPayment.dto';
 import { QueryInstallmentsDto } from './dto/queryInstallments.dto';
+import { RegisterBulkPaymentsDto } from './dto/registerBulkPayments.dto';
 import { InstallmentWithCalculated } from './enrichInstallment';
 import { InstallmentsService } from './installments.service';
 
@@ -39,12 +40,41 @@ export class InstallmentsController {
     return this.installmentsService.findAll(query);
   }
 
+  // Declared before ':id/payments' — a literal 'payments/bulk' segment
+  // pair never actually collides with the ':id/payments' param route
+  // (the second segment there must be literally "payments", which "bulk"
+  // isn't), but literal routes are still declared ahead of param routes
+  // here for clarity.
+  @Post('payments/bulk')
+  @Audit('payment.registerBulk', 'payment')
+  @ApiOperation({
+    summary: 'Register payments against several installments in one action',
+    description:
+      'Each entry is the same shape as POST /installments/:id/payments, just repeated — the amount is entered individually per installment, never split from a single total (confirmed with the human). Requires FULL payment of every installment in the batch; a partial payment stays on the single-installment endpoint, which already supports it. All-or-nothing: wrapped in one transaction, so a rejected entry rolls back every payment already created earlier in the same request. See docs/phases/PHASE_28_MULTI_INSTALLMENT_PAYMENT.md.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Every payment in the batch was recorded.',
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      "An installment isn't pending, or an entry's amount doesn't fully cover its installment's remaining balance.",
+  })
+  @ApiResponse({ status: 404, description: 'An installment was not found.' })
+  registerBulkPayments(
+    @CurrentUser() _currentUser: AuthenticatedUser,
+    @Body() dto: RegisterBulkPaymentsDto,
+  ): Promise<Payment[]> {
+    return this.installmentsService.registerBulkPayments(dto.payments);
+  }
+
   @Post(':id/payments')
   @Audit('payment.register', 'payment')
   @ApiOperation({
     summary: 'Register a payment against an installment',
     description:
-      'Accepts an optional imageUrl for the deposit receipt photo. The api does not handle image uploads — imageUrl must already point to an externally hosted image (see docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md); the client is responsible for uploading the file and passing back the resulting URL.',
+      'Accepts optional imageUrls for the deposit receipt photos (a payment can carry more than one, as of Phase 28). The api does not handle image uploads — each URL must already point to an externally hosted image (see docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md); the client is responsible for uploading the files and passing back the resulting URLs.',
   })
   @ApiResponse({ status: 201, description: 'The payment was recorded.' })
   @ApiResponse({ status: 404, description: 'Installment not found.' })
