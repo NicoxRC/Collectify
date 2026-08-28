@@ -75,8 +75,6 @@ describe('AccountSummaryService', () => {
     refinancedFromLoan: null,
     description: null,
     initialPayment: null,
-    usuryCeilingExceededAtCreation: false,
-    usuryJustification: null,
     newLoanMessageSentAt: null,
     coDebtorFullName: null,
     coDebtorDocumentType: null,

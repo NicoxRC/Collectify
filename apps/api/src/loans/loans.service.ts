@@ -22,15 +22,16 @@ import {
   ConceptCategory,
 } from '../interestConceptTypes/entities/interestConceptType.entity';
 import { InterestConceptTypesService } from '../interestConceptTypes/interestConceptTypes.service';
-import { calculateMaxEffectiveInstallmentRate } from '../usuryRates/calculateLoanEffectiveRate';
-import { UsuryRateService } from '../usuryRates/usuryRates.service';
+import {
+  CurrentUsuryRate,
+  UsuryRateService,
+} from '../usuryRates/usuryRates.service';
 import { MessageLogStatus } from '../whatsapp/entities/messageLog.entity';
 import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 
 import { DocumentType } from '../clients/entities/client.entity';
 import {
   ConceptAssignment,
-  GeneratedInstallment,
   generateAmortizationSchedule,
 } from './amortization/generateSchedule';
 import { CreateLoanDto } from './dto/createLoan.dto';
@@ -71,18 +72,8 @@ export interface PreviewedInstallment {
   }[];
 }
 
-// Present only when the loan's highest per-installment effective rate
-// exceeds the usury ceiling on file — this is a warning the admin can
-// proceed past (with an optional usuryJustification note), not a block.
-// See docs/phases/PHASE_15_USURY_RATE.md "Resolved".
-export interface UsuryWarning {
-  maxEffectiveInstallmentRate: number;
-  currentCeilingRate: number;
-}
-
 export interface SchedulePreview {
   installments: PreviewedInstallment[];
-  usuryWarning: UsuryWarning | null;
 }
 
 // See docs/phases/PHASE_17_REFINANCING_RECALC.md "Resolved" — advisory
@@ -174,7 +165,6 @@ interface PersistLoanParams {
   // generated installments, which was wrong).
   initialPayment?: number | null;
   description?: string | null;
-  usuryJustification?: string | null;
   refinancedFromLoanId?: string | null;
   coDebtorFullName?: string | null;
   coDebtorDocumentType?: DocumentType | null;
@@ -213,10 +203,9 @@ export class LoansService {
   // leaves this false, so it's rejected exactly like a manually-created
   // loan would be. Mirrors ClientsService.create's CreateClientOptions
   // pattern. Note this only ever touches the mora/cupo guard below — the
-  // promissory-note-uniqueness and usury-ceiling checks always run
-  // regardless of mode: the first is a hard data-integrity constraint,
-  // the second has never been a hard block for anyone (see
-  // buildUsuryWarning).
+  // promissory-note-uniqueness and usury-rate checks always run regardless
+  // of mode: both are hard blocks, per Phase 24
+  // (docs/phases/PHASE_24_USURY_MANDATORY.md).
   async create(
     dto: CreateLoanDto,
     options: { skipCreditCheck?: boolean } = {},
@@ -244,7 +233,6 @@ export class LoansService {
           moratoryConcepts: dto.moratoryConcepts ?? [],
           initialPayment: dto.initialPayment,
           description: dto.description,
-          usuryJustification: dto.usuryJustification,
           coDebtorFullName: dto.coDebtorFullName,
           coDebtorDocumentType: dto.coDebtorDocumentType,
           coDebtorDocumentNumber: dto.coDebtorDocumentNumber,
@@ -267,9 +255,14 @@ export class LoansService {
   // installments will look like before they commit. See
   // docs/phasesClient/PHASE_14_INTEREST_CONCEPTS.md.
   async previewSchedule(dto: PreviewScheduleDto): Promise<SchedulePreview> {
-    const concepts = await this.resolveConcepts(dto.concepts);
+    // Phase 24 — hard block here too, not just on create()/refinance(), so
+    // what the admin previews always matches what a real submit would
+    // persist (see docs/phases/PHASE_24_USURY_MANDATORY.md).
+    const currentRate = await this.getCurrentUsuryRateOrThrow();
+    const concepts = await this.resolveConcepts(dto.concepts, currentRate);
     const moratoryConcepts = await this.resolveMoratoryConcepts(
       dto.moratoryConcepts ?? [],
+      currentRate,
     );
     const schedule = generateAmortizationSchedule(
       dto.principalAmount,
@@ -303,12 +296,7 @@ export class LoansService {
       ],
     }));
 
-    const usuryWarning = await this.buildUsuryWarning(
-      schedule,
-      dto.principalAmount,
-    );
-
-    return { installments, usuryWarning };
+    return { installments };
   }
 
   // Closes out the old loan, cancels whatever installments it still had
@@ -362,7 +350,6 @@ export class LoansService {
           moratoryConcepts: dto.moratoryConcepts ?? [],
           initialPayment: dto.initialPayment,
           description: dto.description,
-          usuryJustification: dto.usuryJustification,
           refinancedFromLoanId: id,
           // Carries over the old loan's co-debtor unchanged unless the dto
           // explicitly overrides a field — confirmed default behavior, see
@@ -881,28 +868,21 @@ export class LoansService {
     }
   }
 
-  // Warning only, never throws (confirmed with the human — see
-  // docs/phases/PHASE_15_USURY_RATE.md "Resolved"). Returns null when the
-  // loan's highest per-installment effective rate is within the current
-  // ceiling, or when no ceiling has ever been entered (nothing to compare
-  // against yet).
-  private async buildUsuryWarning(
-    schedule: GeneratedInstallment[],
-    principalAmount: number,
-  ): Promise<UsuryWarning | null> {
+  // Phase 24 — replaces the old warning-only buildUsuryWarning: a loan
+  // cannot be created/refinanced/previewed at all without the current
+  // calendar month's certified rate on file (confirmed with the human,
+  // "no se puede crear un crédito sin que se haya agregado la tasa de
+  // usura" — see docs/phases/PHASE_24_USURY_MANDATORY.md). isStale means
+  // the most recent row is from a prior month — same hard block as no
+  // rate existing at all.
+  private async getCurrentUsuryRateOrThrow(): Promise<CurrentUsuryRate> {
     const currentRate = await this.usuryRateService.getCurrentRate();
-    if (currentRate === null) return null;
-
-    const maxEffectiveInstallmentRate = calculateMaxEffectiveInstallmentRate(
-      schedule,
-      principalAmount,
-    );
-    if (maxEffectiveInstallmentRate <= currentRate.ratePercentage) return null;
-
-    return {
-      maxEffectiveInstallmentRate,
-      currentCeilingRate: currentRate.ratePercentage,
-    };
+    if (currentRate === null || currentRate.isStale) {
+      throw new BadRequestException(
+        "This month's usury rate has not been entered yet — a loan cannot be created or refinanced until it is. See POST /usury-rates.",
+      );
+    }
+    return currentRate;
   }
 
   // Shared by create() and refinance() — both need a loan row plus its
@@ -925,22 +905,16 @@ export class LoansService {
       loansRepository,
     );
 
-    const concepts = await this.resolveConcepts(params.concepts);
+    const currentRate = await this.getCurrentUsuryRateOrThrow();
+    const concepts = await this.resolveConcepts(params.concepts, currentRate);
     const moratoryConcepts = await this.resolveMoratoryConcepts(
       params.moratoryConcepts,
+      currentRate,
     );
     const schedule = generateAmortizationSchedule(
       params.principalAmount,
       params.totalInstallments,
       concepts,
-    );
-
-    // Creation-time only, not recomputed on read (confirmed with the
-    // human) — a warning, never a block. See
-    // docs/phases/PHASE_15_USURY_RATE.md "Resolved".
-    const usuryWarning = await this.buildUsuryWarning(
-      schedule,
-      params.principalAmount,
     );
 
     const loan = loansRepository.create({
@@ -954,8 +928,6 @@ export class LoansService {
       status: LoanStatus.Active,
       description: params.description ?? null,
       initialPayment: params.initialPayment ?? null,
-      usuryCeilingExceededAtCreation: usuryWarning !== null,
-      usuryJustification: params.usuryJustification ?? null,
       refinancedFromLoanId: params.refinancedFromLoanId ?? null,
       coDebtorFullName: params.coDebtorFullName ?? null,
       coDebtorDocumentType: params.coDebtorDocumentType ?? null,
@@ -1033,6 +1005,7 @@ export class LoansService {
   // docs/phases/PHASE_14_INTEREST_CONCEPTS.md.
   private async resolveConcepts(
     concepts: LoanConceptAssignmentDto[],
+    currentRate: CurrentUsuryRate,
   ): Promise<ConceptAssignment[]> {
     const distinctConceptTypeIds = new Set(
       concepts.map((concept) => concept.conceptTypeId),
@@ -1064,7 +1037,15 @@ export class LoansService {
       conceptTypeId: concept.conceptTypeId,
       name: typeById.get(concept.conceptTypeId)?.name ?? '',
       calculationType: concept.calculationType,
-      value: concept.value,
+      // Phase 24 — a percentage concept's value is always the current
+      // usury rate, never admin-typed (confirmed with the human: each
+      // interest-bearing concept individually equals the full ceiling,
+      // not a rate split across concepts). Fixed-amount concepts are
+      // untouched. See docs/phases/PHASE_24_USURY_MANDATORY.md.
+      value:
+        concept.calculationType === ConceptCalculationType.Percentage
+          ? currentRate.ratePercentage
+          : concept.value,
       fixedAmountDistribution: typeById.get(concept.conceptTypeId)
         ?.fixedAmountDistribution,
     }));
@@ -1075,9 +1056,11 @@ export class LoansService {
   // fixedAmountDistribution entirely (meaningless here — a moratory
   // fixed_amount concept is always charged once, flat, on the overdue
   // installment, confirmed with the human, see
-  // docs/phases/PHASE_23_DYNAMIC_CHARGES.md).
+  // docs/phases/PHASE_23_DYNAMIC_CHARGES.md). Phase 24 adds the same
+  // percentage-forced-to-the-usury-rate rule resolveConcepts uses.
   private async resolveMoratoryConcepts(
     concepts: LoanConceptAssignmentDto[],
+    currentRate: CurrentUsuryRate,
   ): Promise<
     {
       conceptTypeId: string;
@@ -1106,7 +1089,10 @@ export class LoansService {
       conceptTypeId: concept.conceptTypeId,
       name: nameByConceptTypeId.get(concept.conceptTypeId) ?? '',
       calculationType: concept.calculationType,
-      value: concept.value,
+      value:
+        concept.calculationType === ConceptCalculationType.Percentage
+          ? currentRate.ratePercentage
+          : concept.value,
     }));
   }
 

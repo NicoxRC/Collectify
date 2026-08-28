@@ -105,15 +105,6 @@ export class CreateLoanDto {
   @IsString()
   description?: string;
 
-  @ApiPropertyOptional({
-    example: 'Cliente antiguo, aprobado por el dueño.',
-    description:
-      "Optional note explaining why the loan proceeds despite exceeding the current usury ceiling. Only meaningful when the check (see POST /loans response's usuryCeilingExceededAtCreation) actually fires — this is a warning, not a hard block, see docs/phases/PHASE_15_USURY_RATE.md.",
-  })
-  @IsOptional()
-  @IsString()
-  usuryJustification?: string;
-
   // --- Optional co-debtor (codeudor), Phase 21 — at most one per loan,
   // confirmed with the business. See
   // docs/phases/PHASE_21_CLIENT_PROFILE.md. ---

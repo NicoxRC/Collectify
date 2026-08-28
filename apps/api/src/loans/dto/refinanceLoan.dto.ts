@@ -107,15 +107,6 @@ export class RefinanceLoanDto {
   @IsString()
   description?: string;
 
-  @ApiPropertyOptional({
-    example: 'Cliente antiguo, aprobado por el dueño.',
-    description:
-      'Optional note explaining why the new loan proceeds despite exceeding the current usury ceiling — see CreateLoanDto.',
-  })
-  @IsOptional()
-  @IsString()
-  usuryJustification?: string;
-
   // --- Optional co-debtor (codeudor) for the new loan, Phase 21. Omit to
   // carry over the old loan's co-debtor unchanged (LoansService.refinance
   // defaults to that); pass any of these fields to override, or explicit

@@ -23,12 +23,18 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticatedUser.int
 export class UsuryRatesController {
   constructor(private readonly usuryRateService: UsuryRateService) {}
 
+  // Deliberately open to any authenticated user (no @Roles) as of Phase 24
+  // — since a collector granted the loans module can create a loan
+  // (Phase 23) and that now hard-blocks without a current rate on file,
+  // they need to see this before hitting a raw 400 on submit. Same
+  // reasoning as GET /interest-concept-types. Managing the rate (POST,
+  // and the full history below) stays admin-only. See
+  // docs/phases/PHASE_24_USURY_MANDATORY.md.
   @Get('current')
-  @Roles(UserRole.Admin)
   @ApiOperation({
-    summary: 'Get the current usury ceiling (admin only)',
+    summary: 'Get the current usury ceiling',
     description:
-      "isStale is true when nobody has entered this calendar month's certified rate yet — not tied to a fixed publication day, since the SFC's own publication date moves around. See docs/phases/PHASE_15_USURY_RATE.md.",
+      "isStale is true when nobody has entered this calendar month's certified rate yet — not tied to a fixed publication day, since the SFC's own publication date moves around. As of Phase 24, a stale or missing rate hard-blocks loan creation — see docs/phases/PHASE_24_USURY_MANDATORY.md.",
   })
   @ApiResponse({
     status: 200,
