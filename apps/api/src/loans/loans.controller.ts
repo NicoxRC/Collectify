@@ -17,7 +17,9 @@ import {
 import { Audit } from '../auditLog/decorators/audit.decorator';
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RequireModule } from '../auth/decorators/requireModule.decorator';
 import { UserRole } from '../users/entities/user.entity';
+import { AppModule } from '../users/entities/userModulePermission.entity';
 
 import { CreateLoanDto } from './dto/createLoan.dto';
 import { UpdateLoanDto } from './dto/updateLoan.dto';
@@ -79,13 +81,21 @@ export class LoansController {
     return this.loansService.findOne(id);
   }
 
+  // Phase 23 — was admin-only (@Roles(UserRole.Admin)); relaxed to
+  // @RequireModule so a collector granted the `loans` module can create a
+  // loan too, per the client's explicit ask ("los cobradores... sí deben
+  // poder crear el crédito"). See docs/phases/PHASE_23_DYNAMIC_CHARGES.md
+  // "Permissions" for the full reasoning, including why
+  // preview-schedule/GET interest-concept-types below are handled
+  // differently.
   @Post()
-  @Roles(UserRole.Admin)
+  @RequireModule(AppModule.Loans)
   @Audit('loan.create', 'loan')
   @ApiOperation({
-    summary: 'Create a loan and generate its installments (admin only)',
+    summary:
+      'Create a loan and generate its installments (admin or granted the loans module)',
     description:
-      'The installment schedule is generated automatically from principalAmount, totalInstallments, and concepts (interest/fee concepts picked from the InterestConceptTypes catalog), solved as a level total payment ("cuota fija") — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md. Concepts apply to every installment for the whole term of the loan; they cannot vary per installment. Due dates are auto-generated from disbursedAt + installmentFrequency. interestRate is used only for moratory interest on overdue installments. If the schedule exceeds the current usury ceiling, the loan is still created (usuryCeilingExceededAtCreation is set true on the response) — this is a warning, not a block; usuryJustification records an optional admin note. See docs/phases/PHASE_15_USURY_RATE.md.',
+      'The installment schedule is generated automatically from principalAmount, totalInstallments, and concepts (interest/fee concepts picked from the InterestConceptTypes catalog), solved as a level total payment ("cuota fija") — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md. Concepts apply to every installment for the whole term of the loan; they cannot vary per installment. moratoryConcepts (Phase 23) are assigned the same way but never affect the schedule — they only take effect once an installment is overdue. Due dates are auto-generated from disbursedAt + installmentFrequency. interestRate is the legacy fallback used for moratory interest only when no moratoryConcepts are assigned. If the schedule exceeds the current usury ceiling, the loan is still created (usuryCeilingExceededAtCreation is set true on the response) — this is a warning, not a block; usuryJustification records an optional admin note. See docs/phases/PHASE_15_USURY_RATE.md.',
   })
   @ApiResponse({
     status: 201,
@@ -110,13 +120,20 @@ export class LoansController {
     return this.loansService.create(dto);
   }
 
+  // Deliberately open to any authenticated user — same as GET
+  // /interest-concept-types, and for the same reason (Phase 23): this is a
+  // stateless calculator that touches no client data and persists nothing
+  // (confirmed 2026-08-18 for the standalone /cotizador screen, which calls
+  // this exact endpoint). "Collectors shouldn't see the amortizador" is
+  // implemented as a frontend-only UI decision in LoanForm.tsx, not a
+  // backend restriction — see docs/phases/PHASE_23_DYNAMIC_CHARGES.md
+  // "Permissions".
   @Post('preview-schedule')
-  @Roles(UserRole.Admin)
   @ApiOperation({
     summary:
-      'Preview the generated installment schedule without creating a loan (admin only)',
+      'Preview the generated installment schedule without creating a loan',
     description:
-      "Runs the same amortization generation as POST /loans, for the admin to review before committing. usuryWarning is present (and non-null) only when the schedule's highest per-installment effective rate exceeds the current usury ceiling — a warning, not a hard block, see docs/phases/PHASE_15_USURY_RATE.md.",
+      "Runs the same amortization generation as POST /loans, for review before committing. usuryWarning is present (and non-null) only when the schedule's highest per-installment effective rate exceeds the current usury ceiling — a warning, not a hard block, see docs/phases/PHASE_15_USURY_RATE.md.",
   })
   @ApiResponse({ status: 201, description: 'Returns the previewed schedule.' })
   @ApiResponse({
