@@ -14,11 +14,11 @@ Turn the usury ceiling from an admin-informational warning (Phase 15) into the a
 2. **Remove the exceeded-ceiling warning:** "se debe quitar advertencia cuando se supera la tasa de usura." Once a loan's interest-bearing concepts are priced at exactly the ceiling (see below), they can no longer exceed it by construction, so `Loan.usuryCeilingExceededAtCreation`/`usuryJustification` and the warning banner become dead code paths for interest-bearing concepts specifically.
 3. **Auto-applied, non-editable, but visible:** "la tasa de usura se mete automáticamente en los cargos del crédito (intereses corrientes y moratorios). No se puede editar pero se debe mostrar visualmente al crear el crédito." The current month's certified rate becomes the value of every interest-bearing (`category: corriente` or `moratorio`) concept applied to a loan — the admin can no longer type a different percentage for those, though they still see the value at creation time.
 
-## Open questions — confirm before implementing
+## Open questions — resolved (confirmed with the human, 2026-08-28)
 
-- [ ] **Do fixed-amount concepts (e.g. "Gastos de cobranza") stay admin-set, untouched by this rule?** The resolved answer above only mentions interest-bearing concepts ("intereses corrientes y moratorios"); Phase 15's ceiling check already counted fixed fees toward the *comparison*, but this phase's auto-fill is a different, stronger rule (setting the value, not just checking it) — confirm fixed-amount concepts are explicitly out of scope for auto-fill before writing code that touches them.
-- [ ] **What happens to `usuryCeilingExceededAtCreation`/`usuryJustification` as columns** — removed entirely (migration to drop them) or just unused going forward (kept for historical loans created under Phase 15's rules)? Given this project's migration policy (`docs/DATABASE.md` "Migrations" — no `synchronize: true`, deliberate schema changes), recommend keeping the columns for historical loans and simply retiring the code path that writes to them for new loans, but confirm with the human before dropping anything that already has real data.
-- [ ] Is the auto-filled percentage exactly `UsuryRate.ratePercentage`, or some derived value (e.g. split between corriente and moratorio so their sum doesn't exceed the ceiling)? The resolved wording ("se mete automáticamente en los cargos... intereses corrientes y moratorios," plural) is ambiguous between "each of those concepts individually equals the ceiling" and "together they must not exceed it" — these produce very different amounts owed and must not be guessed.
+- ~~Do fixed-amount concepts stay admin-set, untouched by this rule?~~ → **Resolved: yes, out of scope.** Only `calculationType: percentage` concepts (corriente or moratorio) are auto-filled; a fixed fee like "Gastos de cobranza" stays exactly what the admin typed.
+- ~~What happens to `usuryCeilingExceededAtCreation`/`usuryJustification` as columns?~~ → **Resolved: dropped via migration**, not just retired — the human chose full removal over keeping unused historical columns, overriding this doc's own earlier recommendation to keep them.
+- ~~Is the auto-filled percentage exactly `UsuryRate.ratePercentage`, or a derived/split value?~~ → **Resolved: each percentage concept individually equals the full current rate.** A loan with both a corriente and a moratorio percentage concept gets each one set to the complete ceiling value independently — not a rate split across concepts.
 
 ## Required reading before starting
 
@@ -27,30 +27,32 @@ Turn the usury ceiling from an admin-informational warning (Phase 15) into the a
 ## Scope (once the open questions above are confirmed)
 
 ### Entities and migrations
-- [ ] No new columns anticipated beyond what Phase 23 adds — this phase changes *behavior*, not shape, pending resolution of the "drop vs. retire" open question on the existing usury warning columns.
+- [x] No new columns — this phase changed *behavior*, not shape, beyond dropping the two Phase 15 warning columns (see below).
+- [x] Migration `DropUsuryWarningFieldsFromLoans`: drops `loans.usury_ceiling_exceeded_at_creation`/`usury_justification`, per the resolved open question above.
 
 ### Service and API
-- [ ] `LoansService.persistLoanWithInstallments()`: replace the current warning-only usury check with a hard rejection (`BadRequestException` or similar) when no current-month rate is on file.
-- [ ] Wherever `LoanInstallmentConcept`s are generated for `category: corriente`/`moratorio` concepts, source their `value` from `UsuryRateService.getCurrentRate()` instead of an admin-supplied figure — reject any request that tries to override it.
-- [ ] `POST /loans/preview-schedule` reflects the same auto-filled, non-overridable value, so what the admin previews at creation time matches what gets persisted.
-- [ ] Remove (or stop writing to, per the open question above) the exceeded-ceiling warning path.
+- [x] `LoansService.persistLoanWithInstallments()` and `previewSchedule()`: both call a new `getCurrentUsuryRateOrThrow()` first — throws `BadRequestException` when `getCurrentRate()` is `null` or `isStale`.
+- [x] `resolveConcepts()`/`resolveMoratoryConcepts()` (corriente and moratorio respectively) force any `calculationType: percentage` concept's `value` to `currentRate.ratePercentage`, ignoring the request's own value; `fixed_amount` concepts pass through untouched.
+- [x] `POST /loans/preview-schedule` reflects the same hard block and auto-filled value, via the same `resolveConcepts`/`resolveMoratoryConcepts` calls `persistLoanWithInstallments()` uses.
+- [x] Removed entirely: `buildUsuryWarning()`, the `UsuryWarning` interface, `SchedulePreview.usuryWarning`, and `apps/api/src/usuryRates/calculateLoanEffectiveRate.ts` (its sole caller was `buildUsuryWarning`).
+- [x] **Permission gap found and fixed (not in the original scope, same shape as a Phase 23 fix):** `GET /usury-rates/current` was admin-only, and a Phase-23-granted collector creating a loan had no way to see the rate/staleness before hitting the new hard block. Opened to any authenticated user — `POST /usury-rates` and `GET /usury-rates` (history) stay admin-only.
 
 ### Tests (mandatory)
-- [ ] Loan creation is rejected when no usury rate exists for the current month, and when the existing rate is stale (prior month).
-- [ ] An interest-bearing concept's persisted value always equals the current usury rate, regardless of what the request body attempts to send for it.
-- [ ] `POST /loans/preview-schedule` shows the same auto-filled value a subsequent `POST /loans` would persist.
-- [ ] The exceeded-ceiling warning can no longer be produced for a newly created loan.
+- [x] Loan creation/refinance/preview all rejected when no usury rate exists, and when the existing rate is stale (prior month).
+- [x] A percentage concept's persisted value always equals the current usury rate, regardless of what the request body sends — verified for both corriente and moratorio, on create, refinance, and preview.
+- [x] A fixed-amount concept's value is untouched by the auto-fill.
+- [x] Manually verified end-to-end against a real Postgres/API: hard block with the real rate row temporarily removed and restored; a loan created with nonsense percentage values (500%, 999%) persisted the real 2% rate in every `loan_installment_concepts` row instead; the fixed-amount concept kept its typed value.
 
 ### Swagger
-- [ ] `POST /loans`/`POST /loans/:id/refinance`/`POST /loans/preview-schedule` descriptions updated to state the hard-block rule and the non-editable auto-filled rate, replacing the old warning-only language.
+- [x] `POST /loans`/`POST /loans/:id/refinance`/`POST /loans/preview-schedule` descriptions updated to state the hard-block rule and the auto-filled rate; `GET /usury-rates/current` description updated for the open-access change.
 
 ## Definition of done for this phase
 
-- A loan cannot be created or refinanced without the current month's usury rate on file.
-- Interest-bearing concepts are priced at exactly the confirmed auto-filled value, not admin-editable.
-- The exceeded-ceiling warning is no longer reachable for new loans.
-- The confirmed rules are implemented exactly as agreed with the human — not guessed on the open questions above.
-- All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
+- [x] A loan cannot be created, refinanced, or previewed without the current month's usury rate on file.
+- [x] Interest-bearing (percentage) concepts are priced at exactly the confirmed auto-filled value, not admin-editable; fixed-amount concepts are unaffected.
+- [x] The exceeded-ceiling warning is no longer reachable — the code path and its columns are gone.
+- [x] The confirmed rules are implemented exactly as agreed with the human — not guessed on the open questions above.
+- [x] All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## After this phase
 

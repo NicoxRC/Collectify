@@ -218,8 +218,6 @@ Represents a *pagaré* — see `GLOSSARY.md`.
 | `status` | ENUM (`active`, `paid`, `refinanced`) | see `GLOSSARY.md` — **no `overdue` status at the loan level**, since overdue is an installment-level concept (see below) |
 | `refinanced_from_loan_id` | UUID, nullable | self-referencing FK → `loans.id`. Set when this loan was created to replace an older one. See "Refinancing" below. |
 | `description` | TEXT, nullable | free-text concept/reason for the loan (e.g. "Compra de Apple MacBook Air M5..."), used by the "new loan" WhatsApp message — see `docs/phases/PHASE_9_MESSAGE_TYPES.md`. Optional, same precedent as `payments.observation`. |
-| `usury_ceiling_exceeded_at_creation` | BOOLEAN, `NOT NULL DEFAULT false` | Added Phase 15 — a one-time snapshot of whether this loan's highest per-installment effective rate exceeded the usury ceiling in effect at creation/refinance time. Not recomputed on read (confirmed: creation-time enforcement only). A warning, not a rejection — the loan is still created either way. See `docs/phases/PHASE_15_USURY_RATE.md`. |
-| `usury_justification` | TEXT, nullable | Added Phase 15 — optional admin note explaining why the loan proceeded despite exceeding the ceiling. Only meaningful when the column above is `true`; never required. |
 | `new_loan_message_sent_at` | TIMESTAMPTZ, nullable | Added Phase 18 — set once the "new loan" WhatsApp message actually succeeds (synchronously at creation/refinance, or via the retry cron). Lets the `new_loan` cron find loans still needing their message directly (`IS NULL`), instead of string-matching message content. See `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md`. |
 | `co_debtor_full_name` | VARCHAR, nullable | Added Phase 21 — co-debtor (codeudor) belongs to the **loan**, not the client: whether a given loan has one varies per loan, confirmed with the business. At most one per loan, so plain nullable columns rather than a separate table. See `docs/phases/PHASE_21_CLIENT_PROFILE.md` decision 7. |
 | `co_debtor_document_type` | ENUM (`cedula_ciudadania`, `cedula_extranjeria`, `pasaporte`), nullable | Added Phase 21. Shares `clients.document_type`'s `DocumentType` enum. |
@@ -451,6 +449,8 @@ Added Phase 15 — Colombia's legal usury ceiling, certified monthly by the Supe
 
 `UsuryRateService.getCurrentRate()` returns the most recent row plus a computed `isStale` flag (true when that row's `effective_month` isn't the current calendar month) — not stored, since the SFC's publication date isn't a fixed day (see the phase doc's domain research).
 
+**Superseded after Phase 24:** enforcement is no longer a warning. `getCurrentRate()` returning `null` or `isStale: true` now hard-blocks `POST /loans`, `POST /loans/:id/refinance`, and `POST /loans/preview-schedule` outright — see `docs/phases/PHASE_24_USURY_MANDATORY.md`. The current rate's `ratePercentage` is also auto-applied as the `value` of every percentage-type `interest_concept_types` concept (corriente or moratorio) assigned to a loan, overriding whatever the request sends — only `fixed_amount` concepts stay admin-set. `loans.usury_ceiling_exceeded_at_creation`/`usury_justification` (Phase 15) were dropped by this phase's migration — a loan can no longer exceed the ceiling by construction, so nothing is left to flag.
+
 ### `whatsapp_inbound_messages`
 
 Added Phase 22 — append-only, one row per inbound WhatsApp event Meta's webhook delivers (a template quick-reply button tap or free text a client sends in), whether or not it matched a known client. See `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md`.
@@ -546,8 +546,14 @@ npm run migration:revert
 ## Added in Phase 15
 
 - `usury_rates` — historical, admin-entered monthly usury ceiling. See "`usury_rates`" above.
-- `loans.usury_ceiling_exceeded_at_creation`, `loans.usury_justification` — see "`loans`" above.
-- Enforcement is creation-time only, a warning rather than a block, and non-retroactive (a rate change never alters a past month's already-caused interest) — all confirmed with the human, see `docs/phases/PHASE_15_USURY_RATE.md` "Resolved".
+- ~~`loans.usury_ceiling_exceeded_at_creation`, `loans.usury_justification`~~ — **dropped in Phase 24** (see below), since a loan can no longer exceed the ceiling by construction.
+- Enforcement was originally creation-time only, a warning rather than a block, and non-retroactive — see `docs/phases/PHASE_15_USURY_RATE.md` "Resolved". **Superseded in Phase 24** — see below.
+
+## Added/changed in Phase 24
+
+- Enforcement is now a hard block, not a warning: `POST /loans`/`POST /loans/:id/refinance`/`POST /loans/preview-schedule` all reject outright when the current month's rate is missing or stale. Still non-retroactive — a rate change never alters a past month's already-caused interest.
+- Every percentage-type `interest_concept_types` concept (corriente or moratorio) assigned to a loan is auto-priced at exactly the current rate — not admin-editable — while `fixed_amount` concepts stay untouched. See `docs/phases/PHASE_24_USURY_MANDATORY.md`.
+- `loans.usury_ceiling_exceeded_at_creation`/`usury_justification` (Phase 15) dropped via migration — the warning path they supported no longer exists.
 
 ## Added in Phase 18
 
