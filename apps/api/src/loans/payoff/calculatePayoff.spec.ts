@@ -1,5 +1,7 @@
 import { addDays, subDays } from 'date-fns';
 
+import { ConceptCalculationType } from '../../interestConceptTypes/entities/interestConceptType.entity';
+
 import { calculatePayoff } from './calculatePayoff';
 
 import type { PayoffInstallmentInput } from './calculatePayoff';
@@ -13,6 +15,7 @@ function installment(
     amount: 300000,
     principalPortion: 270000,
     dueDate: '2026-01-01',
+    moratoryConcepts: [],
     ...overrides,
   };
 }
@@ -176,6 +179,40 @@ describe('calculatePayoff', () => {
     // interestApplied is purely the moratory formula: 300000*0.06/30*10.
     expect(quote.installments[0].interestApplied).toBeCloseTo(6000, 6);
     expect(quote.installments[0].principalApplied).toBe(300000);
+  });
+
+  it('uses the installment-assigned moratory concepts instead of the legacy interestRate formula once at least one is present', () => {
+    const today = new Date('2026-01-11');
+    const dueDate = subDays(today, 10).toISOString().slice(0, 10);
+
+    const quote = calculatePayoff(
+      [
+        installment({
+          dueDate,
+          amount: 300000,
+          principalPortion: 270000,
+          moratoryConcepts: [
+            {
+              name: 'Interés moratorio',
+              calculationType: ConceptCalculationType.Percentage,
+              value: 6,
+            },
+            {
+              name: 'Gastos de cobranza',
+              calculationType: ConceptCalculationType.FixedAmount,
+              value: 5000,
+            },
+          ],
+        }),
+      ],
+      // A different legacy rate, to prove it's ignored once concepts exist.
+      99,
+      today,
+    );
+
+    // conceptsInterest = 30000; moratory: 300000*0.06/30*10 (6000) + 5000
+    // flat = 11000. Total interestApplied = 41000.
+    expect(quote.installments[0].interestApplied).toBeCloseTo(41000, 6);
   });
 
   it('returns zeros for an empty installment list', () => {

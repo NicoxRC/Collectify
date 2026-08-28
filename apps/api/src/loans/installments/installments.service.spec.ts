@@ -2,6 +2,7 @@ import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
+import { ConceptCategory } from '../../interestConceptTypes/entities/interestConceptType.entity';
 import { Installment, InstallmentStatus } from '../entities/installment.entity';
 import { Loan, LoanStatus } from '../entities/loan.entity';
 import { LoanInstallmentConcept } from '../entities/loanInstallmentConcept.entity';
@@ -92,6 +93,7 @@ describe('InstallmentsService', () => {
         {
           installmentId: installmentWithLoan.id,
           nameSnapshot: 'Interés remuneratorio',
+          category: ConceptCategory.Corriente,
           computedAmount: 4000,
         },
       ]);
@@ -99,7 +101,11 @@ describe('InstallmentsService', () => {
       const result = await service.findAll({});
 
       expect(result.items[0].conceptBreakdown).toEqual([
-        { name: 'Interés remuneratorio', amount: 4000 },
+        {
+          name: 'Interés remuneratorio',
+          amount: 4000,
+          category: ConceptCategory.Corriente,
+        },
       ]);
     });
 
