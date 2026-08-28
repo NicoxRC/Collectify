@@ -26,7 +26,7 @@ interface RegisterPaymentDialogProps {
     amountPaid: number;
     paidAt: string;
     observation?: string;
-    imageUrl?: string;
+    imageUrls?: string[];
   }) => Promise<unknown>;
 }
 
@@ -72,45 +72,53 @@ export function RegisterPaymentDialog({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Kept separate from the file itself: the file is uploaded to Cloudinary
-  // BEFORE the payment is submitted (per
+  // Kept separate from the files themselves: each file is uploaded to
+  // Cloudinary BEFORE the payment is submitted (per
   // docs/phasesClient/PHASE_12_PAYMENT_ATTACHMENTS.md), so by the time
-  // handleSubmit runs, imageFile has already been turned into a URL here —
-  // that's what actually gets sent to onConfirm.
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  // handleSubmit runs, every entry here has already been turned into a URL
+  // — that's what actually gets sent to onConfirm. Phase 28 widens this
+  // from a single file to a list — a client often sends more than one
+  // receipt photo for the same cuota.
+  const [images, setImages] = useState<{ file: File; previewUrl: string }[]>(
+    [],
+  );
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   useEscapeKey(onClose);
 
-  // object URLs must be revoked explicitly or they leak — this covers both
-  // picking a new file (replacing the old preview) and unmounting the
-  // dialog entirely.
+  // object URLs must be revoked explicitly or they leak — this covers
+  // unmounting the dialog with files still picked. Removing/replacing a
+  // single file revokes its own URL inline instead (see handlers below).
   useEffect(() => {
     return () => {
-      if (imagePreviewUrl) {
-        URL.revokeObjectURL(imagePreviewUrl);
+      for (const image of images) {
+        URL.revokeObjectURL(image.previewUrl);
       }
     };
-  }, [imagePreviewUrl]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] ?? null;
-    setUploadError(null);
-    if (imagePreviewUrl) {
-      URL.revokeObjectURL(imagePreviewUrl);
+    const files = Array.from(event.target.files ?? []);
+    if (files.length === 0) {
+      return;
     }
-    setImageFile(file);
-    setImagePreviewUrl(file ? URL.createObjectURL(file) : null);
+    setUploadError(null);
+    setImages((current) => [
+      ...current,
+      ...files.map((file) => ({ file, previewUrl: URL.createObjectURL(file) })),
+    ]);
+    // Allows picking the same file again after removing it — otherwise the
+    // input's own value blocks a re-selection of an identical file.
+    event.target.value = '';
   };
 
-  const handleRemoveImage = () => {
-    if (imagePreviewUrl) {
-      URL.revokeObjectURL(imagePreviewUrl);
-    }
-    setImageFile(null);
-    setImagePreviewUrl(null);
+  const handleRemoveImage = (index: number) => {
+    setImages((current) => {
+      URL.revokeObjectURL(current[index].previewUrl);
+      return current.filter((_, i) => i !== index);
+    });
     setUploadError(null);
   };
 
@@ -129,26 +137,31 @@ export function RegisterPaymentDialog({
     }
 
     // An upload failure must never let the payment submit silently without
-    // the photo (docs/phasesClient/PHASE_12_PAYMENT_ATTACHMENTS.md's
-    // explicit requirement) — so this resolves imageUrl first, entirely
-    // separate from isSubmitting, and bails out before touching onConfirm
-    // if it fails.
-    let imageUrl: string | undefined;
-    if (imageFile) {
+    // the photos (docs/phasesClient/PHASE_12_PAYMENT_ATTACHMENTS.md's
+    // explicit requirement) — so this resolves every imageUrl first,
+    // sequentially (so a failure identifies which specific file failed),
+    // entirely separate from isSubmitting, and bails out before touching
+    // onConfirm if any upload fails.
+    let imageUrls: string[] | undefined;
+    if (images.length > 0) {
       setUploadError(null);
       setIsUploadingImage(true);
+      const uploaded: string[] = [];
       try {
-        imageUrl = await uploadPaymentReceipt(imageFile);
+        for (const image of images) {
+          uploaded.push(await uploadPaymentReceipt(image.file));
+        }
       } catch (err) {
         setUploadError(
           err instanceof ImageUploadError
             ? err.message
-            : 'No se pudo subir la foto del comprobante. Intenta de nuevo.',
+            : 'No se pudo subir una de las fotos del comprobante. Intenta de nuevo.',
         );
         setIsUploadingImage(false);
         return;
       }
       setIsUploadingImage(false);
+      imageUrls = uploaded;
     }
 
     setIsSubmitting(true);
@@ -157,7 +170,7 @@ export function RegisterPaymentDialog({
         amountPaid: amount,
         paidAt,
         observation: observation.trim() || undefined,
-        imageUrl,
+        imageUrls,
       });
       onClose();
     } catch (err) {
@@ -214,30 +227,37 @@ export function RegisterPaymentDialog({
             />
           </Field>
 
-          <Field label="Foto del comprobante (opcional)">
-            {imagePreviewUrl ? (
-              <div className="flex items-center gap-3">
-                <img
-                  src={imagePreviewUrl}
-                  alt="Vista previa del comprobante"
-                  className="h-[42px] w-[42px] rounded border border-border object-cover"
-                />
-                <button
-                  type="button"
-                  onClick={handleRemoveImage}
-                  className="text-meta text-subtle hover:text-white"
-                >
-                  Quitar foto
-                </button>
+          <Field label="Fotos del comprobante (opcional)">
+            {images.length > 0 && (
+              <div className="flex flex-wrap items-center gap-3">
+                {images.map((image, index) => (
+                  <div
+                    key={image.previewUrl}
+                    className="relative flex flex-col items-center gap-1"
+                  >
+                    <img
+                      src={image.previewUrl}
+                      alt="Vista previa del comprobante"
+                      className="h-[42px] w-[42px] rounded border border-border object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveImage(index)}
+                      className="text-meta text-subtle hover:text-white"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                ))}
               </div>
-            ) : (
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleFileChange}
-                className="w-full text-control text-muted file:mr-3 file:rounded file:border file:border-border file:bg-input file:px-3 file:py-1.5 file:text-meta file:text-muted hover:file:text-white"
-              />
             )}
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleFileChange}
+              className="w-full text-control text-muted file:mr-3 file:rounded file:border file:border-border file:bg-input file:px-3 file:py-1.5 file:text-meta file:text-muted hover:file:text-white"
+            />
             {uploadError && (
               <p className="text-small text-red-400" role="alert">
                 {uploadError}

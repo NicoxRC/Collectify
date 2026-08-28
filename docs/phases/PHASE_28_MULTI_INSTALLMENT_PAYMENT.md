@@ -9,10 +9,10 @@ Let a collector register payments against several installments in one action, an
 - **Multiple cuotas at once:** "que se pueda pagar varias cuotas a la vez."
 - **Multiple receipts per cuota:** "subir sus comprobantes, hay personas que mandan más de un comprobante por cuota" — this is per-installment (a single cuota's payment can carry several receipt photos), not a single shared receipt across a multi-cuota batch.
 
-## Open questions — confirm before implementing
+## Resolved — confirmed directly with the human (2026-08-28)
 
-- [ ] When paying several installments in one action, is the total amount entered once and split across the selected installments (e.g. evenly, or oldest-first), or is each installment's amount entered individually within the same batch action? Not addressed by the resolved answers above — confirm before building the form/DTO shape, since this materially changes both the UI and the request payload.
-- [ ] Does a bulk action require full payment of every selected installment, or does it also need to support partial payment per installment within the batch (partial payments are already allowed one-at-a-time, per `docs/DATABASE.md`)?
+- **Amount entry in a batch:** one amount typed individually per selected installment, not a single total auto-split.
+- **Partial vs. full in a batch:** the batch requires **full** payment of every selected installment — partial payment stays on the existing single-installment flow, which already supports it.
 
 ## Required reading before starting
 
@@ -21,27 +21,27 @@ Let a collector register payments against several installments in one action, an
 ## Scope (once the open questions above are confirmed)
 
 ### Entities and migrations
-- [ ] New table `payment_images`: `id`, `payment_id` (FK → `payments.id`, `ON DELETE CASCADE`), `image_url` (VARCHAR), `created_at`. Standard externally-hosted-URL-only convention, same as `payments.image_url` today.
-- [ ] Migration `CreatePaymentImagesTable`, plus a data migration copying any existing non-null `payments.image_url` into a `payment_images` row — **do not drop `payments.image_url` in this phase**; deprecate it in code (stop writing to it, keep reading it as a fallback for old records) and revisit dropping it in a later cleanup once every existing record has been backfilled and verified.
+- [x] New table `payment_images`: `id`, `payment_id` (FK → `payments.id`, `ON DELETE CASCADE`), `image_url` (VARCHAR), `created_at`. Standard externally-hosted-URL-only convention, same as `payments.image_url` today.
+- [x] Migration `CreatePaymentImagesTable`, plus a data migration copying any existing non-null `payments.image_url` into a `payment_images` row — **`payments.image_url` was NOT dropped in this phase**; deprecated in code (stopped writing to it, kept reading it as a fallback for old records).
 
 ### Service and API
-- [ ] `InstallmentsService.registerPayment` accepts `imageUrls: string[]` (in addition to, or replacing, the singular `imageUrl` — per the migration approach above) and persists one `payment_images` row per URL.
-- [ ] New `POST /installments/payments/bulk` (exact path TBD against `ARCHITECTURE.md` conventions): accepts an array of per-installment payment entries (shape per the open "how is the total split" question above), creates one `Payment` row per installment inside a single transaction — all succeed or all roll back, same transactional precedent as `LoansService.refinance()`.
+- [x] `InstallmentsService.registerPayment` accepts `imageUrls: string[]` (replacing the singular `imageUrl`) and persists one `payment_images` row per URL.
+- [x] New `POST /installments/payments/bulk`: accepts `{ payments: [{ installmentId, amountPaid, paidAt, observation?, imageUrls? }] }`, creates one `Payment` row per installment inside a single transaction — all succeed or all roll back, same transactional precedent as `LoansService.refinance()`. Rejects the whole batch with a 400 naming the offending installment if any entry's amount doesn't fully cover its remaining balance.
 
 ### Tests (mandatory)
-- [ ] A payment can be registered with multiple receipt images; all persist and are retrievable.
-- [ ] Bulk payment across N installments creates N `Payment` rows atomically; a failure partway rolls back all of them.
-- [ ] Existing single-installment, single-image `registerPayment` behavior is unchanged for callers that don't use the new bulk endpoint.
+- [x] A payment can be registered with multiple receipt images; all persist and are retrievable.
+- [x] Bulk payment across N installments creates N `Payment` rows atomically; a failure partway rolls back all of them.
+- [x] Existing single-installment, single-image `registerPayment` behavior is unchanged for callers that don't use the new bulk endpoint.
 
 ### Swagger
-- [ ] `POST /installments/:id/payments` and the new bulk endpoint documented, including the multi-image shape.
+- [x] `POST /installments/:id/payments` and the new bulk endpoint documented, including the multi-image shape.
 
 ## Definition of done for this phase
 
-- A collector can register a payment against several installments in one action.
-- A single payment can carry more than one receipt photo.
-- No existing single-payment data or behavior is lost by the migration to `payment_images`.
-- All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
+- [x] A collector can register a payment against several installments in one action.
+- [x] A single payment can carry more than one receipt photo.
+- [x] No existing single-payment data or behavior is lost by the migration to `payment_images`.
+- [x] All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## After this phase
 

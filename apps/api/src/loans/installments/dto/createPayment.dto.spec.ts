@@ -6,35 +6,42 @@ import { CreatePaymentDto } from './createPayment.dto';
 // TESTING.md doesn't require DTO unit tests in general ("no logic to
 // test"), but docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md explicitly lists
 // "invalid imageUrl is rejected by DTO validation" as mandatory test scope
-// for this phase — @IsUrl is the only actual validation logic imageUrl
+// for this phase — @IsUrl is the only actual validation logic imageUrls
 // carries, so it's tested directly here rather than only indirectly
-// through a service/controller test.
+// through a service/controller test. Phase 28 widened the field from a
+// single imageUrl to imageUrls: string[].
 describe('CreatePaymentDto', () => {
   const baseInput = { amountPaid: 150000, paidAt: '2026-07-09' };
 
-  it('is valid without imageUrl', async () => {
+  it('is valid without imageUrls', async () => {
     const dto = plainToInstance(CreatePaymentDto, baseInput);
     const errors = await validate(dto);
     expect(errors).toHaveLength(0);
   });
 
-  it('is valid with a well-formed imageUrl', async () => {
+  it('is valid with one or more well-formed imageUrls', async () => {
     const dto = plainToInstance(CreatePaymentDto, {
       ...baseInput,
-      imageUrl: 'https://res.cloudinary.com/demo/image/upload/receipt.jpg',
+      imageUrls: [
+        'https://res.cloudinary.com/demo/image/upload/receipt-1.jpg',
+        'https://res.cloudinary.com/demo/image/upload/receipt-2.jpg',
+      ],
     });
     const errors = await validate(dto);
     expect(errors).toHaveLength(0);
   });
 
-  it('rejects a malformed imageUrl', async () => {
+  it('rejects a malformed URL anywhere in imageUrls', async () => {
     const dto = plainToInstance(CreatePaymentDto, {
       ...baseInput,
-      imageUrl: 'not-a-url',
+      imageUrls: [
+        'https://res.cloudinary.com/demo/image/upload/receipt.jpg',
+        'not-a-url',
+      ],
     });
     const errors = await validate(dto);
     expect(errors).toHaveLength(1);
-    expect(errors[0].property).toBe('imageUrl');
+    expect(errors[0].property).toBe('imageUrls');
     expect(errors[0].constraints).toHaveProperty('isUrl');
   });
 });

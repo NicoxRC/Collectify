@@ -45,6 +45,7 @@ import { Installment, InstallmentStatus } from './entities/installment.entity';
 import { InstallmentFrequency, Loan, LoanStatus } from './entities/loan.entity';
 import { LoanInstallmentConcept } from './entities/loanInstallmentConcept.entity';
 import { Payment } from './entities/payment.entity';
+import { PaymentImage } from './entities/paymentImage.entity';
 import {
   enrichInstallment,
   InstallmentWithCalculated,
@@ -97,6 +98,13 @@ export interface LoanDetail extends Loan {
   // Computed reverse lookup, not a stored column — the loan this one was
   // later refinanced into, if any. See docs/phases/PHASE_6_REFINANCING.md.
   refinancedToLoanId: string | null;
+}
+
+// Phase 28 — getPayments()'s return shape: imageUrl replaced with
+// imageUrls, sourced from payment_images (falling back to the deprecated
+// imageUrl column for a pre-migration row, see Payment entity).
+export interface PaymentWithImages extends Omit<Payment, 'imageUrl'> {
+  imageUrls: string[];
 }
 
 // Added for the client's standalone "Préstamos" list screen (F-16/17),
@@ -186,6 +194,8 @@ export class LoansService {
     private readonly installmentsRepository: Repository<Installment>,
     @InjectRepository(Payment)
     private readonly paymentsRepository: Repository<Payment>,
+    @InjectRepository(PaymentImage)
+    private readonly paymentImagesRepository: Repository<PaymentImage>,
     @InjectRepository(LoanInstallmentConcept)
     private readonly loanInstallmentConceptsRepository: Repository<LoanInstallmentConcept>,
     private readonly interestConceptTypesService: InterestConceptTypesService,
@@ -821,7 +831,7 @@ export class LoansService {
   // installment (docs/DATABASE.md), so this joins across every installment
   // that belongs to this loan. Ordered oldest-first, matching the Figma
   // numbered list (#1, #2, #3...).
-  async getPayments(loanId: string): Promise<Payment[]> {
+  async getPayments(loanId: string): Promise<PaymentWithImages[]> {
     await this.findLoanOrThrow(loanId);
 
     const installments = await this.installmentsRepository.find({
@@ -833,10 +843,46 @@ export class LoansService {
       return [];
     }
 
-    return this.paymentsRepository.find({
+    const payments = await this.paymentsRepository.find({
       where: { installmentId: In(installmentIds) },
       order: { paidAt: 'ASC' },
     });
+    const imageUrlsByPaymentId = await this.findImageUrlsByPaymentId(
+      payments.map((payment) => payment.id),
+    );
+
+    return payments.map(({ imageUrl, ...payment }) => ({
+      ...payment,
+      // Phase 28 — payment_images is the real source now; imageUrl is only
+      // a fallback for a pre-migration row that somehow still has nothing
+      // in payment_images (the migration itself backfills every existing
+      // one, so this should be rare in practice). See PaymentImage entity.
+      imageUrls:
+        imageUrlsByPaymentId.get(payment.id) ?? (imageUrl ? [imageUrl] : []),
+    }));
+  }
+
+  // Groups a page of payments' PaymentImage rows by paymentId in one query
+  // — same bulk-fetch-by-parent-ids pattern as findConceptsByInstallmentId
+  // above.
+  private async findImageUrlsByPaymentId(
+    paymentIds: string[],
+  ): Promise<Map<string, string[]>> {
+    const map = new Map<string, string[]>();
+    if (paymentIds.length === 0) {
+      return map;
+    }
+
+    const images = await this.paymentImagesRepository.find({
+      where: { paymentId: In(paymentIds) },
+      order: { createdAt: 'ASC' },
+    });
+    for (const image of images) {
+      const existing = map.get(image.paymentId) ?? [];
+      existing.push(image.imageUrl);
+      map.set(image.paymentId, existing);
+    }
+    return map;
   }
 
   // Phase 10 cupo/mora-block guard — only on create(), not refinance(): the

@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsArray,
   IsDateString,
   IsOptional,
   IsPositive,
@@ -21,16 +22,21 @@ export class CreatePaymentDto {
   @IsString()
   observation?: string;
 
-  // The api never handles the upload — this must already point to the
+  // The api never handles the upload — each URL must already point to an
   // externally hosted deposit receipt photo (Cloudinary, see
-  // docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md). @IsUrl rejects anything
-  // that isn't a well-formed URL rather than accepting an arbitrary string.
+  // docs/phases/PHASE_12_PAYMENT_ATTACHMENTS.md). @IsUrl({}, {each: true})
+  // rejects anything that isn't a well-formed URL. Phase 28 — a payment can
+  // now carry more than one receipt photo ("hay personas que mandan más de
+  // un comprobante por cuota"); persisted as payment_images rows, one per
+  // URL. Replaces the old singular imageUrl field.
   @ApiPropertyOptional({
-    example: 'https://res.cloudinary.com/demo/image/upload/receipt.jpg',
+    type: [String],
+    example: ['https://res.cloudinary.com/demo/image/upload/receipt.jpg'],
     description:
-      'URL of the deposit receipt photo, already uploaded to the external image host. The api does not accept or process image bytes directly.',
+      'URLs of the deposit receipt photos, already uploaded to the external image host. The api does not accept or process image bytes directly.',
   })
   @IsOptional()
-  @IsUrl()
-  imageUrl?: string;
+  @IsArray()
+  @IsUrl({}, { each: true })
+  imageUrls?: string[];
 }

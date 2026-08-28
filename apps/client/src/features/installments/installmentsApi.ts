@@ -68,27 +68,37 @@ export interface PaginatedInstallments {
 }
 
 // Matches apps/api/src/loans/installments/dto/createPayment.dto.ts exactly.
-// imageUrl (Phase 12) is the already-hosted receipt photo URL — the api
-// only stores it, it never receives the file itself. See
-// lib/imageUpload.ts for how that URL is obtained before this is called.
+// imageUrls (Phase 12, widened to an array in Phase 28) are already-hosted
+// receipt photo URLs — the api only stores them, it never receives the
+// files themselves. See lib/imageUpload.ts for how each URL is obtained
+// before this is called.
 export interface CreatePaymentInput {
   amountPaid: number;
   paidAt: string;
   observation?: string;
-  imageUrl?: string;
+  imageUrls?: string[];
 }
 
-// Matches apps/api/src/loans/entities/payment.entity.ts. Note: registering
-// a payment returns only this raw Payment row — NOT the updated
-// installment or loan. The caller (useRegisterPayment) must invalidate the
-// loan-detail query itself to see the installment's new status reflected.
+// Matches apps/api/src/loans/installments/dto/registerBulkPayments.dto.ts.
+// Same shape as CreatePaymentInput, just tagged with which installment it
+// applies to — the amount is entered individually per installment, never
+// split from a single total (confirmed with the client).
+export interface BulkPaymentEntryInput extends CreatePaymentInput {
+  installmentId: string;
+}
+
+// Matches apps/api/src/loans/loans.service.ts's PaymentWithImages exactly.
+// Note: registering a payment returns only this raw Payment row — NOT the
+// updated installment or loan. The caller (useRegisterPayment) must
+// invalidate the loan-detail query itself to see the installment's new
+// status reflected.
 export interface Payment {
   id: string;
   installmentId: string;
   amountPaid: number;
   paidAt: string;
   observation: string | null;
-  imageUrl: string | null;
+  imageUrls: string[];
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -115,6 +125,20 @@ export const installmentsApi = {
     const { data } = await apiClient.post<Payment>(
       `/installments/${installmentId}/payments`,
       input,
+    );
+    return data;
+  },
+
+  // Phase 28 — pays several installments in one action; the api requires
+  // full payment of every entry (BadRequestException otherwise) and rolls
+  // back the whole batch on any failure, see
+  // InstallmentsService.registerBulkPayments.
+  registerBulkPayments: async (
+    payments: BulkPaymentEntryInput[],
+  ): Promise<Payment[]> => {
+    const { data } = await apiClient.post<Payment[]>(
+      '/installments/payments/bulk',
+      { payments },
     );
     return data;
   },

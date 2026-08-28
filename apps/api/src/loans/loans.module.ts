@@ -10,6 +10,7 @@ import { Installment } from './entities/installment.entity';
 import { Loan } from './entities/loan.entity';
 import { LoanInstallmentConcept } from './entities/loanInstallmentConcept.entity';
 import { Payment } from './entities/payment.entity';
+import { PaymentImage } from './entities/paymentImage.entity';
 import { InstallmentsController } from './installments/installments.controller';
 import { InstallmentsService } from './installments/installments.service';
 import { LoansController } from './loans.controller';
@@ -21,6 +22,7 @@ import { LoansService } from './loans.service';
       Loan,
       Installment,
       Payment,
+      PaymentImage,
       LoanInstallmentConcept,
     ]),
     WhatsappModule,
