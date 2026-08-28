@@ -5,7 +5,10 @@ import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { DatePicker } from '@/components/ui/DatePicker';
 import { Select } from '@/components/ui/Select';
 import { InterestConceptTypeForm } from '@/features/interestConceptTypes/InterestConceptTypeForm';
-import { ConceptCalculationType } from '@/features/interestConceptTypes/interestConceptTypesApi';
+import {
+  ConceptCalculationType,
+  ConceptCategory,
+} from '@/features/interestConceptTypes/interestConceptTypesApi';
 import {
   useCreateInterestConceptType,
   useInterestConceptTypes,
@@ -74,13 +77,20 @@ export function LoanQuotePage() {
   const count = parseInt(totalInstallments, 10) || 0;
   const canCalculate = principalAmount > 0 && count > 0 && disbursedAt !== '';
 
-  const conceptTypeOptions = (conceptTypes ?? []).map((conceptType) => ({
+  // Phase 23 — this tool only quotes corriente concepts; moratory ones
+  // always preview at amount 0 (nothing is overdue in a hypothetical), so
+  // there's no informational value in exposing them here, unlike
+  // LoanForm.tsx where they're actually assigned to a real loan.
+  const corrienteConceptTypes = (conceptTypes ?? []).filter(
+    (conceptType) => conceptType.category === ConceptCategory.Corriente,
+  );
+  const conceptTypeOptions = corrienteConceptTypes.map((conceptType) => ({
     value: conceptType.id,
     label: conceptType.name,
   }));
 
   const addConceptRow = () => {
-    const firstType = conceptTypes?.[0];
+    const firstType = corrienteConceptTypes[0];
     setConcepts((prev) => [
       ...prev,
       {
@@ -154,7 +164,7 @@ export function LoanQuotePage() {
 
       <div className="border-t border-border" />
 
-      <div className="grid grid-cols-[380px_1fr] gap-6">
+      <div className="grid grid-cols-[420px_1fr] gap-8">
         <div className="flex flex-col gap-3.5 rounded bg-surface p-5">
           <Field label="Monto a financiar">
             <CurrencyInput
@@ -292,7 +302,7 @@ export function LoanQuotePage() {
 
         <div className="flex flex-col gap-5">
           {!preview ? (
-            <div className="flex flex-1 items-center justify-center rounded bg-surface p-10">
+            <div className="flex flex-1 items-center justify-center rounded border border-border bg-surface p-14">
               <p className="text-body text-muted">
                 Completa el monto y las cuotas, y presiona "Calcular cotización"
                 para ver el resultado.
@@ -300,9 +310,9 @@ export function LoanQuotePage() {
             </div>
           ) : (
             <>
-              <div className="rounded bg-surface p-8 text-center">
+              <div className="rounded border border-border bg-surface p-10 text-center">
                 <p className="text-label text-muted">Cuota {frequencyLabel}</p>
-                <p className="mt-2 text-[40px] font-semibold leading-tight text-white">
+                <p className="mt-2 text-[48px] font-semibold leading-tight text-white">
                   {monthlyAmount !== null ? formatCurrency(monthlyAmount) : '—'}
                 </p>
                 <p className="mt-3 text-small text-muted">
@@ -324,21 +334,21 @@ export function LoanQuotePage() {
                 </p>
               )}
 
-              <div className="overflow-hidden rounded bg-surface">
-                <table className="w-full">
+              <div className="overflow-hidden rounded border border-border bg-surface">
+                <table className="w-full border-collapse">
                   <thead className="bg-input">
-                    <tr>
+                    <tr className="divide-x divide-border">
                       <Th>Cuota</Th>
                       <Th>Vence</Th>
                       <Th className="text-right">Capital</Th>
                       <Th className="text-right">Total</Th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-border">
                     {preview.installments.map((installment) => (
                       <tr
                         key={installment.installmentNumber}
-                        className="border-t border-border"
+                        className="divide-x divide-border"
                       >
                         <Td>{installment.installmentNumber}</Td>
                         <Td>{formatDateOnly(installment.dueDate)}</Td>
@@ -445,7 +455,7 @@ function Th({
 }) {
   return (
     <th
-      className={`h-[38px] px-3.5 text-left text-label font-medium tracking-[0.36px] text-muted ${className}`}
+      className={`h-11 px-4 text-left text-label font-medium tracking-[0.36px] text-muted ${className}`}
     >
       {children}
     </th>
@@ -460,7 +470,7 @@ function Td({
   className?: string;
 }) {
   return (
-    <td className={`h-11 px-3.5 text-small text-muted ${className}`}>
+    <td className={`h-12 px-4 text-small text-muted ${className}`}>
       {children}
     </td>
   );
