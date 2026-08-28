@@ -33,6 +33,12 @@ const STATUS_FILTER_OPTIONS = [
 export function LoansListPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  // Phase 23 — POST /loans moved off @Roles(Admin) onto
+  // @RequireModule(AppModule.Loans), so a collector granted the loans
+  // module can create a loan too. Mirrors RequirePermission.tsx's check.
+  const canCreateLoan = Boolean(
+    user && (user.role === 'admin' || user.modules.includes('loans')),
+  );
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -83,7 +89,7 @@ export function LoansListPage() {
 
         <div className="flex-1" />
 
-        {isAdmin && (
+        {canCreateLoan && (
           <button
             type="button"
             onClick={() => setIsCreating(true)}
