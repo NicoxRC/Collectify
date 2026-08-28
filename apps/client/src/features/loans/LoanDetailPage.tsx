@@ -10,9 +10,13 @@ import { ImageLightbox } from '@/components/ui/ImageLightbox';
 import { useAuth } from '@/features/auth/useAuth';
 import { DOCUMENT_TYPE_LABELS } from '@/features/clients/clientsApi';
 import { useClient } from '@/features/clients/useClients';
+import { BulkRegisterPaymentDialog } from '@/features/installments/BulkRegisterPaymentDialog';
 import { InstallmentStatus } from '@/features/installments/installmentsApi';
 import { RegisterPaymentDialog } from '@/features/installments/RegisterPaymentDialog';
-import { useRegisterPayment } from '@/features/installments/useInstallments';
+import {
+  useRegisterBulkPayments,
+  useRegisterPayment,
+} from '@/features/installments/useInstallments';
 import { ConceptCategory } from '@/features/interestConceptTypes/interestConceptTypesApi';
 import { EditLoanDialog } from '@/features/loans/EditLoanDialog';
 import {
@@ -63,6 +67,7 @@ export function LoanDetailPage() {
   const { data: client } = useClient(loan?.clientId ?? '');
   const { data: payments } = useLoanPayments(id ?? '');
   const registerPayment = useRegisterPayment(id ?? '');
+  const registerBulkPayments = useRegisterBulkPayments(id ?? '');
   const markAsPaid = useMarkLoanAsPaid();
   const payoffLoan = usePayoffLoan();
   const updateLoan = useUpdateLoan();
@@ -100,6 +105,13 @@ export function LoanDetailPage() {
 
   const [payingInstallment, setPayingInstallment] =
     useState<Installment | null>(null);
+  // Phase 28 — checkbox selection for the bulk "pagar seleccionadas"
+  // action below, keyed by installment id so it survives re-renders of
+  // InstallmentsTable's own installment objects.
+  const [selectedInstallmentIds, setSelectedInstallmentIds] = useState<
+    Set<string>
+  >(new Set());
+  const [isBulkPaying, setIsBulkPaying] = useState(false);
   const [isChangingStatus, setIsChangingStatus] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isRefinancing, setIsRefinancing] = useState(false);
@@ -159,6 +171,10 @@ export function LoanDetailPage() {
       </div>
     );
   }
+
+  const selectedInstallments = pendingInstallments.filter((installment) =>
+    selectedInstallmentIds.has(installment.id),
+  );
 
   const clientFullName = client
     ? `${client.firstName} ${client.lastName}`
@@ -238,6 +254,15 @@ export function LoanDetailPage() {
           >
             Registrar pago
           </button>
+          {selectedInstallments.length >= 2 && (
+            <button
+              type="button"
+              onClick={() => setIsBulkPaying(true)}
+              className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
+            >
+              Pagar seleccionadas ({selectedInstallments.length})
+            </button>
+          )}
           {isAdmin && (
             <button
               type="button"
@@ -408,6 +433,18 @@ export function LoanDetailPage() {
       <InstallmentsTable
         loan={loan}
         onPay={(installment) => setPayingInstallment(installment)}
+        selectedInstallmentIds={selectedInstallmentIds}
+        onToggleSelected={(installmentId) =>
+          setSelectedInstallmentIds((current) => {
+            const next = new Set(current);
+            if (next.has(installmentId)) {
+              next.delete(installmentId);
+            } else {
+              next.add(installmentId);
+            }
+            return next;
+          })
+        }
       />
 
       <div className="flex flex-col gap-2.5">
@@ -445,23 +482,28 @@ export function LoanDetailPage() {
                     {payment.observation ?? '—'}
                   </Td>
                   <Td>
-                    {payment.imageUrl ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEnlargedImage({
-                            url: payment.imageUrl!,
-                            alt: `Comprobante del pago del ${formatDateOnly(payment.paidAt)}`,
-                          })
-                        }
-                        className="block"
-                      >
-                        <img
-                          src={payment.imageUrl}
-                          alt={`Comprobante del pago del ${formatDateOnly(payment.paidAt)}`}
-                          className="h-8 w-8 rounded border border-border object-cover hover:border-subtle"
-                        />
-                      </button>
+                    {payment.imageUrls.length > 0 ? (
+                      <div className="flex items-center gap-1.5">
+                        {payment.imageUrls.map((imageUrl, imageIndex) => (
+                          <button
+                            key={imageUrl}
+                            type="button"
+                            onClick={() =>
+                              setEnlargedImage({
+                                url: imageUrl,
+                                alt: `Comprobante ${imageIndex + 1} del pago del ${formatDateOnly(payment.paidAt)}`,
+                              })
+                            }
+                            className="block"
+                          >
+                            <img
+                              src={imageUrl}
+                              alt={`Comprobante ${imageIndex + 1} del pago del ${formatDateOnly(payment.paidAt)}`}
+                              className="h-8 w-8 rounded border border-border object-cover hover:border-subtle"
+                            />
+                          </button>
+                        ))}
+                      </div>
                     ) : (
                       <span className="text-meta text-mid">—</span>
                     )}
@@ -509,6 +551,19 @@ export function LoanDetailPage() {
               input,
             })
           }
+        />
+      )}
+
+      {isBulkPaying && (
+        <BulkRegisterPaymentDialog
+          installments={selectedInstallments}
+          loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
+          onClose={() => setIsBulkPaying(false)}
+          onConfirm={async (entries) => {
+            const result = await registerBulkPayments.mutateAsync(entries);
+            setSelectedInstallmentIds(new Set());
+            return result;
+          }}
         />
       )}
 
@@ -582,9 +637,13 @@ export function LoanDetailPage() {
 function InstallmentsTable({
   loan,
   onPay,
+  selectedInstallmentIds,
+  onToggleSelected,
 }: {
   loan: LoanDetail;
   onPay: (installment: Installment) => void;
+  selectedInstallmentIds: Set<string>;
+  onToggleSelected: (installmentId: string) => void;
 }) {
   const chargeCategoryByName = new Map<string, ConceptCategory>();
   for (const installment of loan.installments) {
@@ -605,6 +664,7 @@ function InstallmentsTable({
         <table className="w-full min-w-max border-collapse">
           <thead className="bg-input">
             <tr>
+              <Th className="w-8" />
               <Th>Cuota</Th>
               <Th>Vence</Th>
               <Th>Monto</Th>
@@ -642,11 +702,24 @@ function InstallmentsTable({
               // record rather than something still actionable.
               const isCancelled =
                 installment.status === InstallmentStatus.Cancelled;
+              const isPending =
+                installment.status === InstallmentStatus.Pending;
               return (
                 <tr
                   key={installment.id}
                   className={`border-t border-border ${isCancelled ? 'opacity-50' : ''}`}
                 >
+                  <Td>
+                    {isPending ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedInstallmentIds.has(installment.id)}
+                        onChange={() => onToggleSelected(installment.id)}
+                        aria-label={`Seleccionar cuota ${installment.installmentNumber}`}
+                        className="h-3.5 w-3.5 accent-white"
+                      />
+                    ) : null}
+                  </Td>
                   <Td>{installment.installmentNumber}</Td>
                   <Td>{formatDateOnly(installment.dueDate)}</Td>
                   <Td>
@@ -769,7 +842,7 @@ function Th({
   children,
   className = '',
 }: {
-  children: ReactNode;
+  children?: ReactNode;
   className?: string;
 }) {
   return (
