@@ -24,8 +24,10 @@ export interface CreateUsuryRateInput {
 }
 
 export const usuryRatesApi = {
-  // Admin only — enforced server-side via @Roles(UserRole.Admin). Returns
-  // null when no rate has ever been entered.
+  // Open to any authenticated user as of Phase 24 — a collector who can
+  // create a loan (Phase 23) needs to see this before hitting the new hard
+  // block on a missing/stale rate. Returns null when no rate has ever been
+  // entered. Managing the rate (setRate/getHistory below) stays admin-only.
   getCurrent: async (): Promise<CurrentUsuryRate | null> => {
     const { data } = await apiClient.get<CurrentUsuryRate | null>(
       '/usury-rates/current',

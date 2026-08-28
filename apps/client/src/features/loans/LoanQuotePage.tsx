@@ -15,6 +15,8 @@ import {
 } from '@/features/interestConceptTypes/useInterestConceptTypes';
 import { InstallmentFrequency } from '@/features/loans/loansApi';
 import { usePreviewSchedule } from '@/features/loans/useLoans';
+import { StaleUsuryRateBanner } from '@/features/usuryRates/StaleUsuryRateBanner';
+import { useCurrentUsuryRate } from '@/features/usuryRates/useUsuryRates';
 import { formatCurrency, formatDateOnly } from '@/lib/format';
 
 import type {
@@ -73,9 +75,21 @@ export function LoanQuotePage() {
   const { data: conceptTypes } = useInterestConceptTypes({ isActive: true });
   const createConceptType = useCreateInterestConceptType();
   const previewSchedule = usePreviewSchedule();
+  // Phase 24 — POST /loans/preview-schedule now hard-blocks without a
+  // current usury rate on file, so this stateless calculator needs the
+  // same guard as the real loan-creation forms. See
+  // docs/phases/PHASE_24_USURY_MANDATORY.md.
+  const { data: currentUsuryRate } = useCurrentUsuryRate();
+  const hasUsableUsuryRate = Boolean(
+    currentUsuryRate && !currentUsuryRate.isStale,
+  );
 
   const count = parseInt(totalInstallments, 10) || 0;
-  const canCalculate = principalAmount > 0 && count > 0 && disbursedAt !== '';
+  const canCalculate =
+    principalAmount > 0 &&
+    count > 0 &&
+    disbursedAt !== '' &&
+    hasUsableUsuryRate;
 
   // Phase 23 — this tool only quotes corriente concepts; moratory ones
   // always preview at amount 0 (nothing is overdue in a hypothetical), so
@@ -164,6 +178,8 @@ export function LoanQuotePage() {
 
       <div className="border-t border-border" />
 
+      <StaleUsuryRateBanner />
+
       <div className="grid grid-cols-[420px_1fr] gap-8">
         <div className="flex flex-col gap-3.5 rounded bg-surface p-5">
           <Field label="Monto a financiar">
@@ -249,18 +265,30 @@ export function LoanQuotePage() {
                     type="number"
                     min={0}
                     step="0.01"
-                    value={row.value}
+                    disabled={
+                      row.calculationType === ConceptCalculationType.Percentage
+                    }
+                    value={
+                      row.calculationType === ConceptCalculationType.Percentage
+                        ? (currentUsuryRate?.ratePercentage ?? '')
+                        : row.value
+                    }
                     onChange={(event) =>
                       updateConceptRow(row.rowId, {
                         value: parseFloat(event.target.value) || 0,
                       })
+                    }
+                    title={
+                      row.calculationType === ConceptCalculationType.Percentage
+                        ? 'Se aplica la tasa de usura vigente automáticamente — no editable.'
+                        : undefined
                     }
                     placeholder={
                       row.calculationType === ConceptCalculationType.Percentage
                         ? '%'
                         : '$'
                     }
-                    className="h-9 w-20 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none"
+                    className="h-9 w-20 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                   />
                   <button
                     type="button"
@@ -322,17 +350,6 @@ export function LoanQuotePage() {
                   </span>
                 </p>
               </div>
-
-              {preview.usuryWarning && (
-                <p
-                  className="rounded border border-red-500 bg-surface px-4 py-3 text-small text-red-400"
-                  role="alert"
-                >
-                  Este cronograma supera la tasa de usura vigente (
-                  {preview.usuryWarning.maxEffectiveInstallmentRate}% vs.{' '}
-                  {preview.usuryWarning.currentCeilingRate}% permitido).
-                </p>
-              )}
 
               <div className="overflow-hidden rounded border border-border bg-surface">
                 <table className="w-full border-collapse">

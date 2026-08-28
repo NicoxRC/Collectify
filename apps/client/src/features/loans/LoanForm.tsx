@@ -27,6 +27,7 @@ import {
 import { InstallmentFrequency } from '@/features/loans/loansApi';
 import { usePreviewSchedule } from '@/features/loans/useLoans';
 import { StaleUsuryRateBanner } from '@/features/usuryRates/StaleUsuryRateBanner';
+import { useCurrentUsuryRate } from '@/features/usuryRates/useUsuryRates';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatDateOnly } from '@/lib/format';
 import { ImageUploadError, uploadDocument } from '@/lib/imageUpload';
@@ -140,9 +141,6 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   // generated schedule. See docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
   const [initialPayment, setInitialPayment] = useState(0);
   const [description, setDescription] = useState('');
-  // Only meaningful when preview?.usuryWarning fired — see
-  // docs/phases/PHASE_15_USURY_RATE.md ("warning, not a hard block").
-  const [usuryJustification, setUsuryJustification] = useState('');
 
   // Phase 21 — optional codeudor, off by default so the common
   // no-codeudor case doesn't add clutter; checking it reveals the fields
@@ -174,6 +172,15 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   const { data: conceptTypes } = useInterestConceptTypes({ isActive: true });
   const createConceptType = useCreateInterestConceptType();
   const previewSchedule = usePreviewSchedule();
+  // Phase 24 — a percentage concept's value is always this rate, forced
+  // server-side regardless of what's submitted; the row's own input is
+  // disabled and shows this instead of being freely typed. A missing/stale
+  // rate also blocks submission entirely (StaleUsuryRateBanner explains
+  // why). See docs/phases/PHASE_24_USURY_MANDATORY.md.
+  const { data: currentUsuryRate } = useCurrentUsuryRate();
+  const hasUsableUsuryRate = Boolean(
+    currentUsuryRate && !currentUsuryRate.isStale,
+  );
 
   const principal = principalAmount;
   const count = parseInt(totalInstallments, 10) || 0;
@@ -394,9 +401,6 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
         moratoryConcepts: toMoratoryConceptAssignments(),
         initialPayment: initialPayment > 0 ? initialPayment : undefined,
         description: description.trim() || undefined,
-        usuryJustification: preview?.usuryWarning
-          ? usuryJustification.trim() || undefined
-          : undefined,
         ...(hasCoDebtor
           ? {
               coDebtorFullName: coDebtorFullName.trim(),
@@ -698,11 +702,26 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                         type="number"
                         min={0}
                         step="0.01"
-                        value={row.value}
+                        disabled={
+                          row.calculationType ===
+                          ConceptCalculationType.Percentage
+                        }
+                        value={
+                          row.calculationType ===
+                          ConceptCalculationType.Percentage
+                            ? (currentUsuryRate?.ratePercentage ?? '')
+                            : row.value
+                        }
                         onChange={(event) =>
                           updateConceptRow(row.rowId, {
                             value: parseFloat(event.target.value) || 0,
                           })
+                        }
+                        title={
+                          row.calculationType ===
+                          ConceptCalculationType.Percentage
+                            ? 'Se aplica la tasa de usura vigente automáticamente — no editable.'
+                            : undefined
                         }
                         placeholder={
                           row.calculationType ===
@@ -710,7 +729,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                             ? '%'
                             : '$'
                         }
-                        className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none"
+                        className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                       />
                       <button
                         type="button"
@@ -771,11 +790,26 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                         type="number"
                         min={0}
                         step="0.01"
-                        value={row.value}
+                        disabled={
+                          row.calculationType ===
+                          ConceptCalculationType.Percentage
+                        }
+                        value={
+                          row.calculationType ===
+                          ConceptCalculationType.Percentage
+                            ? (currentUsuryRate?.ratePercentage ?? '')
+                            : row.value
+                        }
                         onChange={(event) =>
                           updateMoratoryConceptRow(row.rowId, {
                             value: parseFloat(event.target.value) || 0,
                           })
+                        }
+                        title={
+                          row.calculationType ===
+                          ConceptCalculationType.Percentage
+                            ? 'Se aplica la tasa de usura vigente automáticamente — no editable.'
+                            : undefined
                         }
                         placeholder={
                           row.calculationType ===
@@ -783,7 +817,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                             ? '%'
                             : '$'
                         }
-                        className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none"
+                        className="h-9 w-24 rounded border border-border bg-input px-2.5 text-small text-white focus:border-subtle focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                       />
                       <button
                         type="button"
@@ -814,7 +848,9 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                   <div className="flex items-center justify-between">
                     <ChipButton
                       onClick={handlePreview}
-                      disabled={previewSchedule.isPending}
+                      disabled={
+                        previewSchedule.isPending || !hasUsableUsuryRate
+                      }
                     >
                       {previewSchedule.isPending
                         ? 'Calculando…'
@@ -864,30 +900,7 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                       </table>
                     </div>
                   )}
-                  {preview?.usuryWarning && (
-                    <p className="mt-2.5 text-meta text-red-400" role="alert">
-                      Este cronograma supera la tasa de usura vigente (
-                      {preview.usuryWarning.maxEffectiveInstallmentRate}% vs.{' '}
-                      {preview.usuryWarning.currentCeilingRate}% permitido). El
-                      préstamo puede crearse igual, pero considera dejar una
-                      justificación abajo.
-                    </p>
-                  )}
                 </div>
-              )}
-
-              {preview?.usuryWarning && (
-                <Field label="Justificación de la tasa de usura (opcional)">
-                  <textarea
-                    value={usuryJustification}
-                    onChange={(event) =>
-                      setUsuryJustification(event.target.value)
-                    }
-                    placeholder="Ej: Cliente antiguo, aprobado por el dueño."
-                    rows={2}
-                    className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
-                  />
-                </Field>
               )}
             </FormSection>
 
@@ -1046,7 +1059,12 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || isUploading || isMoraBlocked}
+              disabled={
+                isSubmitting ||
+                isUploading ||
+                isMoraBlocked ||
+                !hasUsableUsuryRate
+              }
               className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isUploading
