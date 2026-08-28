@@ -14,6 +14,26 @@ export enum ConceptCalculationType {
   FixedAmount = 'fixed_amount',
 }
 
+// Phase 23 — which side of the concept engine a type belongs to. Corriente
+// concepts price a loan's ordinary cost at generation time (Phase 14,
+// unchanged); moratorio concepts price overdue installments, computed live
+// on read instead of projected at generation — see
+// docs/phases/PHASE_23_DYNAMIC_CHARGES.md and installmentCalculations.ts's
+// calculateMoratoryCharges.
+export enum ConceptCategory {
+  Corriente = 'corriente',
+  Moratorio = 'moratorio',
+}
+
+// Only meaningful when calculationType is FixedAmount and category is
+// Corriente — a moratorio fixed_amount concept is always charged once, flat,
+// the moment an installment goes overdue (confirmed with the human), so it
+// has no distribution mode to choose.
+export enum FixedAmountDistribution {
+  SplitAcrossInstallments = 'split_across_installments',
+  FirstInstallmentOnly = 'first_installment_only',
+}
+
 // Admin-managed catalog of interest/fee concepts (e.g. "Interés
 // remuneratorio", "Gastos de cobranza"). Confirmed with the human this must
 // stay open-ended — the admin creates new concept types whenever needed,
@@ -37,6 +57,20 @@ export class InterestConceptType {
     transformer: decimalTransformer,
   })
   defaultValue!: number | null;
+
+  @Column({
+    type: 'enum',
+    enum: ConceptCategory,
+    default: ConceptCategory.Corriente,
+  })
+  category!: ConceptCategory;
+
+  @Column({
+    type: 'enum',
+    enum: FixedAmountDistribution,
+    nullable: true,
+  })
+  fixedAmountDistribution!: FixedAmountDistribution | null;
 
   // Deactivating removes a type from the picker for new loans without
   // touching LoanInstallmentConcept rows already created from it — those

@@ -13,6 +13,7 @@ import {
 import { decimalTransformer } from '../../database/decimal.transformer';
 import {
   ConceptCalculationType,
+  ConceptCategory,
   InterestConceptType,
 } from '../../interestConceptTypes/entities/interestConceptType.entity';
 
@@ -54,6 +55,13 @@ export class LoanInstallmentConcept {
   @Column({ type: 'enum', enum: ConceptCalculationType })
   calculationType!: ConceptCalculationType;
 
+  // Snapshotted from the type at assignment time, same as nameSnapshot/
+  // calculationType. Distinguishes corriente rows (real computedAmount,
+  // baked into the installment's level payment) from moratorio rows (a
+  // pure assignment record — see computedAmount's own comment below).
+  @Column({ type: 'enum', enum: ConceptCategory })
+  category!: ConceptCategory;
+
   // The % (for percentage concepts) or flat currency figure (for
   // fixed_amount concepts) actually used for this installment.
   @Column({
@@ -64,10 +72,16 @@ export class LoanInstallmentConcept {
   })
   value!: number;
 
-  // The resulting currency amount this concept contributed to this
-  // installment — computed once at generation time against the balance at
-  // that point, then stored (the schedule doesn't change with the passage
-  // of time the way mora does).
+  // For a corriente concept: the resulting currency amount this concept
+  // contributed to this installment, computed once at generation time
+  // against the balance at that point, then stored (the schedule doesn't
+  // change with the passage of time the way mora does).
+  // For a moratorio concept: always stored as 0 — this row only records
+  // that the concept is assigned to the loan. The real charge is computed
+  // live, once the installment is actually overdue, by
+  // installmentCalculations.ts's calculateMoratoryCharges, since future
+  // overdue days can't be known in advance (confirmed with the human, see
+  // docs/phases/PHASE_23_DYNAMIC_CHARGES.md).
   @Column({
     type: 'decimal',
     precision: 12,
