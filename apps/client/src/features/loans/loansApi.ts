@@ -368,4 +368,12 @@ export const loansApi = {
     );
     return data;
   },
+
+  // Phase 30 — soft-deletes a loan created by mistake. Admin only; the api
+  // rejects with a 409 (ApiError) if the loan already has at least one
+  // registered payment on any installment — the caller is expected to
+  // surface that message, not treat it as a generic failure.
+  remove: async (id: string): Promise<void> => {
+    await apiClient.delete(`/loans/${id}`);
+  },
 };
