@@ -13,6 +13,7 @@ import { Repository } from 'typeorm';
 
 import { AuthenticatedUser } from '../auth/interfaces/authenticatedUser.interface';
 import { Client } from '../clients/entities/client.entity';
+import { Loan } from '../loans/entities/loan.entity';
 
 import { AuditLogService } from './auditLog.service';
 import { AUDIT_KEY, AuditMetadata } from './decorators/audit.decorator';
@@ -57,6 +58,13 @@ export class AuditLogInterceptor implements NestInterceptor {
     // the handler's own response, no query needed.
     @InjectRepository(Client)
     private readonly clientsRepository: Repository<Client>,
+    // Same reasoning, for loan.delete (Phase 30) — LoansService.remove()
+    // returns void (204 No Content, same convention as
+    // ClientsService.softDelete()), so there's no promissoryNoteNumber to
+    // read off the response; this falls back to a withDeleted lookup by
+    // params.id, mirroring the client fallback above.
+    @InjectRepository(Loan)
+    private readonly loansRepository: Repository<Loan>,
   ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -145,9 +153,17 @@ export class AuditLogInterceptor implements NestInterceptor {
         return null;
       }
       case 'loan': {
-        return entity && typeof entity.promissoryNoteNumber === 'string'
-          ? `Pagaré #${entity.promissoryNoteNumber}`
-          : null;
+        if (entity && typeof entity.promissoryNoteNumber === 'string') {
+          return `Pagaré #${entity.promissoryNoteNumber}`;
+        }
+        if (params.id) {
+          const loan = await this.loansRepository.findOne({
+            where: { id: params.id },
+            withDeleted: true,
+          });
+          return loan ? `Pagaré #${loan.promissoryNoteNumber}` : null;
+        }
+        return null;
       }
       case 'payment': {
         if (!entity || typeof entity.amountPaid !== 'number') {
