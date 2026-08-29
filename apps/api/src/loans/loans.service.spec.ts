@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
 
 import { ClientsService } from '../clients/clients.service';
 import { DocumentType } from '../clients/entities/client.entity';
@@ -34,6 +34,7 @@ describe('LoansService', () => {
     create: jest.Mock;
     save: jest.Mock;
     update: jest.Mock;
+    softDelete: jest.Mock;
   };
   let installmentsRepository: {
     find: jest.Mock;
@@ -41,11 +42,13 @@ describe('LoansService', () => {
     create: jest.Mock;
     save: jest.Mock;
     update: jest.Mock;
+    softDelete: jest.Mock;
   };
   let paymentsRepository: {
     find: jest.Mock;
     create: jest.Mock;
     save: jest.Mock;
+    count: jest.Mock;
   };
   let paymentImagesRepository: { find: jest.Mock };
   let loanInstallmentConceptsRepository: {
@@ -108,6 +111,7 @@ describe('LoansService', () => {
       create: jest.fn((dto: Partial<Loan>) => dto),
       save: jest.fn(),
       update: jest.fn(),
+      softDelete: jest.fn(),
     };
     installmentsRepository = {
       find: jest.fn(),
@@ -115,11 +119,13 @@ describe('LoansService', () => {
       create: jest.fn((dto: Partial<Installment>) => dto),
       save: jest.fn(),
       update: jest.fn(),
+      softDelete: jest.fn(),
     };
     paymentsRepository = {
       find: jest.fn(),
       create: jest.fn((dto: Partial<Payment>) => dto),
       save: jest.fn((payments: unknown[]) => Promise.resolve(payments)),
+      count: jest.fn(),
     };
     paymentImagesRepository = {
       find: jest.fn().mockResolvedValue([]),
@@ -1519,6 +1525,66 @@ describe('LoansService', () => {
       await expect(service.markAsPaid('missing-id')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('remove', () => {
+    beforeEach(() => {
+      loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
+      installmentsRepository.find.mockResolvedValue([
+        { id: 'inst-1' },
+        { id: 'inst-2' },
+      ]);
+      paymentsRepository.count.mockResolvedValue(0);
+    });
+
+    it('soft-deletes the loan and its installments when it has no payments', async () => {
+      await service.remove(mockLoan.id);
+
+      expect(installmentsRepository.softDelete).toHaveBeenCalledWith({
+        loanId: mockLoan.id,
+      });
+      expect(loansRepository.softDelete).toHaveBeenCalledWith({
+        id: mockLoan.id,
+      });
+    });
+
+    it('checks for payments across every installment of the loan', async () => {
+      await service.remove(mockLoan.id);
+
+      expect(paymentsRepository.count).toHaveBeenCalledWith({
+        where: { installmentId: In(['inst-1', 'inst-2']) },
+      });
+    });
+
+    it('skips the payment check entirely when the loan has no installments', async () => {
+      installmentsRepository.find.mockResolvedValue([]);
+
+      await service.remove(mockLoan.id);
+
+      expect(paymentsRepository.count).not.toHaveBeenCalled();
+      expect(loansRepository.softDelete).toHaveBeenCalledWith({
+        id: mockLoan.id,
+      });
+    });
+
+    it('rejects a loan that has at least one registered payment, unchanged', async () => {
+      paymentsRepository.count.mockResolvedValue(1);
+
+      await expect(service.remove(mockLoan.id)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(installmentsRepository.softDelete).not.toHaveBeenCalled();
+      expect(loansRepository.softDelete).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the loan does not exist', async () => {
+      loansRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.remove('missing-id')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(paymentsRepository.count).not.toHaveBeenCalled();
     });
   });
 

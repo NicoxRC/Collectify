@@ -624,6 +624,43 @@ export class LoansService {
     return this.findOne(id);
   }
 
+  // Phase 30 — lets an admin remove a loan created by mistake, but only
+  // before it has any real financial history: once a single Payment
+  // exists anywhere on the loan (any installment), deletion is refused —
+  // confirmed with the human ("eliminar si no tiene pago registrado").
+  // Soft, per this project's standard convention (no hard delete
+  // anywhere in docs/DATABASE.md); cascades to the loan's own
+  // installments explicitly, since TypeORM's softDelete() only stamps
+  // the target table's own deleted_at — it does not cascade to relations
+  // the way a real FK ON DELETE CASCADE would (same point docs/DATABASE.md
+  // makes for client_references, deliberately choosing NOT to cascade
+  // there; this case chooses to, per the phase brief).
+  async remove(id: string): Promise<void> {
+    await this.findLoanOrThrow(id);
+
+    const installments = await this.installmentsRepository.find({
+      where: { loanId: id },
+      select: { id: true },
+    });
+    const installmentIds = installments.map((installment) => installment.id);
+
+    if (installmentIds.length > 0) {
+      const paymentCount = await this.paymentsRepository.count({
+        where: { installmentId: In(installmentIds) },
+      });
+      if (paymentCount > 0) {
+        throw new ConflictException(
+          'No se puede eliminar un préstamo que ya tiene pagos registrados.',
+        );
+      }
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(Installment).softDelete({ loanId: id });
+      await manager.getRepository(Loan).softDelete({ id });
+    });
+  }
+
   // How much it costs to close this loan out today, per
   // docs/phases/PHASE_16_EARLY_PAYOFF.md — never blindly sums remaining
   // installment totals; a not-yet-due installment contributes only
