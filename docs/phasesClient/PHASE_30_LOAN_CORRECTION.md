@@ -6,19 +6,19 @@ Expose a "delete loan" action on the loan detail view, available only when the b
 
 ## Scope
 
-- [ ] Loan detail view: show a "Eliminar préstamo" action, disabled (or hidden, with an explanatory tooltip) once the loan has any registered payment — mirror the backend's precondition rather than re-deriving it client-side from raw installment data.
-- [ ] Confirmation dialog before deleting, explaining the action is irreversible from the panel (soft-delete, same messaging pattern as any other destructive confirmation in the app).
-- [ ] On the backend rejecting a delete attempt (race condition — a payment was registered between page load and the delete click), surface the API's error clearly rather than a generic failure.
+- [x] Loan detail view: shows a "Eliminar préstamo" action (admin only, next to the other admin-only actions), disabled with an explanatory `title` tooltip once the loan has any registered payment. Mirrors the backend's precondition using the already-fetched `useLoanPayments` data (`(payments ?? []).length > 0`) rather than re-deriving it from installment status — `markAsPaid()` can flip an installment to Paid without ever creating a `Payment` row, so installment status alone isn't a reliable stand-in for "has this loan received a real payment."
+- [x] New `DeleteLoanDialog`: confirmation before deleting, explaining the action can't be undone from the panel — same messaging pattern as `DeactivateClientDialog`/`MarkAsPaidDialog`.
+- [x] Unlike those two existing dialogs (which let a rejection fail silently), `DeleteLoanDialog` catches the mutation and shows the api's error message inline — covers the explicit race-condition case (a payment registered between page load and the delete click, so the backend's own check rejects it even though the button looked enabled).
+- [x] On success, navigates back to `/prestamos` — the loan detail page has nothing left to show.
 
 ### Tests (per `docs/TESTING.md` conventions for this app)
-- [ ] The delete action is available for a loan with no payments and unavailable for one with at least one payment.
-- [ ] Confirmation dialog blocks accidental deletion.
+Frontend component/unit tests are explicitly out of scope per `docs/TESTING.md` ("Out of scope (for now)"). Verified manually instead, end-to-end against the real local api/Postgres: a loan with no payments deletes successfully (soft-deleted, installments cascaded, `loan.delete` audit entry with the correct `Pagaré #...` label); a loan with one registered payment is rejected with 409 and left completely untouched.
 
 ## Definition of done for this phase
 
-- An admin can delete a mistakenly created loan from the panel, with a clear confirmation step.
-- The action is correctly unavailable once the loan has any payment.
-- All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
+- [x] An admin can delete a mistakenly created loan from the panel, with a clear confirmation step.
+- [x] The action is correctly unavailable once the loan has any payment.
+- [x] All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## Related documents
 
