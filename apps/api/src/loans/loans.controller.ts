@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Patch,
   Post,
@@ -288,5 +291,30 @@ export class LoansController {
     @Body() dto: RefinanceLoanDto,
   ): Promise<LoanDetail> {
     return this.loansService.refinance(id, dto);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.Admin)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Audit('loan.delete', 'loan')
+  @ApiOperation({
+    summary: 'Delete a loan created by mistake (admin only)',
+    description:
+      "Only allowed while none of the loan's installments have any registered payment — " +
+      'once a payment exists anywhere on the loan, deletion is refused and the loan must be ' +
+      "handled some other way (e.g. refinanced) instead. Soft-delete, cascading to the loan's " +
+      'own installments, per docs/phases/PHASE_30_LOAN_CORRECTION.md.',
+  })
+  @ApiResponse({ status: 204, description: 'The loan was deleted.' })
+  @ApiResponse({
+    status: 404,
+    description: 'Loan not found.',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'The loan already has at least one registered payment.',
+  })
+  remove(@Param('id') id: string): Promise<void> {
+    return this.loansService.remove(id);
   }
 }

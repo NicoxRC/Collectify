@@ -18,6 +18,7 @@ import {
   useRegisterPayment,
 } from '@/features/installments/useInstallments';
 import { ConceptCategory } from '@/features/interestConceptTypes/interestConceptTypesApi';
+import { DeleteLoanDialog } from '@/features/loans/DeleteLoanDialog';
 import { EditLoanDialog } from '@/features/loans/EditLoanDialog';
 import {
   estadoBadge,
@@ -33,6 +34,7 @@ import {
   useMarkLoanAsPaid,
   usePayoffLoan,
   useRefinanceLoan,
+  useRemoveLoan,
   useUpdateLoan,
 } from '@/features/loans/useLoans';
 import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
@@ -72,6 +74,7 @@ export function LoanDetailPage() {
   const payoffLoan = usePayoffLoan();
   const updateLoan = useUpdateLoan();
   const refinanceLoan = useRefinanceLoan();
+  const removeLoan = useRemoveLoan();
 
   // Phase 6: fetch whichever side of the refinance chain applies, purely
   // to show a nicer label (promissoryNoteNumber) than a bare link — both
@@ -116,6 +119,7 @@ export function LoanDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isRefinancing, setIsRefinancing] = useState(false);
   const [isPayingOff, setIsPayingOff] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   // Phase 12 — click-to-enlarge for a payment's receipt photo. No Figma
   // frame exists for this (see DESIGN_TOKENS.md); just the payment's own
   // imageUrl, no extra fetch needed. Phase 21 reuses this same state for
@@ -179,6 +183,13 @@ export function LoanDetailPage() {
   const clientFullName = client
     ? `${client.firstName} ${client.lastName}`
     : '…';
+  // Phase 30 — mirrors the backend's own delete precondition (any
+  // registered Payment row on any installment) rather than re-deriving it
+  // from installment status: markAsPaid() flips installments to Paid
+  // without ever creating a Payment row, so installment.status alone
+  // isn't a reliable stand-in for "has this loan received a real payment."
+  // `payments` is already fetched above for the payment-history table.
+  const hasPayments = (payments ?? []).length > 0;
   const outstandingBalance = pendingInstallments.reduce(
     (sum, installment) => sum + installment.totalDue,
     0,
@@ -300,6 +311,21 @@ export function LoanDetailPage() {
               className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
               Refinanciar
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              type="button"
+              disabled={hasPayments}
+              title={
+                hasPayments
+                  ? 'No se puede eliminar: este préstamo ya tiene pagos registrados.'
+                  : undefined
+              }
+              onClick={() => setIsDeleting(true)}
+              className="rounded border border-red-500/30 bg-input px-4 py-2.5 text-small text-red-400 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Eliminar préstamo
             </button>
           )}
         </div>
@@ -617,6 +643,19 @@ export function LoanDetailPage() {
             // Land on the new loan, not the now-refinanced old one — it's
             // the one the admin actually cares about going forward.
             navigate(`/prestamos/${newLoan.id}`);
+          }}
+        />
+      )}
+
+      {isDeleting && (
+        <DeleteLoanDialog
+          loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
+          onClose={() => setIsDeleting(false)}
+          onConfirm={async () => {
+            await removeLoan.mutateAsync(loan.id);
+            // The loan no longer exists — land back on the list, same as
+            // there being nothing left here to show.
+            navigate('/prestamos');
           }}
         />
       )}

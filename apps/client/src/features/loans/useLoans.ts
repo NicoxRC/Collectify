@@ -94,3 +94,11 @@ export function useRefinanceLoan() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['loans'] }),
   });
 }
+
+export function useRemoveLoan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: loansApi.remove,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['loans'] }),
+  });
+}

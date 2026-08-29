@@ -4,6 +4,7 @@ import { firstValueFrom, Observable, of, throwError } from 'rxjs';
 import { Repository } from 'typeorm';
 
 import { Client } from '../clients/entities/client.entity';
+import { Loan } from '../loans/entities/loan.entity';
 
 import { AuditLogInterceptor } from './auditLog.interceptor';
 import { AuditLogService } from './auditLog.service';
@@ -24,6 +25,7 @@ describe('AuditLogInterceptor', () => {
   let auditLogService: { record: jest.Mock };
   let reflector: { get: jest.Mock };
   let clientsRepository: { findOne: jest.Mock };
+  let loansRepository: { findOne: jest.Mock };
 
   const buildContext = (overrides: {
     user?: { id: string };
@@ -56,10 +58,15 @@ describe('AuditLogInterceptor', () => {
     // updateReference/removeReference fallback path ever calls this, and
     // most tests below don't exercise that path at all.
     clientsRepository = { findOne: jest.fn().mockResolvedValue(null) };
+    // Defaults to "not found" — only loan.delete's fallback path (the
+    // handler returns void, so there's no promissoryNoteNumber on the
+    // response) ever calls this; most tests below don't exercise it.
+    loansRepository = { findOne: jest.fn().mockResolvedValue(null) };
     interceptor = new AuditLogInterceptor(
       reflector as unknown as Reflector,
       auditLogService as unknown as AuditLogService,
       clientsRepository as unknown as Repository<Client>,
+      loansRepository as unknown as Repository<Loan>,
     );
   });
 
@@ -324,6 +331,57 @@ describe('AuditLogInterceptor', () => {
 
       expect(auditLogService.record).toHaveBeenCalledWith(
         expect.objectContaining({ entityLabel: 'Pagaré #743' }),
+      );
+    });
+
+    // loan.delete (Phase 30) returns void (204 No Content) — no
+    // promissoryNoteNumber on the response, so this falls back to a
+    // withDeleted lookup by the route's :id, mirroring the client
+    // reference-sub-action fallback above.
+    it('falls back to a loan lookup by route id when the response has no entity', async () => {
+      reflector.get.mockReturnValue({
+        action: 'loan.delete',
+        entityType: 'loan',
+      });
+      loansRepository.findOne.mockResolvedValue({
+        id: 'loan-1',
+        promissoryNoteNumber: '743',
+      });
+      const context = buildContext({
+        user: { id: 'user-1' },
+        params: { id: 'loan-1' },
+      });
+      const handler = buildCallHandler(of(undefined));
+
+      await firstValueFrom(interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(loansRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 'loan-1' },
+        withDeleted: true,
+      });
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ entityLabel: 'Pagaré #743' }),
+      );
+    });
+
+    it('resolves a null entityLabel when the loan-lookup fallback finds nothing', async () => {
+      reflector.get.mockReturnValue({
+        action: 'loan.delete',
+        entityType: 'loan',
+      });
+      loansRepository.findOne.mockResolvedValue(null);
+      const context = buildContext({
+        user: { id: 'user-1' },
+        params: { id: 'loan-1' },
+      });
+      const handler = buildCallHandler(of(undefined));
+
+      await firstValueFrom(interceptor.intercept(context, handler));
+      await flushPromises();
+
+      expect(auditLogService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ entityLabel: null }),
       );
     });
 

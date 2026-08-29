@@ -3,6 +3,7 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { Client } from '../clients/entities/client.entity';
+import { Loan } from '../loans/entities/loan.entity';
 
 import { AuditLogController } from './auditLog.controller';
 import { AuditLogInterceptor } from './auditLog.interceptor';
@@ -10,13 +11,14 @@ import { AuditLogService } from './auditLog.service';
 import { AuditLog } from './entities/auditLog.entity';
 
 @Module({
-  // Client is registered here (not by importing ClientsModule) purely so
-  // AuditLogInterceptor can read a client's name for the
-  // addReference/updateReference/removeReference label fallback — see
-  // that interceptor's constructor comment. A plain repository, not the
-  // module, to avoid pulling in ClientsModule's own dependencies for a
-  // single read-only lookup.
-  imports: [TypeOrmModule.forFeature([AuditLog, Client])],
+  // Client and Loan are registered here (not by importing their own
+  // modules) purely so AuditLogInterceptor can read a name/label for
+  // label-fallback cases where the handler's own response has nothing to
+  // read from (client.addReference/updateReference/removeReference,
+  // loan.delete) — see that interceptor's constructor comment. Plain
+  // repositories, not the modules, to avoid pulling in their dependencies
+  // for a single read-only lookup each.
+  imports: [TypeOrmModule.forFeature([AuditLog, Client, Loan])],
   controllers: [AuditLogController],
   providers: [
     AuditLogService,

@@ -239,6 +239,8 @@ Represents a *pagaré* — see `GLOSSARY.md`.
 
 **On why there's no `status: 'overdue'` at the loan level:** a loan can have some installments overdue and others current, or even fully current with a future installment pending. "Overdue" is a derived state of an *installment*, not the loan as a whole. The loan's own dashboard/detail view aggregates its installments' statuses for display purposes but doesn't store a redundant "overdue" flag.
 
+**Deletion (Phase 30):** `DELETE /api/v1/loans/:id` (admin only) lets an admin remove a loan created by mistake, but only while **none of its installments have any registered `Payment` row** — confirmed with the human ("eliminar si no tiene pago registrado"). Once a payment exists anywhere on the loan, the endpoint rejects with 409 and the loan must be handled some other way (e.g. refinanced) instead of deleted. Soft, per this table's own `deleted_at` convention — never a hard delete. Cascades explicitly to the loan's own `installments` rows (soft-deleted in the same transaction): TypeORM's `.softDelete()` only stamps the target table's own `deleted_at`, it does not cascade to relations the way a real FK `ON DELETE CASCADE` would (contrast with `client_references`, which deliberately does *not* cascade from a client's soft-delete — see that table's note above). Audit-logged as `loan.delete`.
+
 ### `installments`
 
 Represents a single *cuota* within a loan.

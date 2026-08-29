@@ -15,22 +15,22 @@ Give an admin a safe way to remove a loan created by mistake, without risking de
 ## Scope
 
 ### Service and API
-- [ ] `LoansService.remove(id)` (new or extended): reject with a clear error if any installment belonging to the loan has at least one `Payment` row; otherwise soft-delete the loan (and, per this project's cascade conventions, its installments) via the standard `.softDelete()` pattern — no hard delete, matching every other table in `docs/DATABASE.md`.
-- [ ] `DELETE /api/v1/loans/:id` — admin only, `@Audit('loan.delete', 'loan')` per the established audit-logging convention.
+- [x] `LoansService.remove(id)` (new): rejects with `ConflictException` (409) if any installment belonging to the loan has at least one `Payment` row; otherwise soft-deletes the loan and its installments (in one transaction) via the standard `.softDelete()` pattern — no hard delete, matching every other table in `docs/DATABASE.md`.
+- [x] `DELETE /api/v1/loans/:id` — admin only, `@Audit('loan.delete', 'loan')` per the established audit-logging convention. `AuditLogInterceptor`'s `loan` entity-label resolution extended with a `withDeleted` fallback lookup (mirroring the existing `client` one), since the 204 response has no `promissoryNoteNumber` to read the label from directly.
 
 ### Tests (mandatory)
-- [ ] A loan with zero payments across all its installments can be deleted.
-- [ ] A loan with at least one payment on any installment is rejected with a clear error, unchanged.
-- [ ] Deletion is soft (row remains, `deleted_at` set) and produces an audit log entry.
+- [x] A loan with zero payments across all its installments can be deleted.
+- [x] A loan with at least one payment on any installment is rejected with a clear error, unchanged.
+- [x] Deletion is soft (cascades to installments) and produces an audit log entry with the correct entity label.
 
 ### Swagger
-- [ ] `DELETE /api/v1/loans/:id` documented, including the no-payments precondition.
+- [x] `DELETE /api/v1/loans/:id` documented, including the no-payments precondition.
 
 ## Definition of done for this phase
 
-- An admin can delete a mistakenly created loan, but only before any payment has been registered against it.
-- The action is audit-logged and soft, per this project's existing conventions.
-- All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
+- [x] An admin can delete a mistakenly created loan, but only before any payment has been registered against it.
+- [x] The action is audit-logged and soft, per this project's existing conventions.
+- [x] All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
 
 ## After this phase
 
