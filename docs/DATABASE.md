@@ -497,6 +497,8 @@ When a loan is refinanced:
 
 This mirrors patterns seen directly in the source data (e.g. `REFINANCIADO #981`, `SE REFINANCIO EN EL #1000`).
 
+**Suggested principal (Phase 17, extended by Phase 25):** `GET /loans/:id/refinance-quote` suggests a `principalAmount` via the same `calculatePayoff()` engine Phase 16's payoff quote uses — principal remaining on pending installments, plus interest already caused (Art. 1653) on any matured one. As of Phase 25, a loan can be refinanced regardless of overdue installments (the earlier "client must be current first" rejection was removed, confirmed with the client, reunión 2026-08-25) — instead, an overdue installment's accrued corriente and moratory interest is folded into the suggested principal, and an installment due within the next 5 calendar days (not yet actually overdue) is treated the same way but contributes only its corriente interest, since no real mora has accrued on it yet. This is advisory only — `POST /loans/:id/refinance` still accepts whatever `principalAmount`/`concepts` the admin actually submits.
+
 ## Migrations
 
 Same policy as before: no `synchronize: true`, one migration per schema change, committed in the same PR, migrations never edited after being merged. See prior version of this document's conventions — unchanged here except for the tables above.

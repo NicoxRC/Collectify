@@ -208,6 +208,8 @@ Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_24_USUR
 
 ## Phase 25 — Refinancing with overdue installments
 
+**Done.** See `docs/phases/PHASE_25_REFINANCE_OVERDUE.md` for the resolved open questions and full implementation notes.
+
 Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_25_REFINANCE_OVERDUE.md`. Depends on Phase 23 (accrued interest/mora must be computed through the unified concept engine).
 
 - Removes the current block that prevents refinancing a loan with overdue installments

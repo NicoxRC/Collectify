@@ -19,7 +19,12 @@ These answers are final for this phase — do not revisit them without a new con
 
 **This phase reopens and supersedes the manual-entry decision from `docs/phases/PHASE_6_REFINANCING.md`** — the field is no longer blank by default, but the admin retains full editing control, so Phase 6's underlying principle ("a business decision, not a formula") is preserved even as its concrete UI behavior changes.
 
-## Extended after client QA (2026-08-18) — refinancing now requires the client to be current
+## ~~Extended after client QA (2026-08-18) — refinancing now requires the client to be current~~ (SUPERSEDED, Phase 25)
+
+**This entire section was reversed by `docs/phases/PHASE_25_REFINANCE_OVERDUE.md` (confirmed with the human, reunión 2026-08-25) — kept below for historical record only, not current behavior.** The blocking rule described here (including the 8-day extension and `blockedByPendingInstallments`) no longer exists in the code: `LoansService.blockingInstallmentNumbers()`/`findBlockingInstallmentNumbers()` were deleted entirely, and `RefinanceQuote` no longer has a `blockedByPendingInstallments` field. As of Phase 25, an overdue installment no longer blocks refinancing — instead its accrued interest is folded directly into `suggestedPrincipalAmount` (see that phase doc, and the updated "Refinancing" section of `docs/DATABASE.md`).
+
+<details>
+<summary>Original text (2026-08-18, superseded)</summary>
 
 **Confirmed directly with the human, reopening point 3 above ("`LoansService.refinance()` itself is unchanged"):** refinancing is no longer unconditional. The client must first be brought current on the old loan (paying overdue installments as ordinary payments, capital + interest) before it can be refinanced — refinancing is not a way to fold overdue debt into a new principal automatically.
 
@@ -29,6 +34,8 @@ These answers are final for this phase — do not revisit them without a new con
 - Implemented as `LoansService.blockingInstallmentNumbers()` (pure, given a loan's pending installments) — used by both `refinance()` (enforced) and `getRefinanceQuote()` (advisory).
 
 This does **not** change how `suggestedPrincipalAmount`/`payoff` are computed above — once the client is current, refinancing proceeds exactly as originally scoped in this phase (pending installments folded into the new principal, not-yet-due ones at face value).
+
+</details>
 
 ## Required reading before starting
 
