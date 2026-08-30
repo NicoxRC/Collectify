@@ -239,9 +239,11 @@ export class LoansController {
       "Reopens docs/phases/PHASE_6_REFINANCING.md's manual-entry decision, per " +
       'docs/phases/PHASE_17_REFINANCING_RECALC.md — advisory only, POST /loans/:id/refinance ' +
       'still accepts whatever principalAmount/concepts are actually submitted, unchanged. ' +
-      "suggestedPrincipalAmount reuses GET /loans/:id/payoff-quote's totalDue directly (the same " +
-      'figure a payoff quote would show), so the two can never disagree on what the client ' +
-      "currently owes. concepts carries over the old loan's first installment's concepts, " +
+      "suggestedPrincipalAmount reuses GET /loans/:id/payoff-quote's totalDue calculation, plus " +
+      '(per docs/phases/PHASE_25_REFINANCE_OVERDUE.md) an installment due within the next 5 days ' +
+      'also has its corriente interest folded in early, even though it is not yet actually ' +
+      'overdue — its moratory interest stays 0 since no mora has accrued yet. ' +
+      "concepts carries over the old loan's first installment's concepts, " +
       'excluding any whose catalog type was since deleted.',
   })
   @ApiResponse({ status: 200, description: 'Returns the refinance quote.' })
@@ -262,13 +264,14 @@ export class LoansController {
       'note number and a schedule generated the same way as loan creation (principalAmount, ' +
       'totalInstallments, and concepts — see POST /loans). principalAmount and concepts are still ' +
       'exactly what the admin submits — see GET /loans/:id/refinance-quote for a suggested ' +
-      'starting point, per docs/phases/PHASE_17_REFINANCING_RECALC.md. The client must be current ' +
-      'on the old loan first: rejected if any installment is overdue and unpaid, or — once the ' +
-      'most overdue installment reaches 8 days past due — if the installment right after it is ' +
-      'also unpaid, even though its own due date has not arrived yet. ' +
-      'GET /loans/:id/refinance-quote surfaces the same check in advance via ' +
-      'blockedByPendingInstallments. As of Phase 24, the same hard block and percentage-concept ' +
-      'auto-fill rules POST /loans uses apply here too — see docs/phases/PHASE_24_USURY_MANDATORY.md.',
+      'starting point, per docs/phases/PHASE_17_REFINANCING_RECALC.md. As of ' +
+      'docs/phases/PHASE_25_REFINANCE_OVERDUE.md, a loan with overdue installments can be ' +
+      'refinanced freely — the old "client must be current first" rejection is gone. Instead, ' +
+      "GET /loans/:id/refinance-quote's suggestedPrincipalAmount already folds in the overdue " +
+      "(and near-due) installments' accrued corriente and moratory interest, so refinancing no " +
+      'longer requires settling them separately first. As of Phase 24, the same hard block and ' +
+      'percentage-concept auto-fill rules POST /loans uses apply here too — see ' +
+      'docs/phases/PHASE_24_USURY_MANDATORY.md.',
   })
   @ApiResponse({
     status: 201,
@@ -277,9 +280,8 @@ export class LoansController {
   @ApiResponse({
     status: 400,
     description:
-      'The loan is not active (already paid or already refinanced), the client is not yet ' +
-      "current on it, or the current month's usury rate has not been entered yet — see the " +
-      'description above.',
+      "The loan is not active (already paid or already refinanced), or the current month's " +
+      'usury rate has not been entered yet — see the description above.',
   })
   @ApiResponse({ status: 404, description: 'Loan not found.' })
   @ApiResponse({
