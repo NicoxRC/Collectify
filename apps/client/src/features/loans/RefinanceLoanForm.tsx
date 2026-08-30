@@ -170,6 +170,14 @@ export function RefinanceLoanForm({
   const [refinanceQuote, setRefinanceQuote] = useState<RefinanceQuote | null>(
     null,
   );
+  // Phase 25 — refinancing with overdue/near-due installments is now
+  // allowed (see docs/phases/PHASE_25_REFINANCE_OVERDUE.md), but folding
+  // interés ya causado into the new principal isn't obvious from the form
+  // alone. A non-zero totalInterestOwed on the quote is exactly the signal
+  // that this refinance is including that interest, so gate the actual
+  // submit behind one extra confirmation step to avoid it happening by
+  // accident/misclick.
+  const [showOverdueConfirm, setShowOverdueConfirm] = useState(false);
 
   useEscapeKey(onClose);
 
@@ -205,6 +213,16 @@ export function RefinanceLoanForm({
             ...concept,
           })),
         );
+        // Phase 25 QoL — when the quote is folding in interés ya causado
+        // (overdue/near-due installments), leave a visible paper trail on
+        // the new loan's own record, not just in this session's confirm
+        // dialog. Pre-filled, still fully editable like every other field
+        // this effect sets.
+        if (quote.payoff.totalInterestOwed > 0) {
+          setDescription(
+            `Refinanciación incluye ${formatCurrency(quote.payoff.totalInterestOwed)} de interés ya causado en cuotas vencidas o próximas a vencer.`,
+          );
+        }
       })
       .catch(() => {
         // Non-fatal — see comment above.
@@ -230,14 +248,16 @@ export function RefinanceLoanForm({
 
   const principal = principalAmount;
   const count = parseInt(totalInstallments, 10) || 0;
-  // Confirmed with the human (2026-08-18): the client must be current on
-  // the old loan before it can be refinanced — enforced server-side in
-  // POST /loans/:id/refinance, surfaced here up front from the quote so
-  // the admin doesn't fill out the whole form only to get rejected at
-  // submit. See LoansService.blockingInstallmentNumbers.
-  const blockingInstallments =
-    refinanceQuote?.blockedByPendingInstallments ?? [];
-  const isBlocked = blockingInstallments.length > 0;
+
+  // Phase 25 QoL — which specific installments of the old loan are the
+  // ones contributing interés ya causado to the new principal (overdue, or
+  // within the 5-day early-maturity window). A matured/near-due
+  // installment always has interestApplied > 0; one that's genuinely not
+  // due yet always has interestApplied === 0 — see calculatePayoff.ts.
+  // Surfaced in ConfirmOverdueRefinanceDialog for traceability.
+  const overdueInstallmentNumbers = (refinanceQuote?.payoff.installments ?? [])
+    .filter((installment) => installment.interestApplied > 0)
+    .map((installment) => installment.installmentNumber);
 
   const corrienteConceptTypes = (conceptTypes ?? []).filter(
     (conceptType) => conceptType.category === ConceptCategory.Corriente,
@@ -394,7 +414,10 @@ export function RefinanceLoanForm({
     }
   };
 
-  const handleSubmit = async (event: FormEvent) => {
+  // Runs form validation, then either opens the overdue-interest
+  // confirmation (see showOverdueConfirm above) or goes straight to
+  // performSubmit when there's nothing to confirm.
+  const handleFormSubmit = (event: FormEvent) => {
     event.preventDefault();
     setFormError(null);
 
@@ -405,6 +428,14 @@ export function RefinanceLoanForm({
     }
     setFieldErrors({});
 
+    if ((refinanceQuote?.payoff.totalInterestOwed ?? 0) > 0) {
+      setShowOverdueConfirm(true);
+      return;
+    }
+    void performSubmit();
+  };
+
+  const performSubmit = async () => {
     // Deferred upload, same pattern as LoanForm.tsx/ClientForm.tsx — only
     // actually sent once the rest of the form has passed validation. If
     // the admin never picks a replacement, coDebtorIdDocumentUrl stays
@@ -470,13 +501,6 @@ export function RefinanceLoanForm({
           setFieldErrors({
             promissoryNoteNumber: 'Ya existe un préstamo con este número.',
           });
-        } else if (
-          err.statusCode === 400 &&
-          /cannot be refinanced until/i.test(err.message)
-        ) {
-          setFormError(
-            'El cliente debe estar al día para poder refinanciar — paga primero las cuotas vencidas.',
-          );
         } else {
           setFormError(err.message);
         }
@@ -513,25 +537,10 @@ export function RefinanceLoanForm({
           <StaleUsuryRateBanner />
         </div>
 
-        {isBlocked && (
-          <p
-            role="alert"
-            className="mt-3.5 rounded border border-[#ef4444] bg-[#240a0a] px-3.5 py-2.5 text-small text-[#ef4444]"
-          >
-            Este préstamo no se puede refinanciar todavía: el cliente debe
-            ponerse al día primero pagando la
-            {blockingInstallments.length > 1 ? 's cuotas ' : ' cuota '}
-            {blockingInstallments.join(', ')}
-            {blockingInstallments.length > 1
-              ? ' completas (capital + interés).'
-              : ' completa (capital + interés).'}
-          </p>
-        )}
-
         <div className="mt-5 border-t border-border" />
 
-        <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-6">
-          <fieldset disabled={isBlocked} className="contents">
+        <form onSubmit={handleFormSubmit} className="mt-5 flex flex-col gap-6">
+          <fieldset className="contents">
             <FormSection title="Datos del crédito">
               <div className="flex gap-4">
                 <Field
@@ -1071,9 +1080,7 @@ export function RefinanceLoanForm({
             </button>
             <button
               type="submit"
-              disabled={
-                isSubmitting || isUploading || isBlocked || !hasUsableUsuryRate
-              }
+              disabled={isSubmitting || isUploading || !hasUsableUsuryRate}
               className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isUploading
@@ -1085,6 +1092,18 @@ export function RefinanceLoanForm({
           </div>
         </form>
       </div>
+
+      {showOverdueConfirm && (
+        <ConfirmOverdueRefinanceDialog
+          installmentNumbers={overdueInstallmentNumbers}
+          isSubmitting={isSubmitting || isUploading}
+          onCancel={() => setShowOverdueConfirm(false)}
+          onConfirm={() => {
+            setShowOverdueConfirm(false);
+            void performSubmit();
+          }}
+        />
+      )}
 
       {newConceptTypeTarget && (
         <InterestConceptTypeForm
@@ -1112,6 +1131,76 @@ export function RefinanceLoanForm({
       )}
     </div>
   );
+}
+
+// Phase 25 — extra confirmation step before a refinance that folds
+// interés ya causado (from overdue or within-5-days installments) into
+// the new principal, so this doesn't happen from an accidental click on
+// "Refinanciar préstamo". Styled after DeleteLoanDialog.tsx, the closest
+// existing confirmation-on-top-of-a-form pattern in this codebase.
+function ConfirmOverdueRefinanceDialog({
+  installmentNumbers,
+  isSubmitting,
+  onCancel,
+  onConfirm,
+}: {
+  installmentNumbers: number[];
+  isSubmitting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  useEscapeKey(onCancel);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="w-full max-w-[420px] rounded-lg border border-border bg-surface px-8 py-7">
+        <h2 className="text-[16px] font-medium text-white">
+          Confirmar refinanciamiento
+        </h2>
+        <p className="mt-2.5 text-small text-white">
+          {installmentNumbers.length > 1
+            ? `Las cuotas ${formatInstallmentList(installmentNumbers)} están vencidas o próximas a vencer.`
+            : `La cuota ${formatInstallmentList(installmentNumbers)} está vencida o próxima a vencer.`}
+        </p>
+        <p className="mt-2.5 text-small text-muted">
+          El préstamo actual quedará como "Refinanciado": sus cuotas pendientes
+          se cancelan y a partir de ahí solo queda como historial — no se podrá
+          volver a registrar pagos ni hacer ninguna otra operación sobre él.
+          Esta acción no se puede deshacer.
+        </p>
+
+        <div className="mt-6 border-t border-border" />
+
+        <div className="mt-5 flex items-center justify-end gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isSubmitting}
+            className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={isSubmitting}
+            className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isSubmitting ? 'Refinanciando…' : 'Sí, refinanciar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// "3", "3 y 4", "3, 4 y 5" — same list style used elsewhere for
+// installment numbers in this codebase.
+function formatInstallmentList(numbers: number[]): string {
+  if (numbers.length <= 1) {
+    return numbers.join('');
+  }
+  return `${numbers.slice(0, -1).join(', ')} y ${numbers[numbers.length - 1]}`;
 }
 
 function inputClassName(hasError: boolean): string {

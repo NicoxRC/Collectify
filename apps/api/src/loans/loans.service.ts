@@ -50,7 +50,6 @@ import {
   enrichInstallment,
   InstallmentWithCalculated,
 } from './installments/enrichInstallment';
-import { calculateOverdueDays } from './installments/installmentCalculations';
 import {
   calculatePayoff,
   PayoffInstallmentInput,
@@ -60,6 +59,12 @@ import {
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const POSTGRES_UNIQUE_VIOLATION = '23505';
+// Phase 25 (confirmed with the human, reunión 2026-08-25) — see
+// getRefinanceQuote()'s own comment for the full explanation. Not the same
+// "5" as MessageTemplate's upcomingDueReminderDays (Phase 9); kept as its
+// own named constant specifically so the two are never accidentally
+// conflated or refactored into sharing a value.
+const REFINANCE_EARLY_MATURITY_WINDOW_DAYS = 5;
 
 export interface PreviewedInstallment {
   installmentNumber: number;
@@ -86,11 +91,6 @@ export interface RefinanceQuote {
   // Phase 23 — same carry-over as concepts above, filtered to the loan's
   // assigned moratory concepts instead of corriente ones.
   moratoryConcepts: LoanConceptAssignmentDto[];
-  // Installment numbers that must be paid in full before this loan can
-  // actually be refinanced — confirmed with the human (2026-08-18): the
-  // client must be current first. Empty when nothing blocks refinancing.
-  // See LoansService.blockingInstallmentNumbers.
-  blockedByPendingInstallments: number[];
 }
 
 export interface LoanDetail extends Loan {
@@ -321,13 +321,16 @@ export class LoansService {
       );
     }
 
-    const blockingInstallmentNumbers =
-      await this.findBlockingInstallmentNumbers(id);
-    if (blockingInstallmentNumbers.length > 0) {
-      throw new BadRequestException(
-        `This loan cannot be refinanced until installment(s) ${blockingInstallmentNumbers.join(', ')} are paid in full — the client must be current before refinancing. See docs/phases/PHASE_17_REFINANCING_RECALC.md.`,
-      );
-    }
+    // Phase 25 (confirmed with the human, reunión 2026-08-25): refinancing
+    // with overdue installments is no longer rejected — the client no
+    // longer has to be "current" first. The old block lived here; removed
+    // entirely rather than left as a dead-code no-op, per the phase doc's
+    // explicit "the block is removed entirely." What used to be rejected is
+    // now handled by folding the overdue (and near-due, see
+    // getRefinanceQuote's earlyMaturityWindowDays) installments' accrued
+    // interest into the new principal instead — see getRefinanceQuote()
+    // below. refinance() itself still just accepts whatever
+    // principalAmount/concepts the admin actually submits, unchanged.
 
     // Transactional — closing out the old loan, cancelling its pending
     // installments, and creating the new one must all succeed or all roll
@@ -759,6 +762,20 @@ export class LoansService {
   // well-defined mapping onto a new loan's possibly-different installment
   // count — excluding any whose catalog type was since deleted (no valid
   // id left to resubmit).
+  //
+  // Phase 25 (confirmed with the human, reunión 2026-08-25): unlike a real
+  // payoff quote, this one passes earlyMaturityWindowDays so an
+  // installment due within the next REFINANCE_EARLY_MATURITY_WINDOW_DAYS
+  // days — not yet actually overdue — also has its corriente interest
+  // folded into suggestedPrincipalAmount ("de la cuarta cuota entran los
+  // intereses al capital también, así no haya llegado a su fecha de
+  // vencimiento como tal"). Its moratory interest stays 0, since it isn't
+  // actually in mora yet — calculatePayoff() enforces that on its own, see
+  // that function's own comment. This window is intentionally scoped to
+  // refinancing only: getPayoffQuote()/payoff() (the real early-payoff
+  // endpoints, Phase 16) must keep omitting this option so a client asking
+  // "what do I owe if I pay off today" is never shown a not-yet-due cuota's
+  // interest.
   async getRefinanceQuote(id: string): Promise<RefinanceQuote> {
     const loan = await this.findLoanOrThrow(id);
     const pending = await this.findPendingInstallments(id);
@@ -774,9 +791,9 @@ export class LoansService {
         ),
       ),
       loan.interestRate,
+      new Date(),
+      { earlyMaturityWindowDays: REFINANCE_EARLY_MATURITY_WINDOW_DAYS },
     );
-    const blockedByPendingInstallments =
-      this.blockingInstallmentNumbers(pending);
 
     const firstInstallment = await this.installmentsRepository.findOne({
       where: { loanId: id },
@@ -812,54 +829,7 @@ export class LoansService {
             concept.category === ConceptCategory.Moratorio,
         )
         .map(toAssignmentDto),
-      blockedByPendingInstallments,
     };
-  }
-
-  // Confirmed with the human (2026-08-18): refinancing requires the client
-  // to be current on the old loan — every overdue installment must be paid
-  // off as an ordinary payment first. Additionally, once the most overdue
-  // installment has reached 8 days past due, the NEXT installment (even
-  // though its own due date hasn't arrived yet) must also be settled first
-  // — the client can't use a refinance to "skip ahead" past the
-  // still-current installment once they're 8+ days behind on the one
-  // before it. Returns an empty array when nothing blocks refinancing.
-  private blockingInstallmentNumbers(pending: Installment[]): number[] {
-    const today = new Date();
-    const overdue = pending.filter(
-      (installment) =>
-        calculateOverdueDays(new Date(installment.dueDate), today) > 0,
-    );
-    if (overdue.length === 0) {
-      return [];
-    }
-
-    const blocking = overdue.map(
-      (installment) => installment.installmentNumber,
-    );
-    const mostOverdue = overdue[overdue.length - 1];
-    const mostOverdueDays = calculateOverdueDays(
-      new Date(mostOverdue.dueDate),
-      today,
-    );
-    if (mostOverdueDays >= 8) {
-      const next = pending.find(
-        (installment) =>
-          installment.installmentNumber === mostOverdue.installmentNumber + 1,
-      );
-      if (next) {
-        blocking.push(next.installmentNumber);
-      }
-    }
-
-    return blocking;
-  }
-
-  private async findBlockingInstallmentNumbers(
-    loanId: string,
-  ): Promise<number[]> {
-    const pending = await this.findPendingInstallments(loanId);
-    return this.blockingInstallmentNumbers(pending);
   }
 
   // Added for the loan detail screen's "Historial de pagos" (F-19) — there

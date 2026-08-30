@@ -13,10 +13,10 @@ Remove `LoansService.refinance()`'s current block on refinancing a loan with ove
 - **The block is removed entirely:** "ya no lo bloqueamos si se refinancia con cuotas vencidas o con fecha de corte ya pasada."
 - **New principal formula:** "se deben sumar intereses corrientes y moratorios más el cálculo que ya se hace del capital" — i.e., on top of whatever `LoansService.refinance()`/Phase 17's recalculation already computes for remaining principal, add: (a) the corriente interest already caused on the overdue installments, and (b) the moratory interest/mora already accrued on those same overdue installments, both as of the refinance date.
 
-## Open questions — confirm before implementing
+## Open questions — resolved
 
-- [ ] Phase 17 (`PHASE_17_REFINANCING_RECALC.md`) already computes the new principal as "pending installments minus interest caused to date" (Art. 1653 interest-first allocation, per `docs/GLOSSARY.md` "Imputación del pago"). Confirm this phase's addition is *on top of* that existing Phase 17 formula, not a second, conflicting way of arriving at the new principal — the two need to be reconciled into one formula, not implemented as two competing calculations.
-- [ ] Does "fecha de corte ya pasada" (cut-off date already passed) refer to something distinct from an overdue installment, or is it the same condition phrased differently? If it's a separate concept, it isn't yet defined anywhere in `docs/DATABASE.md`/`docs/GLOSSARY.md` — confirm before assuming it's synonymous with "overdue."
+- [x] **Reconciliation with Phase 17:** confirmed no reconciliation was actually needed — `LoansService.getRefinanceQuote()`'s existing `calculatePayoff()` reuse already computes exactly this: for a matured (due-today-or-overdue) installment, `totalDue` already sums principal + corriente concept interest + moratory interest. The two were never competing formulas; the only real change needed was removing the block that prevented this calculation from ever running against an overdue installment in the first place.
+- [x] **"Fecha de corte ya pasada":** confirmed with the human this is a distinct, new rule — not a rephrasing of "overdue," and not the same "5 días" as `MessageTemplate.upcomingDueReminderDays` (Phase 9's Aviso reminder threshold, which only ever triggers a WhatsApp message and has no bearing on money — an initial mix-up between the two was clarified during confirmation). The actual rule: an installment due within the next 5 calendar days — even though not yet actually overdue — is also folded into the new principal when refinancing, contributing only its corriente/concept interest (no moratory interest, since none has genuinely accrued yet). Confirmed via a worked example: refinancing on day 16, with a cuota due the 20th (4 days out, within the 5-day window) folds that cuota's corriente interest into the new principal too. Implemented as `calculatePayoff()`'s new `earlyMaturityWindowDays` option (`REFINANCE_EARLY_MATURITY_WINDOW_DAYS = 5` in `loans.service.ts`), passed only by `getRefinanceQuote()` — `getPayoffQuote()`/`payoff()` (the real early-payoff endpoints) never pass it, so a real payoff quote is never inflated by a not-yet-due cuota.
 
 ## Required reading before starting
 
@@ -25,18 +25,27 @@ Remove `LoansService.refinance()`'s current block on refinancing a loan with ove
 ## Scope (once the open questions above are confirmed)
 
 ### Service and API
-- [ ] `LoansService.refinance()`: remove the `findBlockingInstallmentNumbers` rejection.
-- [ ] New-principal calculation: extend Phase 17's existing recalculation to add accrued corriente interest and accrued mora on any overdue pending installment being rolled into the refinance, reconciled per the open question above.
-- [ ] `POST /loans/:id/refinance` response/preview shows the breakdown (remaining capital, interest corrido, mora corrida) that produced the new principal, for transparency — matching this project's existing "never a blank manually-entered figure" precedent from Phase 17.
+- [x] `LoansService.refinance()`: removed the `findBlockingInstallmentNumbers` rejection entirely, along with the now-dead `blockingInstallmentNumbers`/`findBlockingInstallmentNumbers` private methods (no remaining callers).
+- [x] New-principal calculation: `calculatePayoff()` gained an `earlyMaturityWindowDays` option; `getRefinanceQuote()` passes `REFINANCE_EARLY_MATURITY_WINDOW_DAYS = 5`, folding both overdue and near-due (within 5 days) installments' corriente/moratory interest into `suggestedPrincipalAmount`. `getPayoffQuote()`/`payoff()` keep omitting the option, so Phase 16's real payoff behavior is unchanged.
+- [x] `GET /loans/:id/refinance-quote` already returned the full breakdown via its existing `payoff: PayoffQuote` field (per-installment `interestApplied`/`principalApplied`/`totalDue`, plus totals) — this was already transparent before this phase, no new field needed. Removed `blockedByPendingInstallments` from `RefinanceQuote` (no longer meaningful now that nothing blocks).
 
 ### Tests (mandatory)
-- [ ] Refinancing a loan with at least one overdue installment succeeds (previously rejected).
-- [ ] The new principal correctly includes remaining capital + interest corrido + mora corrida on the overdue installments, verified against a hand-calculated example.
-- [ ] Refinancing a loan with no overdue installments is unaffected (same numbers as before this phase).
-- [ ] The old blocking behavior is fully gone — no lingering `BadRequestException` for this case.
+- [x] Refinancing a loan with at least one overdue installment succeeds (previously rejected) — `loans.service.spec.ts`.
+- [x] The new principal correctly includes remaining capital + interest corrido + mora corrida on the overdue installments, verified against a hand-calculated example — `loans.service.spec.ts` `getRefinanceQuote` describe block.
+- [x] Refinancing a loan with no overdue installments is unaffected (same numbers as before this phase) — pre-existing "suggests the payoff quote total as the new principal" test still passes unchanged.
+- [x] The old blocking behavior is fully gone — no lingering `BadRequestException` for this case.
+- [x] Additional coverage beyond the mandatory list: `calculatePayoff.spec.ts`'s new `earlyMaturityWindowDays option` describe block — default-omitted behavior unchanged, inclusive 5-day boundary, just-outside-window exclusion, and confirmation the window never changes how an already-overdue installment is priced.
 
 ### Swagger
-- [ ] `POST /loans/:id/refinance` description updated to remove the "must be current" language and describe the new interest-inclusive principal calculation.
+- [x] `POST /loans/:id/refinance` and `GET /loans/:id/refinance-quote` descriptions updated to remove the "must be current" language and describe the new interest-inclusive principal calculation.
+
+## Frontend follow-up — resolved
+
+`apps/client/src/features/loans/loansApi.ts` and `RefinanceLoanForm.tsx` referenced the now-removed `blockedByPendingInstallments` field (`RefinanceQuote.blockedByPendingInstallments`, the `blockingInstallments`/`isBlocked` derived state, the "el cliente debe ponerse al día primero" warning banner, and the `fieldset`/submit-button disabling tied to it). Cleaned up in this same branch: the dead field was removed from the `RefinanceQuote` type, and the form no longer disables itself or shows a blocking warning — since nothing blocks refinancing anymore, `suggestedPrincipalAmount` (already correctly recalculated, see above) is the only thing the form needed to keep working. The now-dead 400 `/cannot be refinanced until/` error-message handling in `handleSubmit`'s catch block (from the removed blocking behavior) was removed too.
+
+### Extra UX safeguard (also this branch, not in the original scope)
+
+Since refinancing with overdue/near-due installments now folds interés ya causado into the new principal without any friction, added a one-step confirmation dialog (`ConfirmOverdueRefinanceDialog` in `RefinanceLoanForm.tsx`) that appears before submit whenever `refinanceQuote.payoff.totalInterestOwed > 0` — i.e. exactly when the quote is including that extra interest. It states the interest amount being folded in and the resulting new principal, and requires an explicit second click to proceed, so this can't happen from an accidental click on "Refinanciar préstamo". No Figma frame exists for this (reused the existing `DeleteLoanDialog.tsx` confirmation styling).
 
 ## Definition of done for this phase
 

@@ -225,4 +225,114 @@ describe('calculatePayoff', () => {
       totalDue: 0,
     });
   });
+
+  // Phase 25 (confirmed with the human, reunión 2026-08-25) —
+  // LoansService.getRefinanceQuote() passes earlyMaturityWindowDays: 5 so a
+  // not-yet-due installment within that window is folded into the new
+  // principal too. The real early-payoff endpoints (getPayoffQuote/payoff)
+  // must never pass this option, so the default (omitted) behavior stays
+  // byte-for-byte the original Phase 16 rule — the first case below.
+  describe('earlyMaturityWindowDays option', () => {
+    it('has no effect when omitted — a not-yet-due installment within 5 days still owes zero interest', () => {
+      const today = new Date('2026-01-01');
+      const inFourDays = addDays(today, 4).toISOString().slice(0, 10);
+
+      const quote = calculatePayoff(
+        [
+          installment({
+            dueDate: inFourDays,
+            amount: 300000,
+            principalPortion: 270000,
+          }),
+        ],
+        6,
+        today,
+        // no options passed — must match Phase 16's real payoff behavior
+      );
+
+      expect(quote.installments[0].interestApplied).toBe(0);
+      expect(quote.installments[0].totalDue).toBe(270000);
+    });
+
+    it('folds in only the corriente interest for an installment within the window, not yet actually overdue', () => {
+      const today = new Date('2026-01-01');
+      const inFourDays = addDays(today, 4).toISOString().slice(0, 10);
+
+      const quote = calculatePayoff(
+        [
+          installment({
+            dueDate: inFourDays,
+            amount: 300000,
+            principalPortion: 270000,
+          }),
+        ],
+        6,
+        today,
+        { earlyMaturityWindowDays: 5 },
+      );
+
+      // conceptsInterest (30000) only — overdueDays is still 0 four days
+      // out, so the legacy moratory formula naturally computes to 0.
+      expect(quote.installments[0].interestApplied).toBeCloseTo(30000, 6);
+      expect(quote.installments[0].totalDue).toBeCloseTo(300000, 6);
+    });
+
+    it('includes an installment due in exactly 5 days — inclusive boundary', () => {
+      const today = new Date('2026-01-01');
+      const inFiveDays = addDays(today, 5).toISOString().slice(0, 10);
+
+      const quote = calculatePayoff(
+        [
+          installment({
+            dueDate: inFiveDays,
+            amount: 300000,
+            principalPortion: 270000,
+          }),
+        ],
+        6,
+        today,
+        { earlyMaturityWindowDays: 5 },
+      );
+
+      expect(quote.installments[0].interestApplied).toBeCloseTo(30000, 6);
+    });
+
+    it('excludes an installment due in 6 days — just outside the window', () => {
+      const today = new Date('2026-01-01');
+      const inSixDays = addDays(today, 6).toISOString().slice(0, 10);
+
+      const quote = calculatePayoff(
+        [
+          installment({
+            dueDate: inSixDays,
+            amount: 300000,
+            principalPortion: 270000,
+          }),
+        ],
+        6,
+        today,
+        { earlyMaturityWindowDays: 5 },
+      );
+
+      expect(quote.installments[0].interestApplied).toBe(0);
+      expect(quote.installments[0].totalDue).toBe(270000);
+    });
+
+    it('still applies full corriente and moratory interest for an already-overdue installment, window or not', () => {
+      const today = new Date('2026-01-11');
+      const dueDate = subDays(today, 10).toISOString().slice(0, 10);
+
+      const quote = calculatePayoff(
+        [installment({ dueDate, amount: 300000, principalPortion: 270000 })],
+        6,
+        today,
+        { earlyMaturityWindowDays: 5 },
+      );
+
+      // Same as the very first test in this file (concepts 30000 + moratory
+      // 6000 = 36000) — the window only ever adds coverage for not-yet-due
+      // installments, it never changes how an already-overdue one is priced.
+      expect(quote.installments[0].interestApplied).toBeCloseTo(36000, 6);
+    });
+  });
 });
