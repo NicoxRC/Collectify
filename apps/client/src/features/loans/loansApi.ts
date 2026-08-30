@@ -218,10 +218,6 @@ export interface RefinanceQuote {
   // Phase 23 — same carry-over as concepts above, filtered to the loan's
   // assigned moratory concepts.
   moratoryConcepts: LoanConceptAssignment[];
-  // Installment numbers that must be paid in full before this loan can
-  // actually be refinanced — confirmed with the human (2026-08-18): the
-  // client must be current first. Empty when nothing blocks refinancing.
-  blockedByPendingInstallments: number[];
 }
 
 // Matches apps/api/src/loans/dto/updateLoan.dto.ts exactly — only these two
