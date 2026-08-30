@@ -696,9 +696,11 @@ describe('LoansService', () => {
       expect(dataSource.transaction).toHaveBeenCalled();
     });
 
-    // Confirmed with the human (2026-08-18): refinancing requires the
-    // client to be current on the old loan first.
-    it('rejects refinancing when the old loan has an unpaid overdue installment', async () => {
+    // Phase 25 (confirmed with the human, reunión 2026-08-25): the old
+    // "client must be current first" rejection is gone — refinancing with
+    // an overdue installment now succeeds. Superseded by the tests below;
+    // this one only asserts the old BadRequestException no longer fires.
+    it('no longer rejects refinancing when the old loan has an unpaid overdue installment', async () => {
       installmentsRepository.find.mockResolvedValue([
         {
           id: 'inst-1',
@@ -717,8 +719,10 @@ describe('LoansService', () => {
 
       await expect(
         service.refinance(mockLoan.id, refinanceDto),
-      ).rejects.toThrow(BadRequestException);
-      expect(loansRepository.save).not.toHaveBeenCalled();
+      ).resolves.toBeDefined();
+      expect(loansRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: LoanStatus.Refinanced }),
+      );
     });
 
     it('allows refinancing when no installments are overdue', async () => {
@@ -1735,56 +1739,17 @@ describe('LoansService', () => {
       expect(quote.suggestedPrincipalAmount).toBe(0);
     });
 
-    // Confirmed with the human (2026-08-18): refinancing requires the
-    // client to be current on the old loan first.
-    it('reports no blocking installments when nothing is overdue', async () => {
-      const futureDueDate = new Date();
-      futureDueDate.setFullYear(futureDueDate.getFullYear() + 1);
-      installmentsRepository.find.mockResolvedValue([
-        pendingInstallment({
-          dueDate: futureDueDate.toISOString().slice(0, 10),
-        }),
-      ]);
-      installmentsRepository.findOne.mockResolvedValue(
-        pendingInstallment({ id: 'inst-1' }),
-      );
-
-      const quote = await service.getRefinanceQuote(mockLoan.id);
-
-      expect(quote.blockedByPendingInstallments).toEqual([]);
-    });
-
-    it('reports every overdue installment as blocking', async () => {
-      const threeDaysAgo = new Date();
-      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-      installmentsRepository.find.mockResolvedValue([
-        pendingInstallment({
-          installmentNumber: 1,
-          dueDate: threeDaysAgo.toISOString().slice(0, 10),
-        }),
-      ]);
-      installmentsRepository.findOne.mockResolvedValue(
-        pendingInstallment({ id: 'inst-1' }),
-      );
-
-      const quote = await service.getRefinanceQuote(mockLoan.id);
-
-      expect(quote.blockedByPendingInstallments).toEqual([1]);
-    });
-
-    it('also blocks the next installment once the most overdue one reaches 8 days', async () => {
-      const eightDaysAgo = new Date();
-      eightDaysAgo.setDate(eightDaysAgo.getDate() - 8);
+    // Phase 25 (confirmed with the human, reunión 2026-08-25): overdue and
+    // near-due installments no longer block refinancing — instead, their
+    // accrued interest is folded directly into suggestedPrincipalAmount.
+    // These four tests replace the old blockedByPendingInstallments ones.
+    it('does not add extra interest for an installment beyond the 5-day early-maturity window', async () => {
       const inThreeWeeks = new Date();
       inThreeWeeks.setDate(inThreeWeeks.getDate() + 21);
       installmentsRepository.find.mockResolvedValue([
         pendingInstallment({
-          installmentNumber: 1,
-          dueDate: eightDaysAgo.toISOString().slice(0, 10),
-        }),
-        pendingInstallment({
-          id: 'inst-2',
-          installmentNumber: 2,
+          amount: 300000,
+          principalPortion: 270000,
           dueDate: inThreeWeeks.toISOString().slice(0, 10),
         }),
       ]);
@@ -1794,23 +1759,17 @@ describe('LoansService', () => {
 
       const quote = await service.getRefinanceQuote(mockLoan.id);
 
-      expect(quote.blockedByPendingInstallments).toEqual([1, 2]);
+      expect(quote.suggestedPrincipalAmount).toBe(270000);
     });
 
-    it('does not block the next installment when the most overdue one is under 8 days', async () => {
-      const threeDaysAgo = new Date();
-      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-      const inThreeWeeks = new Date();
-      inThreeWeeks.setDate(inThreeWeeks.getDate() + 21);
+    it('folds an installment due within 5 days into the new principal, corriente interest only (not yet actually overdue)', async () => {
+      const inFourDays = new Date();
+      inFourDays.setDate(inFourDays.getDate() + 4);
       installmentsRepository.find.mockResolvedValue([
         pendingInstallment({
-          installmentNumber: 1,
-          dueDate: threeDaysAgo.toISOString().slice(0, 10),
-        }),
-        pendingInstallment({
-          id: 'inst-2',
-          installmentNumber: 2,
-          dueDate: inThreeWeeks.toISOString().slice(0, 10),
+          amount: 300000,
+          principalPortion: 270000,
+          dueDate: inFourDays.toISOString().slice(0, 10),
         }),
       ]);
       installmentsRepository.findOne.mockResolvedValue(
@@ -1819,7 +1778,51 @@ describe('LoansService', () => {
 
       const quote = await service.getRefinanceQuote(mockLoan.id);
 
-      expect(quote.blockedByPendingInstallments).toEqual([1]);
+      // principalPortion (270000) + corriente interest already baked into
+      // the cuota (300000 - 270000 = 30000) + 0 moratory, since no real
+      // mora has accrued yet (overdueDays is still 0 four days out).
+      expect(quote.suggestedPrincipalAmount).toBe(300000);
+    });
+
+    it('includes both corriente and moratory interest for an actually overdue installment (hand-calculated)', async () => {
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({
+          amount: 300000,
+          principalPortion: 270000,
+          dueDate: threeDaysAgo.toISOString().slice(0, 10),
+        }),
+      ]);
+      installmentsRepository.findOne.mockResolvedValue(
+        pendingInstallment({ id: 'inst-1' }),
+      );
+
+      const quote = await service.getRefinanceQuote(mockLoan.id);
+
+      // Hand-calculated: principalPortion 270000 + corriente (300000 -
+      // 270000 = 30000) + legacy moratory formula ((300000 * 6/100) / 30)
+      // * 3 days = 1800 → 270000 + 30000 + 1800 = 301800.
+      expect(quote.suggestedPrincipalAmount).toBe(301800);
+    });
+
+    it('folds an installment due in exactly 5 days into the new principal (inclusive boundary)', async () => {
+      const inFiveDays = new Date();
+      inFiveDays.setDate(inFiveDays.getDate() + 5);
+      installmentsRepository.find.mockResolvedValue([
+        pendingInstallment({
+          amount: 300000,
+          principalPortion: 270000,
+          dueDate: inFiveDays.toISOString().slice(0, 10),
+        }),
+      ]);
+      installmentsRepository.findOne.mockResolvedValue(
+        pendingInstallment({ id: 'inst-1' }),
+      );
+
+      const quote = await service.getRefinanceQuote(mockLoan.id);
+
+      expect(quote.suggestedPrincipalAmount).toBe(300000);
     });
 
     it('throws NotFoundException when the loan does not exist', async () => {
