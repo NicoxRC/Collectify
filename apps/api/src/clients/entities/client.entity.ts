@@ -10,9 +10,6 @@ import {
 
 import { decimalTransformer } from '../../database/decimal.transformer';
 
-// Shared with Loan.coDebtorDocumentType (Phase 21) — a co-debtor is
-// identified the same way a client is, so both reuse this enum instead of
-// duplicating it.
 export enum DocumentType {
   CedulaCiudadania = 'cedula_ciudadania',
   CedulaExtranjeria = 'cedula_extranjeria',

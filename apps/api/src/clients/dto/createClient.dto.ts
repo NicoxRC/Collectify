@@ -45,11 +45,10 @@ export class CreateClientDto {
   creditLimit?: number;
 
   // --- Extended profile (KYC), Phase 21 — all optional here at the DTO
-  // level, including dataProcessingConsent: Excel-imported clients build
-  // this same DTO without it (see clientsImportParser.ts /
-  // ClientsService.importFromExcel), so it can't be a class-validator
-  // requirement without breaking that path. Requiring it for the manual
-  // creation flow is enforced as a business rule in
+  // level, including dataProcessingConsent: bulk-imported clients (see
+  // ClientLoanImportService) build this same DTO without it, so it can't
+  // be a class-validator requirement without breaking that path. Requiring
+  // it for the manual creation flow is enforced as a business rule in
   // ClientsService.create() instead — see that method's comment. ---
 
   @ApiPropertyOptional({ enum: DocumentType })
@@ -82,12 +81,22 @@ export class CreateClientDto {
   @IsPhoneNumber('CO')
   alternatePhoneNumber?: string;
 
-  @ApiPropertyOptional({ example: 'Cra 45 #12-30, Barrio Centro' })
+  @ApiPropertyOptional({
+    example: 'Cra 45 #12-30, Barrio Centro',
+    description:
+      'At least one of homeAddress/workAddress is required (enforced in ClientsService, not by ' +
+      'this decorator, since it is a cross-field either/or rule) — applies to every interactive ' +
+      'creation, and unlike dataProcessingConsent/documentType, is NOT exempted for bulk import.',
+  })
   @IsOptional()
   @IsString()
   homeAddress?: string;
 
-  @ApiPropertyOptional({ example: 'Av. Siempre Viva 742' })
+  @ApiPropertyOptional({
+    example: 'Av. Siempre Viva 742',
+    description:
+      'At least one of homeAddress/workAddress is required — see homeAddress.',
+  })
   @IsOptional()
   @IsString()
   workAddress?: string;
