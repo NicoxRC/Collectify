@@ -18,9 +18,11 @@ import { enrichInstallment } from '../loans/installments/enrichInstallment';
 import { CreateClientDto } from './dto/createClient.dto';
 import { CreateClientReferenceDto } from './dto/createClientReference.dto';
 import { QueryClientsDto } from './dto/queryClients.dto';
+import { SetClientMessageFrequencyDto } from './dto/setClientMessageFrequency.dto';
 import { UpdateClientDto } from './dto/updateClient.dto';
 import { UpdateClientReferenceDto } from './dto/updateClientReference.dto';
 import { Client } from './entities/client.entity';
+import { ClientMessageFrequency } from './entities/clientMessageFrequency.entity';
 import { ClientReference } from './entities/clientReference.entity';
 
 const DEFAULT_PAGE = 1;
@@ -50,6 +52,7 @@ export interface ClientDetail extends Client {
   creditAvailable: number | null;
   isMoraBlocked: boolean;
   references: ClientReference[];
+  messageFrequency: ClientMessageFrequency | null;
 }
 
 interface EnrichedInstallment {
@@ -69,6 +72,8 @@ export class ClientsService {
     private readonly installmentsRepository: Repository<Installment>,
     @InjectRepository(ClientReference)
     private readonly clientReferencesRepository: Repository<ClientReference>,
+    @InjectRepository(ClientMessageFrequency)
+    private readonly clientMessageFrequenciesRepository: Repository<ClientMessageFrequency>,
   ) {}
 
   // requireConsent/requireDocumentType both default to true (the
@@ -209,6 +214,7 @@ export class ClientsService {
       where: { clientId: id },
       order: { createdAt: 'ASC' },
     });
+    const messageFrequency = await this.getMessageFrequency(id);
 
     const creditUsed = sumTotalDue(enriched);
     const creditAvailable =
@@ -223,6 +229,7 @@ export class ClientsService {
       creditAvailable,
       isMoraBlocked,
       references,
+      messageFrequency,
     };
   }
 
@@ -391,6 +398,42 @@ export class ClientsService {
       );
     }
     return reference;
+  }
+
+  // --- Client message frequency whitelist (Phase 27) — throttles HOW
+  // OFTEN overdue/upcoming_due reminders reach this client, never WHETHER
+  // they're eligible; see MessageFrequencyThrottleService in the whatsapp
+  // module for the read side. One row per client (unique clientId), found-
+  // or-created rather than MessageAudience's "always use the most recent
+  // of many" pattern — this relationship is genuinely 1:1, so there's no
+  // ambiguity to resolve at read time. See
+  // docs/phases/PHASE_27_MESSAGE_FREQUENCY.md. ---
+
+  async getMessageFrequency(
+    clientId: string,
+  ): Promise<ClientMessageFrequency | null> {
+    return this.clientMessageFrequenciesRepository.findOneBy({ clientId });
+  }
+
+  async setMessageFrequency(
+    clientId: string,
+    dto: SetClientMessageFrequencyDto,
+  ): Promise<ClientMessageFrequency> {
+    await this.findOne(clientId);
+
+    const existing = await this.clientMessageFrequenciesRepository.findOneBy({
+      clientId,
+    });
+    const entry =
+      existing ?? this.clientMessageFrequenciesRepository.create({ clientId });
+    entry.minimumDaysBetweenMessages = dto.minimumDaysBetweenMessages;
+
+    return this.clientMessageFrequenciesRepository.save(entry);
+  }
+
+  async clearMessageFrequency(clientId: string): Promise<void> {
+    await this.findOne(clientId);
+    await this.clientMessageFrequenciesRepository.delete({ clientId });
   }
 
   // Used by ClientLoanImportService to implement "one row = one credit":
