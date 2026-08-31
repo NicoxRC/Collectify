@@ -3,17 +3,17 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { AuthModule } from '../auth/auth.module';
 import { Client } from '../clients/entities/client.entity';
+import { ClientMessageFrequency } from '../clients/entities/clientMessageFrequency.entity';
 import { Installment } from '../loans/entities/installment.entity';
 import { Loan } from '../loans/entities/loan.entity';
 import { UsersModule } from '../users/users.module';
 
 import { AccountSummaryService } from './accountSummary.service';
-import { MessageAudience } from './entities/messageAudience.entity';
 import { MessageLog } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
 import { MessageTemplate } from './entities/messageTemplate.entity';
 import { WhatsappInboundMessage } from './entities/whatsappInboundMessage.entity';
-import { MessageAudiencesService } from './messageAudiences/messageAudiences.service';
+import { MessageFrequencyThrottleService } from './messageFrequencyThrottle.service';
 import { MessageLogsController } from './messageLogs/messageLogs.controller';
 import { MessageLogsService } from './messageLogs/messageLogs.service';
 import { MessageTemplatesController } from './messageTemplates/messageTemplates.controller';
@@ -28,15 +28,25 @@ import { WhatsappController } from './whatsapp.controller';
 import { WhatsappCronService } from './whatsappCron.service';
 import { WhatsAppService } from './whatsapp.service';
 
+// Phase 27 — MessageAudience is deliberately no longer registered here:
+// its only consumer (MessageAudiencesService) was removed along with the
+// GET/PUT :type/audience endpoints once the overdue/upcoming_due audience
+// filter was retired. The message_audiences/message_audience_clients
+// tables themselves are untouched (see the Phase 27 migration) — the
+// entity class still exists at
+// ../whatsapp/entities/messageAudience.entity.ts and is still picked up
+// by TypeORM's glob-based entities config for migrations, it's just not
+// wired into this module's DI since nothing injects its repository
+// anymore. See docs/phases/PHASE_27_MESSAGE_FREQUENCY.md.
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       MessageTemplate,
-      MessageAudience,
       MessageLog,
       MessageLogItem,
       WhatsappInboundMessage,
       Client,
+      ClientMessageFrequency,
       Installment,
       Loan,
     ]),
@@ -55,7 +65,7 @@ import { WhatsAppService } from './whatsapp.service';
   providers: [
     WhatsAppService,
     MessageTemplatesService,
-    MessageAudiencesService,
+    MessageFrequencyThrottleService,
     MessageLogsService,
     OverdueReminderService,
     NewLoanReminderService,
