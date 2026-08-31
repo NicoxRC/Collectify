@@ -1,11 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  ParseEnumPipe,
-  Put,
-} from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -15,16 +8,23 @@ import {
 
 import { RequireModule } from '../../auth/decorators/requireModule.decorator';
 import { AppModule } from '../../users/entities/userModulePermission.entity';
-import { MessageAudience } from '../entities/messageAudience.entity';
 import { MessageTemplate } from '../entities/messageTemplate.entity';
-import { MessageAudiencesService } from '../messageAudiences/messageAudiences.service';
-import { MessageType } from '../messageType.enum';
 
-import { UpdateMessageAudienceDto } from './dto/updateMessageAudience.dto';
 import { MessageTemplatesService } from './messageTemplates.service';
 
 // Templates themselves are read-only by design — see MessageTemplatesService.
-// The curated audience attached to each template (Phase 18) is editable.
+//
+// The curated audience concept once editable here (Phase 18) is retired as
+// of Phase 27: `overdue`/`upcoming_due` no longer filter by audience at
+// all (every dynamically-qualifying client is messaged again, throttled
+// only by the new per-client frequency whitelist — see
+// docs/phases/PHASE_27_MESSAGE_FREQUENCY.md), and `account_summary`/
+// `new_loan` never used the audience concept in the first place (see
+// docs/phases/PHASE_18_MESSAGE_AUDIENCES.md "Extended further, same
+// day"). GET/PUT :type/audience were removed entirely rather than kept as
+// a no-op — the underlying message_audiences/message_audience_clients
+// tables are NOT dropped (may still hold historical meaning), just no
+// longer read by any service.
 //
 // First controller migrated to the Phase 20 module-permissions system (see
 // docs/phases/PHASE_20_MODULE_PERMISSIONS.md) — an admin still has full
@@ -40,7 +40,6 @@ import { MessageTemplatesService } from './messageTemplates.service';
 export class MessageTemplatesController {
   constructor(
     private readonly messageTemplatesService: MessageTemplatesService,
-    private readonly messageAudiencesService: MessageAudiencesService,
   ) {}
 
   @Get()
@@ -56,40 +55,5 @@ export class MessageTemplatesController {
   })
   findAll(): Promise<MessageTemplate[]> {
     return this.messageTemplatesService.findAll();
-  }
-
-  @Get(':type/audience')
-  @ApiOperation({
-    summary:
-      "View a message type's curated audience (admin or granted the message_templates module)",
-    description:
-      'Returns the curated client group attached to this template, or null if none has been set yet.',
-  })
-  @ApiResponse({
-    status: 200,
-    description: "Returns the template's curated audience, or null.",
-  })
-  getAudience(
-    @Param('type', new ParseEnumPipe(MessageType)) type: MessageType,
-  ): Promise<MessageAudience | null> {
-    return this.messageAudiencesService.getForType(type);
-  }
-
-  @Put(':type/audience')
-  @ApiOperation({
-    summary:
-      "Replace a message type's curated audience (admin or granted the message_templates module)",
-    description:
-      "Sets the full list of clients in this template's curated audience, replacing whatever was there before.",
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Returns the updated audience.',
-  })
-  setAudience(
-    @Param('type', new ParseEnumPipe(MessageType)) type: MessageType,
-    @Body() dto: UpdateMessageAudienceDto,
-  ): Promise<MessageAudience> {
-    return this.messageAudiencesService.upsertForType(type, dto.clientIds);
   }
 }
