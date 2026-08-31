@@ -226,7 +226,7 @@ Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_26_CODE
 - `document_number` (cédula) becomes required on interactive client creation
 - At least one address field becomes required on interactive client creation
 
-**Exit criteria:** attaching a co-debtor to a loan means picking an existing client, not typing their details from scratch; a client can't be created interactively without a cédula and at least one address, matching Phase 21's existing exemption for Excel imports.
+**Exit criteria:** attaching a co-debtor to a loan means picking an existing client, not typing their details from scratch; a client can't be created interactively without a cédula and at least one address — and, unlike Phase 21's `dataProcessingConsent`/`documentType` precedent, this pair of rules is NOT exempted for Excel-imported clients either, per explicit instruction from the business.
 
 ## Phase 27 — Personalized messaging frequency (replaces message audiences)
 

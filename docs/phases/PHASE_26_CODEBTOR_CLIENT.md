@@ -17,13 +17,17 @@ Required client fields:
 - **Cédula obligatorio.**
 - **Direcciones obligatorias, mínimo una** — at least one of `home_address`/`work_address` must be present; not both required.
 
-## Open questions — confirm before implementing
+## Open questions — resolved (2026-08-30)
 
-These apply only to the co-debtor half of this phase — the required-fields half has no open questions and can be built regardless of how these resolve.
+These applied only to the co-debtor half of this phase — the required-fields half had none.
 
-- [ ] **What happens to loans that already have `co_debtor_*` data filled in under the Phase 21 model?** Two realistic paths: (a) a one-time data migration that creates a `Client` record from each populated set of `co_debtor_*` columns and links it, or (b) leave existing loans on the old flat columns (kept, read-only) and only apply the new linked model going forward. Given this project's migration policy of never silently discarding real data, do not guess between these — confirm directly with the human, since (a) risks creating duplicate/junk `Client` records if a real client already exists under the same document number.
-- [ ] **Can the same client be a co-debtor on more than one loan, or even be both a primary debtor and a co-debtor at once?** Not addressed by the resolved answers above; confirm before deciding whether the relationship needs any uniqueness constraint.
-- [ ] Does a co-debtor client need any of Phase 21's KYC fields to be complete before being attachable, or is any existing client eligible regardless of profile completeness?
+- [x] **What happens to loans that already have `co_debtor_*` data filled in under the Phase 21 model?** Resolved: no data migration needed. "Aun no sacamos la app entonces esos prestamos con codeudor no existen, solo borra lo que sea innecesario" — the app hadn't shipped yet, so no loan had ever been created with co-debtor data filled in. The old columns were dropped outright via migration, no backfill.
+- [x] **Can the same client be a co-debtor on more than one loan, or even be both a primary debtor and a co-debtor at once?** Resolved: "No puede ser deudor y codeudor a la vez, pero si puede ser codeudor de mas de un prestamo." A client cannot be both debtor and co-debtor on the same loan (enforced in `LoansService.assertCoDebtorIsValid()`), but can be co-debtor on any number of different loans (no uniqueness constraint on `coDebtorClientId`).
+- [x] Does a co-debtor client need any of Phase 21's KYC fields to be complete before being attachable? Resolved: no gate. "Desde que tenga los campos obligatorios requeridos, no creo que haya problema" — any existing, active client is eligible regardless of KYC profile completeness.
+
+Also confirmed: `coDebtorRelationship` stays on `Loan` as a standalone free-text column rather than moving to `Client` — it describes this specific loan's relationship, not a property of the co-debtor themselves.
+
+An additional instruction was given alongside these answers, expanding the required-fields half's scope: the cédula + at-least-one-address rules must also be enforced and documented as required in the Excel import template (column hints), not just on interactive client creation — see the "Required client fields" scope section below.
 
 ## Required reading before starting
 
@@ -31,53 +35,62 @@ These apply only to the co-debtor half of this phase — the required-fields hal
 
 ## Scope
 
-### Co-debtor (once the open questions above are confirmed)
+### Co-debtor
 
 #### Entities and migrations
-- [ ] `Loan.coDebtorClientId` (UUID, nullable) — FK → `clients.id`. `ON DELETE` behavior needs the same confirmation as any other client-deletion cascade question in this project (soft-delete only, per `docs/DATABASE.md` conventions — a co-debtor client being soft-deleted shouldn't hard-break existing loan references).
-- [ ] Migration `AddCoDebtorClientIdToLoans`.
-- [ ] Migration/decision to retire `co_debtor_full_name`, `co_debtor_document_type`, `co_debtor_document_number`, `co_debtor_phone_number`, `co_debtor_address`, `co_debtor_relationship`, `co_debtor_id_document_url` — kept or backfilled per the open data-migration question above; do not drop columns with real data before that's resolved.
-- [ ] `co_debtor_relationship` (relación con el deudor principal) has no natural home on a `Client` record — confirm whether it moves to a per-loan free-text column that survives this refactor (e.g. `Loan.coDebtorRelationship`, kept standalone) or is dropped.
+- [x] `Loan.coDebtorClientId` (UUID, nullable) — FK → `clients.id`, `ON DELETE RESTRICT` (clients are only ever soft-deleted in this project, so `RESTRICT` never blocks a normal delete — same convention as `client_id`).
+- [x] Migration `1785700000000-ReplaceCoDebtorFieldsWithClientLink.ts` (drops the 7 old `co_debtor_*` columns, adds `co_debtor_client_id` + `co_debtor_relationship`, adds the FK + index; `down()` reverses fully).
+- [x] Retired `co_debtor_full_name`, `co_debtor_document_type`, `co_debtor_document_number`, `co_debtor_phone_number`, `co_debtor_address`, `co_debtor_id_document_url` outright — no backfill needed, confirmed no loan had real co-debtor data pre-launch.
+- [x] `co_debtor_relationship` kept standalone on `Loan` (confirmed: describes the specific loan's relationship, not a property of the co-debtor client).
 
 #### Service and API
-- [ ] `POST /loans` / `POST /loans/:id/refinance`: accept `coDebtorClientId` instead of the flat co-debtor fields; validate the referenced client exists.
-- [ ] `LoansService.refinance()`'s existing "carry the old loan's co-debtor over by default" behavior (`docs/DATABASE.md` "On the co-debtor and refinancing") is preserved, now carrying `coDebtorClientId` instead of the flat fields.
-- [ ] Loan detail response includes the co-debtor's client summary (name, document number, phone) resolved via the relation, not snapshotted flat columns.
+- [x] `POST /loans` / `POST /loans/:id/refinance` / `PATCH /loans/:id`: accept `coDebtorClientId` + `coDebtorRelationship` instead of the flat co-debtor fields; validated by `LoansService.assertCoDebtorIsValid()` (must differ from the loan's own `clientId`, must reference an existing, active client).
+- [x] `LoansService.refinance()`'s existing "carry the old loan's co-debtor over by default" behavior (`docs/DATABASE.md` "On the co-debtor and refinancing") is preserved, now carrying `coDebtorClientId`/`coDebtorRelationship` instead of the flat fields.
+- [x] Loan detail response includes the co-debtor's client summary (`coDebtorClient`, resolved via `ClientsService.findByIdIncludingDeleted()`), not snapshotted flat columns.
 
 #### Tests (mandatory)
-- [ ] A loan can be created with an existing client as co-debtor; the relation resolves correctly on read.
-- [ ] A loan can be created/refinanced with no co-debtor at all (unaffected, matching Phase 21's "at most one, optional" rule).
-- [ ] Refinancing carries the co-debtor relation forward by default, same as the flat-column behavior it replaces.
-- [ ] Whatever the confirmed answer to the data-migration open question above turns out to be, covered by a dedicated test/migration verification.
+- [x] A loan can be created with an existing client as co-debtor; the relation resolves correctly on read.
+- [x] A loan can be created/refinanced/updated with no co-debtor at all (unaffected, matching Phase 21's "at most one, optional" rule).
+- [x] Refinancing carries the co-debtor relation forward by default, same as the flat-column behavior it replaces, and can be overridden field-by-field.
+- [x] Rejects a client set as both debtor and co-debtor on the same loan, and rejects a `coDebtorClientId` that doesn't reference an existing, active client — on create, refinance, and update.
+- [x] No dedicated data-migration test needed — resolved as "nothing to migrate" (see "Open questions" above).
 
 #### Swagger
-- [ ] `POST /loans`/`POST /loans/:id/refinance` DTOs and loan detail response updated.
+- [x] `POST /loans`/`POST /loans/:id/refinance`/`PATCH /loans/:id` DTOs and loan detail response updated.
 
-### Required client fields (not blocked by the open questions above)
+### Required client fields
 
 #### Service and API
-- [ ] `ClientsService.create()`: reject (matching the existing pattern used for `dataProcessingConsent`/`documentType`) when `documentNumber` is missing/empty, or when both `homeAddress` and `workAddress` are missing/empty — application-level validation, not a DB `NOT NULL` constraint, same reasoning as Phase 21's existing exemption below. Applies to every interactive `POST /clients` call, including one made to create a co-debtor.
-- [ ] **Excel-imported clients remain exempt**, matching Phase 21's precedent (`docs/phases/PHASE_8_EXCEL_IMPORT.md` unaffected) — these two new requirements apply only to the interactive `POST /clients` flow.
+- [x] `ClientsService.create()`: reject (matching the existing pattern used for `dataProcessingConsent`/`documentType`) when `documentNumber` is missing/empty, or when both `homeAddress` and `workAddress` are missing/empty — application-level validation, not a DB `NOT NULL` constraint. Applies to every interactive `POST /clients` call, including one made to create a co-debtor.
+- [x] **Excel-imported clients are NOT exempt from these two rules** — this deliberately breaks from the Phase 21 `dataProcessingConsent`/`documentType` exemption precedent, per explicit instruction from the business. `ClientLoanImportService` already routes every row through `ClientsService.create()`, so the same rejection applies there too, surfaced as a per-row import error rather than a parser-level check. The Excel template (`clientLoanImportTemplate.ts`) documents `homeAddress`/`workAddress` as conditionally required ("Obligatorio si no llenas...") in its column hints; `documentNumber` was already a required column.
 
 #### Tests (mandatory)
-- [ ] `POST /clients` rejects a request missing `documentNumber`.
-- [ ] `POST /clients` rejects a request with both address fields empty, and accepts one with at least one populated.
-- [ ] Excel import is unaffected by either new rule.
+- [x] `POST /clients` rejects a request missing `documentNumber`.
+- [x] `POST /clients` rejects a request with both address fields empty, and accepts one with at least one populated.
+- [x] Excel import correctly surfaces the new rejection as a per-row error (not exempt, unlike Phase 21's two fields).
 
 #### Swagger
-- [ ] `POST /clients` DTO/description updated to note both new requirements.
+- [x] `POST /clients` DTO/description updated to note both new requirements and their non-exemption for bulk import.
 
 ## Definition of done for this phase
 
-- A loan's co-debtor is an existing `Client`, selected rather than typed.
-- Existing loans' co-debtor data is handled exactly per the confirmed answer to the data-migration open question — not silently dropped.
-- A client cannot be created interactively without a cédula and at least one address, including when created to serve as a co-debtor.
-- Excel-imported clients remain exempt from the two new required-field rules.
-- All items in `docs/DEFINITION_OF_DONE.md` checklist pass.
+- [x] A loan's co-debtor is an existing `Client`, referenced by id at the API/data layer (`coDebtorClientId`) and selected via a search/select picker in `LoanForm.tsx`/`RefinanceLoanForm.tsx` — see `docs/phasesClient/PHASE_26_CODEBTOR_CLIENT.md` for the client-side details.
+- [x] Existing loans' co-debtor data is handled exactly per the confirmed answer to the data-migration open question (nothing to migrate) — not silently dropped.
+- [x] A client cannot be created interactively without a cédula and at least one address, including when created to serve as a co-debtor.
+- [x] Excel-imported clients are NOT exempt from the two new required-field rules (deliberate departure from the Phase 21 precedent, confirmed with the business).
+- [ ] All items in `docs/DEFINITION_OF_DONE.md` checklist pass — pending final lint/test/build verification across both apps (in progress).
+
+## QoL follow-up (2026-08-30) — resolved
+
+Three quality-of-life items requested after the initial co-debtor picker landed:
+
+- [x] Exclude the loan's own client from the co-debtor search results (`LoanForm.tsx`/`RefinanceLoanForm.tsx`) — see `docs/phasesClient/PHASE_26_CODEBTOR_CLIENT.md`.
+- [x] Fix `RefinanceLoanForm`'s "tiene codeudor" checkbox having no effect when unchecked: `LoansService.refinance()` now distinguishes an omitted `coDebtorClientId`/`coDebtorRelationship` (carry over) from an explicit `null` (clear) instead of using `??`, which couldn't tell the two apart. `RefinanceLoanDto` widened to `string | null`. Covered by `'clears the co-debtor when the dto explicitly sets both fields to null'` in `loans.service.spec.ts`. See `docs/DATABASE.md`'s "On the co-debtor and refinancing" note.
+- [x] Auto-refresh the co-debtor search results when the admin returns from creating a client in a new tab — client-side only, via `useClients()`'s new `refetchOnWindowFocus`/`staleTime` options. See `docs/phasesClient/PHASE_26_CODEBTOR_CLIENT.md`.
 
 ## After this phase
 
-Update `docs/DATABASE.md`'s `loans` and `clients` table sections, `docs/GLOSSARY.md`'s "Codeudor / Co-debtor" entry to describe the linked-client model (replacing the Phase 21 flat-column description), and `docs/phases/PHASE_21_CLIENT_PROFILE.md`'s "Mandatory vs. optional" decision log to list the two additional required-at-creation fields.
+`docs/DATABASE.md`'s `loans` and `clients` table sections, `docs/GLOSSARY.md`'s "Codeudor / Co-debtor" entry, and `docs/phases/PHASE_21_CLIENT_PROFILE.md`'s "Mandatory vs. optional" decision log have all been updated to describe the linked-client model and the two additional required-at-creation fields.
 
 ## Related documents
 
