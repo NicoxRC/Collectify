@@ -8,7 +8,6 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 
 import { ClientsService } from '../clients/clients.service';
-import { DocumentType } from '../clients/entities/client.entity';
 import {
   ConceptCalculationType,
   ConceptCategory,
@@ -59,7 +58,12 @@ describe('LoansService', () => {
   let interestConceptTypesService: { findOneOrThrow: jest.Mock };
   let usuryRateService: { getCurrentRate: jest.Mock };
   let newLoanReminderService: { sendNewLoanMessage: jest.Mock };
-  let clientsService: { hasMoraBlock: jest.Mock; getCreditUsage: jest.Mock };
+  let clientsService: {
+    hasMoraBlock: jest.Mock;
+    getCreditUsage: jest.Mock;
+    findOne: jest.Mock;
+    findByIdIncludingDeleted: jest.Mock;
+  };
   let dataSource: { transaction: jest.Mock };
 
   const mockConceptType: InterestConceptType = {
@@ -91,13 +95,9 @@ describe('LoansService', () => {
     description: null,
     initialPayment: null,
     newLoanMessageSentAt: null,
-    coDebtorFullName: null,
-    coDebtorDocumentType: null,
-    coDebtorDocumentNumber: null,
-    coDebtorPhoneNumber: null,
-    coDebtorAddress: null,
+    coDebtorClientId: null,
+    coDebtorClient: null,
     coDebtorRelationship: null,
-    coDebtorIdDocumentUrl: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     deletedAt: null,
@@ -168,6 +168,13 @@ describe('LoansService', () => {
         creditUsed: 0,
         creditAvailable: null,
       }),
+      // Phase 26 — only exercised by tests that actually set a
+      // coDebtorClientId; assertCoDebtorIsValid() short-circuits on a
+      // falsy coDebtorClientId, so the rest of the suite never calls
+      // these. findByIdIncludingDeleted is only used by findOne() (the
+      // read path), unrelated to write-time validation.
+      findOne: jest.fn().mockResolvedValue({ id: 'co-debtor-1' }),
+      findByIdIncludingDeleted: jest.fn().mockResolvedValue(null),
     };
     // Mock manager.getRepository() routes to the same mock repositories
     // above by entity class, so persistLoanWithInstallments (now run
@@ -313,30 +320,21 @@ describe('LoansService', () => {
       );
     });
 
-    // Phase 21 — optional co-debtor (codeudor), passed straight through
-    // from the dto to persistLoanWithInstallments. See
-    // docs/phases/PHASE_21_CLIENT_PROFILE.md.
+    // Phase 26 — optional co-debtor (codeudor), an existing client linked
+    // by id, validated by assertCoDebtorIsValid before being passed
+    // through to persistLoanWithInstallments. See
+    // docs/phases/PHASE_26_CODEBTOR_CLIENT.md.
     it('persists the co-debtor fields when the dto includes one', async () => {
       await service.create({
         ...createDto,
-        coDebtorFullName: 'Carlos Gómez',
-        coDebtorDocumentType: DocumentType.CedulaCiudadania,
-        coDebtorDocumentNumber: '1122334455',
-        coDebtorPhoneNumber: '+573007778899',
-        coDebtorAddress: 'Cra 10 #20-30',
+        coDebtorClientId: 'co-debtor-1',
         coDebtorRelationship: 'Hermano del deudor',
-        coDebtorIdDocumentUrl: 'https://example.com/codeudor.pdf',
       });
 
       expect(loansRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          coDebtorFullName: 'Carlos Gómez',
-          coDebtorDocumentType: DocumentType.CedulaCiudadania,
-          coDebtorDocumentNumber: '1122334455',
-          coDebtorPhoneNumber: '+573007778899',
-          coDebtorAddress: 'Cra 10 #20-30',
+          coDebtorClientId: 'co-debtor-1',
           coDebtorRelationship: 'Hermano del deudor',
-          coDebtorIdDocumentUrl: 'https://example.com/codeudor.pdf',
         }),
       );
     });
@@ -346,15 +344,31 @@ describe('LoansService', () => {
 
       expect(loansRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          coDebtorFullName: null,
-          coDebtorDocumentType: null,
-          coDebtorDocumentNumber: null,
-          coDebtorPhoneNumber: null,
-          coDebtorAddress: null,
+          coDebtorClientId: null,
           coDebtorRelationship: null,
-          coDebtorIdDocumentUrl: null,
         }),
       );
+      expect(clientsService.findOne).not.toHaveBeenCalled();
+    });
+
+    it("rejects when coDebtorClientId is the same as the loan's own clientId", async () => {
+      await expect(
+        service.create({
+          ...createDto,
+          coDebtorClientId: createDto.clientId,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects when coDebtorClientId does not reference an existing, active client', async () => {
+      clientsService.findOne.mockRejectedValue(new NotFoundException());
+
+      await expect(
+        service.create({
+          ...createDto,
+          coDebtorClientId: 'missing-client',
+        }),
+      ).rejects.toThrow(BadRequestException);
     });
 
     // Loan + installments + concept rows are three sequential saves — a
@@ -757,21 +771,16 @@ describe('LoansService', () => {
       );
     });
 
-    // Phase 21 — the new loan carries over the old loan's co-debtor by
+    // Phase 26 — the new loan carries over the old loan's co-debtor by
     // default, unless the refinance dto explicitly overrides a field. See
-    // docs/phases/PHASE_21_CLIENT_PROFILE.md.
+    // docs/phases/PHASE_26_CODEBTOR_CLIENT.md.
     it("carries over the old loan's co-debtor when the refinance dto omits it", async () => {
       loansRepository.findOneBy.mockReset();
       loansRepository.findOneBy
         .mockResolvedValueOnce({
           ...mockLoan,
-          coDebtorFullName: 'Carlos Gómez',
-          coDebtorDocumentType: DocumentType.CedulaCiudadania,
-          coDebtorDocumentNumber: '1122334455',
-          coDebtorPhoneNumber: '+573007778899',
-          coDebtorAddress: 'Cra 10 #20-30',
+          coDebtorClientId: 'co-debtor-1',
           coDebtorRelationship: 'Hermano del deudor',
-          coDebtorIdDocumentUrl: 'https://example.com/codeudor.pdf',
         })
         .mockResolvedValueOnce(newLoanRecord);
 
@@ -779,13 +788,8 @@ describe('LoansService', () => {
 
       expect(loansRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          coDebtorFullName: 'Carlos Gómez',
-          coDebtorDocumentType: DocumentType.CedulaCiudadania,
-          coDebtorDocumentNumber: '1122334455',
-          coDebtorPhoneNumber: '+573007778899',
-          coDebtorAddress: 'Cra 10 #20-30',
+          coDebtorClientId: 'co-debtor-1',
           coDebtorRelationship: 'Hermano del deudor',
-          coDebtorIdDocumentUrl: 'https://example.com/codeudor.pdf',
         }),
       );
     });
@@ -795,27 +799,21 @@ describe('LoansService', () => {
       loansRepository.findOneBy
         .mockResolvedValueOnce({
           ...mockLoan,
-          coDebtorFullName: 'Carlos Gómez',
-          coDebtorDocumentType: DocumentType.CedulaCiudadania,
-          coDebtorDocumentNumber: '1122334455',
-          coDebtorPhoneNumber: '+573007778899',
-          coDebtorAddress: 'Cra 10 #20-30',
+          coDebtorClientId: 'co-debtor-1',
           coDebtorRelationship: 'Hermano del deudor',
-          coDebtorIdDocumentUrl: 'https://example.com/codeudor.pdf',
         })
         .mockResolvedValueOnce(newLoanRecord);
 
       await service.refinance(mockLoan.id, {
         ...refinanceDto,
-        coDebtorFullName: 'Andrés Ruiz',
+        coDebtorClientId: 'co-debtor-2',
       });
 
       expect(loansRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          coDebtorFullName: 'Andrés Ruiz',
-          // Untouched fields still carry over from the old loan.
-          coDebtorDocumentType: DocumentType.CedulaCiudadania,
-          coDebtorDocumentNumber: '1122334455',
+          coDebtorClientId: 'co-debtor-2',
+          // Untouched field still carries over from the old loan.
+          coDebtorRelationship: 'Hermano del deudor',
         }),
       );
     });
@@ -825,15 +823,42 @@ describe('LoansService', () => {
 
       expect(loansRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          coDebtorFullName: null,
-          coDebtorDocumentType: null,
-          coDebtorDocumentNumber: null,
-          coDebtorPhoneNumber: null,
-          coDebtorAddress: null,
+          coDebtorClientId: null,
           coDebtorRelationship: null,
-          coDebtorIdDocumentUrl: null,
         }),
       );
+    });
+
+    // QoL fix (2026-08-30) — an explicit `null` (as opposed to omitting the
+    // field) must clear the co-debtor on the new loan rather than carrying
+    // the old one over, so the frontend's "tiene codeudor" checkbox actually
+    // has an effect when unchecked during refinance. See
+    // docs/DATABASE.md ("On the co-debtor and refinancing").
+    it('clears the co-debtor when the dto explicitly sets both fields to null', async () => {
+      loansRepository.findOneBy.mockReset();
+      loansRepository.findOneBy
+        .mockResolvedValueOnce({
+          ...mockLoan,
+          coDebtorClientId: 'co-debtor-1',
+          coDebtorRelationship: 'Hermano del deudor',
+        })
+        .mockResolvedValueOnce(newLoanRecord);
+
+      await service.refinance(mockLoan.id, {
+        ...refinanceDto,
+        coDebtorClientId: null,
+        coDebtorRelationship: null,
+      });
+
+      expect(loansRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          coDebtorClientId: null,
+          coDebtorRelationship: null,
+        }),
+      );
+      // Clearing shouldn't trigger co-debtor validation — there's no
+      // client id to validate.
+      expect(clientsService.findOne).not.toHaveBeenCalled();
     });
 
     // Phase 13 — docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
@@ -1018,6 +1043,46 @@ describe('LoansService', () => {
       await expect(service.findOne('missing-id')).rejects.toThrow(
         NotFoundException,
       );
+    });
+
+    // Phase 26 — resolves coDebtorClientId into a full client record for
+    // display. Uses findByIdIncludingDeleted (not findOne) so a loan whose
+    // co-debtor was later deactivated still renders. See
+    // docs/phases/PHASE_26_CODEBTOR_CLIENT.md.
+    it("resolves the loan's co-debtor client when coDebtorClientId is set", async () => {
+      loansRepository.findOneBy.mockResolvedValue({
+        ...mockLoan,
+        coDebtorClientId: 'co-debtor-1',
+      });
+      loansRepository.findOne.mockResolvedValue(null);
+      installmentsRepository.find.mockResolvedValue([]);
+      clientsService.findByIdIncludingDeleted.mockResolvedValue({
+        id: 'co-debtor-1',
+        firstName: 'Carlos',
+        lastName: 'Gómez',
+      });
+
+      const result = await service.findOne(mockLoan.id);
+
+      expect(clientsService.findByIdIncludingDeleted).toHaveBeenCalledWith(
+        'co-debtor-1',
+      );
+      expect(result.coDebtorClient).toEqual({
+        id: 'co-debtor-1',
+        firstName: 'Carlos',
+        lastName: 'Gómez',
+      });
+    });
+
+    it('returns a null coDebtorClient without querying ClientsService when the loan has no co-debtor', async () => {
+      loansRepository.findOneBy.mockResolvedValue(mockLoan);
+      loansRepository.findOne.mockResolvedValue(null);
+      installmentsRepository.find.mockResolvedValue([]);
+
+      const result = await service.findOne(mockLoan.id);
+
+      expect(result.coDebtorClient).toBeNull();
+      expect(clientsService.findByIdIncludingDeleted).not.toHaveBeenCalled();
     });
   });
 
@@ -1412,6 +1477,40 @@ describe('LoansService', () => {
       await expect(
         service.update('missing-id', { interestRate: 5 }),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    // Phase 26 — coDebtorClientId is re-validated on update, same rules as
+    // create/refinance. See docs/phases/PHASE_26_CODEBTOR_CLIENT.md.
+    it("rejects setting coDebtorClientId to the loan's own clientId", async () => {
+      loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
+
+      await expect(
+        service.update(mockLoan.id, { coDebtorClientId: mockLoan.clientId }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('accepts updating to a valid coDebtorClientId', async () => {
+      loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
+      loansRepository.save.mockImplementation((loan: Loan) =>
+        Promise.resolve(loan),
+      );
+
+      const result = await service.update(mockLoan.id, {
+        coDebtorClientId: 'co-debtor-1',
+      });
+
+      expect(result.coDebtorClientId).toBe('co-debtor-1');
+    });
+
+    it('does not re-validate coDebtorClientId when the update omits it', async () => {
+      loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
+      loansRepository.save.mockImplementation((loan: Loan) =>
+        Promise.resolve(loan),
+      );
+
+      await service.update(mockLoan.id, { interestRate: 5 });
+
+      expect(clientsService.findOne).not.toHaveBeenCalled();
     });
   });
 
