@@ -65,8 +65,16 @@ const FIELD_HINTS: Record<string, string> = {
   documentIssueDate: 'Opcional. Formato AAAA-MM-DD. Ej: 2015-03-20',
   email: 'Opcional. Ej: juana.perez@example.com',
   alternatePhoneNumber: 'Opcional. Con o sin +57. Ej: +573009876543',
-  homeAddress: 'Opcional. Ej: Cra 45 #12-30, Barrio Centro',
-  workAddress: 'Opcional. Ej: Av. Siempre Viva 742',
+  // Phase 26 — no longer optional: at least one of the two is required
+  // (enforced in ClientsService.create(), same rule as the interactive
+  // "Nuevo cliente" form — not exempted for import). Neither column alone
+  // is individually required, so this can't just drop the "Opcional."
+  // marker the way documentNumber's hint above does; the pairing has to be
+  // spelled out instead.
+  homeAddress:
+    'Obligatorio si no llenas "Dirección de trabajo". Ej: Cra 45 #12-30, Barrio Centro',
+  workAddress:
+    'Obligatorio si no llenas "Dirección de residencia". Ej: Av. Siempre Viva 742',
   neighborhood: 'Opcional. Ej: Centro',
   city: 'Opcional. Ej: Bogotá',
   occupation: 'Opcional. Ej: Comerciante',
