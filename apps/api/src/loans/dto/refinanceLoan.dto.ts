@@ -8,16 +8,14 @@ import {
   IsNotEmpty,
   IsNumber,
   IsOptional,
-  IsPhoneNumber,
   IsPositive,
   IsString,
-  IsUrl,
+  IsUUID,
   Max,
   Min,
   ValidateNested,
 } from 'class-validator';
 
-import { DocumentType } from '../../clients/entities/client.entity';
 import { InstallmentFrequency } from '../entities/loan.entity';
 
 import { LoanConceptAssignmentDto } from './loanConceptAssignment.dto';
@@ -107,47 +105,32 @@ export class RefinanceLoanDto {
   @IsString()
   description?: string;
 
-  // --- Optional co-debtor (codeudor) for the new loan, Phase 21. Omit to
+  // --- Optional co-debtor (codeudor) for the new loan, Phase 26. Omit to
   // carry over the old loan's co-debtor unchanged (LoansService.refinance
-  // defaults to that); pass any of these fields to override, or explicit
-  // empty strings are not treated specially — send an update afterward via
-  // PATCH /loans/:id to actually clear a field. See
-  // docs/phases/PHASE_21_CLIENT_PROFILE.md. ---
-
-  @ApiPropertyOptional({ example: 'Carlos Gómez' })
-  @IsOptional()
-  @IsString()
-  coDebtorFullName?: string;
-
-  @ApiPropertyOptional({ enum: DocumentType })
-  @IsOptional()
-  @IsEnum(DocumentType)
-  coDebtorDocumentType?: DocumentType;
-
-  @ApiPropertyOptional({ example: '1122334455' })
-  @IsOptional()
-  @IsString()
-  coDebtorDocumentNumber?: string;
-
-  @ApiPropertyOptional({ example: '+573007778899' })
-  @IsOptional()
-  @IsPhoneNumber('CO')
-  coDebtorPhoneNumber?: string;
-
-  @ApiPropertyOptional({ example: 'Cra 10 #20-30' })
-  @IsOptional()
-  @IsString()
-  coDebtorAddress?: string;
-
-  @ApiPropertyOptional({ example: 'Hermano del deudor' })
-  @IsOptional()
-  @IsString()
-  coDebtorRelationship?: string;
+  // defaults to that — coDebtorClientId + coDebtorRelationship both);
+  // pass either field to override. Must not be the same client as the
+  // loan's own client — enforced in LoansService. See
+  // docs/phases/PHASE_26_CODEBTOR_CLIENT.md. ---
 
   @ApiPropertyOptional({
-    description: 'Externally-hosted URL (image or PDF), optional.',
+    description:
+      "An existing client's id, picked as this loan's co-debtor. Omit to carry over the old " +
+      "loan's co-debtor unchanged; send null explicitly to deliberately clear it on the new " +
+      'loan instead of carrying it over.',
+    nullable: true,
   })
   @IsOptional()
-  @IsUrl()
-  coDebtorIdDocumentUrl?: string;
+  @IsUUID()
+  coDebtorClientId?: string | null;
+
+  @ApiPropertyOptional({
+    example: 'Hermano del deudor',
+    description:
+      "This loan's relationship between the debtor and the co-debtor — free text. Same " +
+      'omit-to-carry-over/null-to-clear rule as coDebtorClientId.',
+    nullable: true,
+  })
+  @IsOptional()
+  @IsString()
+  coDebtorRelationship?: string | null;
 }

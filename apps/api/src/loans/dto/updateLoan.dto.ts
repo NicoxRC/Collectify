@@ -1,21 +1,18 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  IsEnum,
   IsNumber,
   IsOptional,
-  IsPhoneNumber,
   IsString,
-  IsUrl,
+  IsUUID,
   Max,
   Min,
 } from 'class-validator';
 
-import { DocumentType } from '../../clients/entities/client.entity';
-
-// Only interest_rate, description, and the co-debtor fields (Phase 21) are
-// editable post-creation. interest_rate is confirmed manually editable per
-// docs/DATABASE.md. description and the co-debtor fields are plain metadata
-// with no cascading effects. Other fields (principal, schedule) would have
+// Only interest_rate, description, and the co-debtor fields (Phase 21,
+// updated to a client link in Phase 26) are editable post-creation.
+// interest_rate is confirmed manually editable per docs/DATABASE.md.
+// description and the co-debtor fields are plain metadata with no
+// cascading effects. Other fields (principal, schedule) would have
 // cascading effects on already-generated installments that aren't scoped
 // here.
 export class UpdateLoanDto {
@@ -33,44 +30,20 @@ export class UpdateLoanDto {
   @IsString()
   description?: string;
 
-  // --- Optional co-debtor (codeudor), Phase 21 — at most one per loan,
-  // confirmed with the business. See
-  // docs/phases/PHASE_21_CLIENT_PROFILE.md. ---
+  // --- Optional co-debtor (codeudor), Phase 26 — at most one per loan, an
+  // existing Client picked by id. Must not be the same client as this
+  // loan's own client — enforced in LoansService. See
+  // docs/phases/PHASE_26_CODEBTOR_CLIENT.md. ---
 
-  @ApiPropertyOptional({ example: 'Carlos Gómez' })
+  @ApiPropertyOptional({
+    description: "An existing client's id, picked as this loan's co-debtor.",
+  })
   @IsOptional()
-  @IsString()
-  coDebtorFullName?: string;
-
-  @ApiPropertyOptional({ enum: DocumentType })
-  @IsOptional()
-  @IsEnum(DocumentType)
-  coDebtorDocumentType?: DocumentType;
-
-  @ApiPropertyOptional({ example: '1122334455' })
-  @IsOptional()
-  @IsString()
-  coDebtorDocumentNumber?: string;
-
-  @ApiPropertyOptional({ example: '+573007778899' })
-  @IsOptional()
-  @IsPhoneNumber('CO')
-  coDebtorPhoneNumber?: string;
-
-  @ApiPropertyOptional({ example: 'Cra 10 #20-30' })
-  @IsOptional()
-  @IsString()
-  coDebtorAddress?: string;
+  @IsUUID()
+  coDebtorClientId?: string;
 
   @ApiPropertyOptional({ example: 'Hermano del deudor' })
   @IsOptional()
   @IsString()
   coDebtorRelationship?: string;
-
-  @ApiPropertyOptional({
-    description: 'Externally-hosted URL (image or PDF), optional.',
-  })
-  @IsOptional()
-  @IsUrl()
-  coDebtorIdDocumentUrl?: string;
 }

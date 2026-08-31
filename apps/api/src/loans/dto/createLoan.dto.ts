@@ -8,17 +8,14 @@ import {
   IsNotEmpty,
   IsNumber,
   IsOptional,
-  IsPhoneNumber,
   IsPositive,
   IsString,
-  IsUrl,
   IsUUID,
   Max,
   Min,
   ValidateNested,
 } from 'class-validator';
 
-import { DocumentType } from '../../clients/entities/client.entity';
 import { InstallmentFrequency } from '../entities/loan.entity';
 
 import { LoanConceptAssignmentDto } from './loanConceptAssignment.dto';
@@ -105,44 +102,30 @@ export class CreateLoanDto {
   @IsString()
   description?: string;
 
-  // --- Optional co-debtor (codeudor), Phase 21 — at most one per loan,
-  // confirmed with the business. See
-  // docs/phases/PHASE_21_CLIENT_PROFILE.md. ---
+  // --- Optional co-debtor (codeudor), Phase 26 — at most one per loan,
+  // an existing Client picked by id rather than typed by hand (replaces
+  // Phase 21's flat co_debtor_* fields). Must not be the same client as
+  // this loan's own `clientId` — enforced in LoansService, not here (a
+  // cross-field DTO check needs the DTO's own values, which
+  // coDebtorClientId alone can't express against clientId cleanly with a
+  // single decorator). See docs/phases/PHASE_26_CODEBTOR_CLIENT.md. ---
 
-  @ApiPropertyOptional({ example: 'Carlos Gómez' })
+  @ApiPropertyOptional({
+    description:
+      "An existing client's id, picked (not typed) as this loan's co-debtor. Must differ from " +
+      'clientId above — a client cannot be both debtor and co-debtor on the same loan.',
+  })
   @IsOptional()
-  @IsString()
-  coDebtorFullName?: string;
+  @IsUUID()
+  coDebtorClientId?: string;
 
-  @ApiPropertyOptional({ enum: DocumentType })
-  @IsOptional()
-  @IsEnum(DocumentType)
-  coDebtorDocumentType?: DocumentType;
-
-  @ApiPropertyOptional({ example: '1122334455' })
-  @IsOptional()
-  @IsString()
-  coDebtorDocumentNumber?: string;
-
-  @ApiPropertyOptional({ example: '+573007778899' })
-  @IsOptional()
-  @IsPhoneNumber('CO')
-  coDebtorPhoneNumber?: string;
-
-  @ApiPropertyOptional({ example: 'Cra 10 #20-30' })
-  @IsOptional()
-  @IsString()
-  coDebtorAddress?: string;
-
-  @ApiPropertyOptional({ example: 'Hermano del deudor' })
+  @ApiPropertyOptional({
+    example: 'Hermano del deudor',
+    description:
+      "This loan's relationship between the debtor and the co-debtor — free text, not a property " +
+      'of the co-debtor Client record itself.',
+  })
   @IsOptional()
   @IsString()
   coDebtorRelationship?: string;
-
-  @ApiPropertyOptional({
-    description: 'Externally-hosted URL (image or PDF), optional.',
-  })
-  @IsOptional()
-  @IsUrl()
-  coDebtorIdDocumentUrl?: string;
 }
