@@ -40,7 +40,7 @@ import {
 import { MessageLogStatus } from '@/features/messageLogs/messageLogsApi';
 import { useMessageLogs } from '@/features/messageLogs/useMessageLogs';
 import { MessageType } from '@/features/messageTemplates/messageTemplatesApi';
-import { formatCurrency, formatDateOnly, isPdfUrl } from '@/lib/format';
+import { formatCurrency, formatDateOnly } from '@/lib/format';
 
 import type { Installment } from '@/features/installments/installmentsApi';
 import type { LoanDetail } from '@/features/loans/loansApi';
@@ -399,60 +399,46 @@ export function LoanDetailPage() {
         </p>
       )}
 
-      {/* Phase 21 — optional per loan, not per client (a client can have
-          one loan with a codeudor and another without). Nothing shown at
+      {/* Phase 26 — optional per loan, not per client (a client can have
+          one loan with a codeudor and another without). The codeudor is
+          now an existing Client, resolved server-side and linked to their
+          own profile instead of shown as static text. Nothing shown at
           all when the loan has none. See
-          docs/phasesClient/PHASE_21_CLIENT_PROFILE.md. */}
-      {loan.coDebtorFullName && (
+          docs/phasesClient/PHASE_26_CODEBTOR_CLIENT.md. */}
+      {loan.coDebtorClient && (
         <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
           <span className="text-section-label font-medium tracking-[0.36px] text-muted">
             CODEUDOR
           </span>
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-small">
-            <DetailField label="Nombre" value={loan.coDebtorFullName} />
+            <DetailField
+              label="Nombre"
+              value={
+                <Link
+                  to={`/clientes/${loan.coDebtorClient.id}`}
+                  className="text-white hover:underline"
+                >
+                  {loan.coDebtorClient.firstName} {loan.coDebtorClient.lastName}
+                </Link>
+              }
+            />
             <DetailField
               label="Documento"
               value={
-                loan.coDebtorDocumentType
-                  ? `${DOCUMENT_TYPE_LABELS[loan.coDebtorDocumentType]}${
-                      loan.coDebtorDocumentNumber
-                        ? ` · ${loan.coDebtorDocumentNumber}`
-                        : ''
-                    }`
-                  : loan.coDebtorDocumentNumber
+                loan.coDebtorClient.documentType
+                  ? `${DOCUMENT_TYPE_LABELS[loan.coDebtorClient.documentType]} · ${loan.coDebtorClient.documentNumber}`
+                  : loan.coDebtorClient.documentNumber
               }
             />
-            <DetailField label="Teléfono" value={loan.coDebtorPhoneNumber} />
+            <DetailField
+              label="Teléfono"
+              value={loan.coDebtorClient.phoneNumber}
+            />
             <DetailField
               label="Relación con el deudor"
               value={loan.coDebtorRelationship}
             />
-            <DetailField label="Dirección" value={loan.coDebtorAddress} />
           </div>
-          {loan.coDebtorIdDocumentUrl &&
-            (isPdfUrl(loan.coDebtorIdDocumentUrl) ? (
-              <a
-                href={loan.coDebtorIdDocumentUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-1 self-start text-meta text-muted hover:text-white hover:underline"
-              >
-                Ver documento de identidad (PDF)
-              </a>
-            ) : (
-              <button
-                type="button"
-                onClick={() =>
-                  setEnlargedImage({
-                    url: loan.coDebtorIdDocumentUrl!,
-                    alt: `Documento de identidad del codeudor de ${clientFullName}`,
-                  })
-                }
-                className="mt-1 self-start text-meta text-muted hover:text-white hover:underline"
-              >
-                Ver documento de identidad
-              </button>
-            ))}
         </div>
       )}
 
@@ -623,17 +609,11 @@ export function LoanDetailPage() {
       {isRefinancing && (
         <RefinanceLoanForm
           oldLoanId={loan.id}
+          oldLoanClientId={loan.clientId}
           oldLoanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
           oldLoanOutstandingBalance={outstandingBalance}
-          oldLoanCoDebtor={{
-            coDebtorFullName: loan.coDebtorFullName,
-            coDebtorDocumentType: loan.coDebtorDocumentType,
-            coDebtorDocumentNumber: loan.coDebtorDocumentNumber,
-            coDebtorPhoneNumber: loan.coDebtorPhoneNumber,
-            coDebtorAddress: loan.coDebtorAddress,
-            coDebtorRelationship: loan.coDebtorRelationship,
-            coDebtorIdDocumentUrl: loan.coDebtorIdDocumentUrl,
-          }}
+          oldLoanCoDebtorClient={loan.coDebtorClient}
+          oldLoanCoDebtorRelationship={loan.coDebtorRelationship}
           onClose={() => setIsRefinancing(false)}
           onSubmit={async (input) => {
             const newLoan = await refinanceLoan.mutateAsync({
@@ -857,14 +837,15 @@ function KpiCard({ label, value }: { label: string; value: string }) {
 
 // Phase 21 — a single label/value line for the co-debtor section below.
 // Skips rendering entirely when the value is empty, so an optional
-// sub-field left blank (e.g. no coDebtorAddress) doesn't leave a dangling
-// "Dirección: —" line.
+// sub-field left blank (e.g. no coDebtorRelationship) doesn't leave a
+// dangling "Relación: —" line. Widened to accept a ReactNode (Phase 26) so
+// the co-debtor's name can render as a Link to their client profile.
 function DetailField({
   label,
   value,
 }: {
   label: string;
-  value: string | null | undefined;
+  value: React.ReactNode;
 }) {
   if (!value) {
     return null;

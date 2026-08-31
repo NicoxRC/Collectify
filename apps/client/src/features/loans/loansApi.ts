@@ -1,6 +1,6 @@
 import { apiClient } from '@/lib/apiClient';
 
-import type { DocumentType } from '@/features/clients/clientsApi';
+import type { Client } from '@/features/clients/clientsApi';
 import type {
   ConceptBreakdownItem,
   Installment,
@@ -39,15 +39,13 @@ export interface Loan {
   initialPayment: number | null;
   // --- Co-debtor (codeudor), Phase 21 — belongs to the loan, not the
   // client: whether a given loan has one varies per loan. At most one per
-  // loan, all nullable. See docs/phases/PHASE_21_CLIENT_PROFILE.md
-  // decision 7. ---
-  coDebtorFullName: string | null;
-  coDebtorDocumentType: DocumentType | null;
-  coDebtorDocumentNumber: string | null;
-  coDebtorPhoneNumber: string | null;
-  coDebtorAddress: string | null;
+  // loan. As of Phase 26, the co-debtor is an existing Client referenced
+  // by id rather than free-typed flat fields — see
+  // docs/phases/PHASE_26_CODEBTOR_CLIENT.md. coDebtorRelationship is the
+  // one field that stayed standalone on Loan (it describes this specific
+  // loan's relationship, not a property of the co-debtor themselves). ---
+  coDebtorClientId: string | null;
   coDebtorRelationship: string | null;
-  coDebtorIdDocumentUrl: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -88,6 +86,11 @@ export interface LoanDetail extends Loan {
   // Computed reverse lookup: the loan this one was later refinanced into,
   // if any. Only relevant once Phase 6 (refinancing) ships.
   refinancedToLoanId: string | null;
+  // Phase 26 — coDebtorClientId resolved into a full client record, null
+  // when the loan has no co-debtor. Resolved with withDeleted server-side
+  // (ClientsService.findByIdIncludingDeleted), so a loan whose co-debtor
+  // was later deactivated still renders instead of breaking this view.
+  coDebtorClient: Client | null;
 }
 
 export interface LoansQueryParams {
@@ -146,15 +149,11 @@ export interface CreateLoanInput {
   // docs/phases/PHASE_13_INITIAL_INSTALLMENT.md.
   initialPayment?: number;
   description?: string;
-  // Optional co-debtor (codeudor), Phase 21 — omit entirely for a loan with
-  // none. See docs/phasesClient/PHASE_21_CLIENT_PROFILE.md decision 7.
-  coDebtorFullName?: string;
-  coDebtorDocumentType?: DocumentType;
-  coDebtorDocumentNumber?: string;
-  coDebtorPhoneNumber?: string;
-  coDebtorAddress?: string;
+  // Optional co-debtor (codeudor), Phase 26 — an existing client's id,
+  // picked via search rather than free-typed. Omit entirely for a loan
+  // with none. See docs/phases/PHASE_26_CODEBTOR_CLIENT.md.
+  coDebtorClientId?: string;
   coDebtorRelationship?: string;
-  coDebtorIdDocumentUrl?: string;
 }
 
 // Matches apps/api/src/loans/dto/previewSchedule.dto.ts exactly — the
@@ -250,17 +249,14 @@ export interface RefinanceLoanInput {
   // The new loan's own "cuota inicial" — see CreateLoanInput.
   initialPayment?: number;
   description?: string;
-  // Optional co-debtor, Phase 21 — omitting all seven fields carries the
-  // old loan's co-debtor over unchanged (LoansService.refinance's
-  // confirmed default); sending any of them overrides just that field. See
-  // docs/phases/PHASE_21_CLIENT_PROFILE.md decision 7.
-  coDebtorFullName?: string;
-  coDebtorDocumentType?: DocumentType;
-  coDebtorDocumentNumber?: string;
-  coDebtorPhoneNumber?: string;
-  coDebtorAddress?: string;
-  coDebtorRelationship?: string;
-  coDebtorIdDocumentUrl?: string;
+  // Optional co-debtor, Phase 26 — omitting both fields carries the old
+  // loan's co-debtor over unchanged (LoansService.refinance's confirmed
+  // default); sending either overrides just that field. Send null
+  // explicitly (rather than omitting) to deliberately clear the co-debtor
+  // on the new loan instead of carrying it over. See
+  // docs/phases/PHASE_26_CODEBTOR_CLIENT.md.
+  coDebtorClientId?: string | null;
+  coDebtorRelationship?: string | null;
 }
 
 export const loansApi = {
