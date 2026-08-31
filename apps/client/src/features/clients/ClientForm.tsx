@@ -46,6 +46,7 @@ type FieldName =
   | 'documentType'
   | 'phoneNumber'
   | 'alternatePhoneNumber'
+  | 'address'
   | 'dataProcessingConsent'
   | 'references';
 type FieldErrors = Partial<Record<FieldName, string>>;
@@ -61,6 +62,7 @@ const FIELD_ORDER: FieldName[] = [
   'documentType',
   'phoneNumber',
   'alternatePhoneNumber',
+  'address',
   'references',
   'dataProcessingConsent',
 ];
@@ -303,6 +305,13 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
       errors.alternatePhoneNumber =
         'Debe ser un número colombiano válido, ej: +573001234567.';
     }
+    // Phase 26 — at least one address is required, matching
+    // ClientsService.create()'s backend rule. Neither field is
+    // individually required; the pair is, so both share one error key.
+    if (!homeAddress.trim() && !workAddress.trim()) {
+      errors.address =
+        'Debes registrar al menos una dirección (de residencia o de trabajo).';
+    }
     if (!dataProcessingConsent) {
       errors.dataProcessingConsent =
         'El cliente debe autorizar el tratamiento de datos personales antes de guardar.';
@@ -523,6 +532,17 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
           const errors: FieldErrors = {
             dataProcessingConsent:
               'El cliente debe autorizar el tratamiento de datos personales antes de guardar.',
+          };
+          setFieldErrors(errors);
+          scrollToFirstError(errors);
+        } else if (err.statusCode === 400 && /dirección/i.test(err.message)) {
+          // Phase 26 — defense in depth: the form's own validate() already
+          // blocks this case before a request is ever sent, but this
+          // mirrors that error next to the address fields just in case
+          // (e.g. a stale form state) the backend rejects it anyway.
+          const errors: FieldErrors = {
+            address:
+              'Debes registrar al menos una dirección (de residencia o de trabajo).',
           };
           setFieldErrors(errors);
           scrollToFirstError(errors);
@@ -763,22 +783,41 @@ export function ClientForm({ client, onSubmit, onClose }: ClientFormProps) {
           </FormSection>
 
           <FormSection title="Direcciones">
-            <Field label="Dirección de residencia (opcional)">
-              <input
-                value={homeAddress}
-                onChange={(event) => setHomeAddress(event.target.value)}
-                placeholder="Ej: Cra 10 #20-30"
-                className={inputClassName(false)}
-              />
-            </Field>
-            <Field label="Dirección de trabajo (opcional)">
-              <input
-                value={workAddress}
-                onChange={(event) => setWorkAddress(event.target.value)}
-                placeholder="Ej: Cl 5 #8-12, Local 3"
-                className={inputClassName(false)}
-              />
-            </Field>
+            <div
+              id={fieldElementId('address')}
+              className="flex flex-col gap-3.5"
+            >
+              <p className="text-meta text-muted">
+                Debes registrar al menos una de las dos direcciones.
+              </p>
+              <Field label="Dirección de residencia">
+                <input
+                  value={homeAddress}
+                  onChange={(event) => {
+                    setHomeAddress(event.target.value);
+                    setFieldErrors((prev) => ({ ...prev, address: undefined }));
+                  }}
+                  placeholder="Ej: Cra 10 #20-30"
+                  className={inputClassName(Boolean(fieldErrors.address))}
+                />
+              </Field>
+              <Field label="Dirección de trabajo">
+                <input
+                  value={workAddress}
+                  onChange={(event) => {
+                    setWorkAddress(event.target.value);
+                    setFieldErrors((prev) => ({ ...prev, address: undefined }));
+                  }}
+                  placeholder="Ej: Cl 5 #8-12, Local 3"
+                  className={inputClassName(Boolean(fieldErrors.address))}
+                />
+              </Field>
+              {fieldErrors.address && (
+                <span className="text-meta text-red-400" role="alert">
+                  {fieldErrors.address}
+                </span>
+              )}
+            </div>
             <div className="flex gap-4">
               <Field label="Barrio (opcional)">
                 <input

@@ -1,8 +1,9 @@
 import { apiClient } from '@/lib/apiClient';
 
 // Matches apps/api/src/clients/entities/client.entity.ts's DocumentType
-// exactly. Shared with Loan.coDebtorDocumentType (Phase 21) — a co-debtor
-// is identified the same way a client is.
+// exactly. As of Phase 26, a loan's co-debtor is a linked Client rather
+// than its own flat document-type field, so this is read via
+// Loan.coDebtorClient.documentType instead of a separate enum reference.
 export enum DocumentType {
   CedulaCiudadania = 'cedula_ciudadania',
   CedulaExtranjeria = 'cedula_extranjeria',

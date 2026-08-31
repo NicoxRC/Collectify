@@ -159,17 +159,17 @@ Unique on (`user_id`, `module`). **Row presence is the grant — there's no bool
 | `id` | UUID | PK |
 | `first_name` | VARCHAR | |
 | `last_name` | VARCHAR | |
-| `document_number` | VARCHAR | national ID (cédula) — confirmed required, present in both source spreadsheets as `DOCUMENTO` |
+| `document_number` | VARCHAR | national ID (cédula) — confirmed required, present in both source spreadsheets as `DOCUMENTO`. As of Phase 26, also enforced (rejected if missing/empty) in `ClientsService.create()` for interactively-created clients — see "Added/changed in Phase 26" below. |
 | `phone_number` | VARCHAR | E.164 format, e.g. `+573001234567` |
 | `credit_limit` | DECIMAL(12,2), nullable | maximum credit exposure ("cupo") enforced at loan creation. Nullable — unset means no cupo is enforced for this client, same "absence of a value means the rule doesn't apply" convention as `loans.description`. Added Phase 10, see "Changed after Phase 10" below. |
-| `document_type` | ENUM (`cedula_ciudadania`, `cedula_extranjeria`, `pasaporte`), nullable | Added Phase 21. Shared with `loans.co_debtor_document_type` via the same `DocumentType` enum. |
+| `document_type` | ENUM (`cedula_ciudadania`, `cedula_extranjeria`, `pasaporte`), nullable | Added Phase 21. As of Phase 26, `loans.co_debtor_document_type` (which shared this enum) is gone — a co-debtor is now a `Client` reference, so their `document_type` is read from this same column. |
 | `date_of_birth` | DATE, nullable | Added Phase 21. |
 | `document_issue_place` | VARCHAR, nullable | Added Phase 21. |
 | `document_issue_date` | DATE, nullable | Added Phase 21 (client feedback after reviewing the built form — `document_issue_place` already existed, the date didn't). |
 | `email` | VARCHAR, nullable | Added Phase 21. |
 | `alternate_phone_number` | VARCHAR, nullable | Added Phase 21. |
-| `home_address` | TEXT, nullable | Added Phase 21. |
-| `work_address` | TEXT, nullable | Added Phase 21. |
+| `home_address` | TEXT, nullable | Added Phase 21. As of Phase 26, at least one of `home_address`/`work_address` is enforced (rejected if both are missing/empty) in `ClientsService.create()` for interactively-created clients — see "Added/changed in Phase 26" below. |
+| `work_address` | TEXT, nullable | Added Phase 21. Same either/or requirement as `home_address` above, as of Phase 26. |
 | `neighborhood` | VARCHAR, nullable | Added Phase 21. |
 | `city` | VARCHAR, nullable | Added Phase 21. |
 | `occupation` | VARCHAR, nullable | Added Phase 21. |
@@ -219,17 +219,12 @@ Represents a *pagaré* — see `GLOSSARY.md`.
 | `refinanced_from_loan_id` | UUID, nullable | self-referencing FK → `loans.id`. Set when this loan was created to replace an older one. See "Refinancing" below. |
 | `description` | TEXT, nullable | free-text concept/reason for the loan (e.g. "Compra de Apple MacBook Air M5..."), used by the "new loan" WhatsApp message — see `docs/phases/PHASE_9_MESSAGE_TYPES.md`. Optional, same precedent as `payments.observation`. |
 | `new_loan_message_sent_at` | TIMESTAMPTZ, nullable | Added Phase 18 — set once the "new loan" WhatsApp message actually succeeds (synchronously at creation/refinance, or via the retry cron). Lets the `new_loan` cron find loans still needing their message directly (`IS NULL`), instead of string-matching message content. See `docs/phases/PHASE_18_MESSAGE_AUDIENCES.md`. |
-| `co_debtor_full_name` | VARCHAR, nullable | Added Phase 21 — co-debtor (codeudor) belongs to the **loan**, not the client: whether a given loan has one varies per loan, confirmed with the business. At most one per loan, so plain nullable columns rather than a separate table. See `docs/phases/PHASE_21_CLIENT_PROFILE.md` decision 7. |
-| `co_debtor_document_type` | ENUM (`cedula_ciudadania`, `cedula_extranjeria`, `pasaporte`), nullable | Added Phase 21. Shares `clients.document_type`'s `DocumentType` enum. |
-| `co_debtor_document_number` | VARCHAR, nullable | Added Phase 21. |
-| `co_debtor_phone_number` | VARCHAR, nullable | Added Phase 21. |
-| `co_debtor_address` | TEXT, nullable | Added Phase 21. |
-| `co_debtor_relationship` | VARCHAR, nullable | Added Phase 21. Relationship to the primary debtor, free text. |
-| `co_debtor_id_document_url` | VARCHAR, nullable | Added Phase 21. Externally-hosted URL (image or PDF), same convention as the client's own document URLs. |
+| `co_debtor_client_id` | UUID, nullable | Added Phase 26, replacing the flat `co_debtor_*` columns Phase 21 originally added (see "Added/changed in Phase 26" below). FK → `clients.id`, `ON DELETE RESTRICT` — same convention as `client_id` above; clients are only ever soft-deleted in this project, so `RESTRICT` never actually blocks a normal delete. A co-debtor is functionally just another client of the business — confirmed with the business ("codeudor al final es otro cliente") — so it's picked from existing clients rather than typed inline. At most one per loan. Validated in `LoansService.assertCoDebtorIsValid()`: must differ from this loan's own `client_id`, and must reference an existing, active (non-soft-deleted) client. |
+| `co_debtor_relationship` | VARCHAR, nullable | Added Phase 21, kept standalone on `Loan` through the Phase 26 refactor — relación con el deudor principal is a property of this specific loan, not of the co-debtor client themselves (the same client could be "hermano" on one loan and "socio" as co-debtor on another). Free text. |
 | `initial_payment` | DECIMAL(12,2), nullable | Added Phase 13 (corrected after client QA) — the "cuota inicial": a down payment the client already made **outside** the credit system to cover the part of the purchase this loan doesn't finance. Purely informational — not one of this loan's installments, has no due date, accrues no interest, and never affects `principal_amount` or the amortization schedule. See `docs/phases/PHASE_13_INITIAL_INSTALLMENT.md`. |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
-**On the co-debtor and refinancing:** `LoansService.refinance()` carries the old loan's co-debtor over to the new loan unchanged by default (`dto.field ?? oldLoan.field` per field) — the refinance dto's co-debtor fields are optional and only override what's explicitly sent, so refinancing doesn't silently drop an existing co-debtor. See `docs/phases/PHASE_21_CLIENT_PROFILE.md`.
+**On the co-debtor and refinancing:** `LoansService.refinance()` carries the old loan's co-debtor over to the new loan unchanged by default when `coDebtorClientId`/`coDebtorRelationship` are **omitted** from the refinance dto — the refinance dto's co-debtor fields are optional and only override what's explicitly sent, so refinancing doesn't silently drop an existing co-debtor. Sending either field as an explicit `null` (as opposed to omitting it) deliberately clears the co-debtor on the new loan instead of carrying it over — added as a QoL fix (2026-08-30) after the frontend's "tiene codeudor" checkbox turned out to have no effect when unchecked, since omitting and explicitly-clearing were previously indistinguishable at the `??` fallback used here. The carried-over (or overridden, or cleared) `coDebtorClientId` is re-validated by `assertCoDebtorIsValid()` the same as on creation. See `docs/phases/PHASE_21_CLIENT_PROFILE.md` and `docs/phases/PHASE_26_CODEBTOR_CLIENT.md`.
 
 **On `interest_rate`:** confirmed from real data that the rate is **not** automatically tiered by amount, despite an informal rule mentioned by the client ("6% under 1 million, 5% over"). Actual historical data shows loans of the same amount range with rates of 4%, 5%, and 6%. The safest interpretation — **pending final confirmation with the client** — is that the rate is set manually per loan at creation time, defaulting to whatever the current standard rate is, but editable. Do not hardcode an automatic tiering rule based on this early analysis.
 
@@ -594,6 +589,15 @@ npm run migration:revert
 - Two new env vars: `META_WHATSAPP_WEBHOOK_VERIFY_TOKEN` (Meta's handshake token) and `META_WHATSAPP_APP_SECRET` (signs `X-Hub-Signature-256`) — see `ENVIRONMENT_VARIABLES.md`.
 - `GET`/`POST /api/v1/whatsapp/webhook` — the one deliberate `@Public()` exception in the `whatsapp` module; the API's global JSON-response envelope (`{success,data}`) is bypassed on the `GET` handshake's success path only, since Meta requires the bare `hub.challenge` string back.
 - Only the not-blocked half of the phase shipped — the button-flow catalog, preference persistence, and any automated reply logic remain open questions, not yet built. See `docs/phases/PHASE_22_WHATSAPP_WEBHOOK.md`.
+
+## Added/changed in Phase 26
+
+- **Co-debtor is now a linked `Client`, not flat columns.** `loans.co_debtor_full_name`, `co_debtor_document_type`, `co_debtor_document_number`, `co_debtor_phone_number`, `co_debtor_address`, `co_debtor_id_document_url` (Phase 21) were dropped outright via migration and replaced with `loans.co_debtor_client_id` (FK → `clients.id`) — no data migration/backfill, since no loan had ever been created with co-debtor data filled in at the time this shipped (confirmed with the business: "aun no sacamos la app entonces esos prestamos con codeudor no existen"). `co_debtor_relationship` is the one field kept as-is, standalone on `Loan` — see "`loans`" above.
+- **A client can be co-debtor on more than one loan** (no uniqueness constraint on `co_debtor_client_id`), but **cannot be both the primary debtor and the co-debtor on the same loan** — enforced at the service layer (`LoansService.assertCoDebtorIsValid()`), not a DB `CHECK` constraint, matching this project's convention of keeping business rules in the service layer. Confirmed with the business.
+- **No KYC-completeness gate on co-debtor eligibility** — any existing, active client can be attached as a co-debtor regardless of how much of their Phase 21 profile is filled in. Confirmed with the business: "Desde que tenga los campos obligatorios requeridos, no creo que haya problema."
+- **`document_number` and address are now required at interactive client creation.** `ClientsService.create()` rejects a request missing `document_number`, or missing both `home_address` and `work_address` — application-level validation, not a DB `NOT NULL` constraint, same pattern as `data_processing_consent`/`document_type` (Phase 21). Unlike those two, **this rule is unconditional — it also applies to Excel-imported clients**, per explicit instruction from the business (documented as an exception to the Phase 21 bulk-import exemption precedent). The Excel import template (`clientLoanImportTemplate.ts`) documents both as conditionally required in its column hints.
+- `GET /loans/:id` resolves `co_debtor_client_id` into a full client summary (`coDebtorClient`) on read, via `ClientsService.findByIdIncludingDeleted()` — deliberately permissive (never throws, includes soft-deleted) so a loan whose co-debtor was later deactivated still renders instead of breaking the detail view. This is a stricter/looser split from write-time validation (`ClientsService.findOne()`, which throws for a missing or soft-deleted id) — you can't newly attach a deactivated client as co-debtor, but an already-attached one deactivating later doesn't retroactively break the loan.
+- The legacy, unused `POST /clients/import` endpoint and its supporting `clientsImportParser.ts` (superseded by the `ClientLoanImportService` bulk import flow, which the frontend actually calls) were removed as orphaned code, unrelated to the co-debtor/required-fields work above but done in the same phase.
 
 ## Related documents
 

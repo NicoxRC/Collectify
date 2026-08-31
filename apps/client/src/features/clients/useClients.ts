@@ -9,10 +9,31 @@ import type {
   UpdateClientReferenceInput,
 } from '@/features/clients/clientsApi';
 
-export function useClients(params: ClientsQueryParams) {
+export function useClients(
+  params: ClientsQueryParams,
+  // The global default (queryClient.ts) is refetchOnWindowFocus: false and
+  // staleTime: 30s — deliberate, to avoid noisy background refetches
+  // app-wide. Opt-in only, per call site: the codeudor picker in
+  // LoanForm.tsx/RefinanceLoanForm.tsx passes both true/0 so results
+  // refresh automatically when the admin comes back from creating a
+  // client in a new tab, without needing to retype the search — staleTime
+  // 0 matters here specifically because refetchOnWindowFocus is a no-op
+  // while data is still considered fresh under the global 30s window. See
+  // docs/phasesClient/PHASE_26_CODEBTOR_CLIENT.md.
+  options?: { refetchOnWindowFocus?: boolean; staleTime?: number },
+) {
   return useQuery({
     queryKey: ['clients', params],
     queryFn: () => clientsApi.getAll(params),
+    // Spread conditionally, not `refetchOnWindowFocus: options?.x` directly
+    // — react-query's defaultQueryOptions shallow-merges this object over
+    // queryClient.ts's app-wide defaults, so an explicit `undefined` key
+    // here would overwrite (not "inherit") those defaults for every other
+    // call site that doesn't pass options at all.
+    ...(options?.refetchOnWindowFocus !== undefined && {
+      refetchOnWindowFocus: options.refetchOnWindowFocus,
+    }),
+    ...(options?.staleTime !== undefined && { staleTime: options.staleTime }),
   });
 }
 

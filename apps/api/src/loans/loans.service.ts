@@ -29,7 +29,6 @@ import {
 import { MessageLogStatus } from '../whatsapp/entities/messageLog.entity';
 import { NewLoanReminderService } from '../whatsapp/newLoanReminder.service';
 
-import { DocumentType } from '../clients/entities/client.entity';
 import {
   ConceptAssignment,
   generateAmortizationSchedule,
@@ -174,13 +173,11 @@ interface PersistLoanParams {
   initialPayment?: number | null;
   description?: string | null;
   refinancedFromLoanId?: string | null;
-  coDebtorFullName?: string | null;
-  coDebtorDocumentType?: DocumentType | null;
-  coDebtorDocumentNumber?: string | null;
-  coDebtorPhoneNumber?: string | null;
-  coDebtorAddress?: string | null;
+  // Phase 26 — an existing Client's id, not a snapshot of their details;
+  // see the Loan entity's coDebtorClientId comment. Must differ from
+  // `clientId` above — validated in persistLoanWithInstallments.
+  coDebtorClientId?: string | null;
   coDebtorRelationship?: string | null;
-  coDebtorIdDocumentUrl?: string | null;
 }
 
 @Injectable()
@@ -243,13 +240,8 @@ export class LoansService {
           moratoryConcepts: dto.moratoryConcepts ?? [],
           initialPayment: dto.initialPayment,
           description: dto.description,
-          coDebtorFullName: dto.coDebtorFullName,
-          coDebtorDocumentType: dto.coDebtorDocumentType,
-          coDebtorDocumentNumber: dto.coDebtorDocumentNumber,
-          coDebtorPhoneNumber: dto.coDebtorPhoneNumber,
-          coDebtorAddress: dto.coDebtorAddress,
+          coDebtorClientId: dto.coDebtorClientId,
           coDebtorRelationship: dto.coDebtorRelationship,
-          coDebtorIdDocumentUrl: dto.coDebtorIdDocumentUrl,
         },
         manager,
       ),
@@ -366,19 +358,21 @@ export class LoansService {
           refinancedFromLoanId: id,
           // Carries over the old loan's co-debtor unchanged unless the dto
           // explicitly overrides a field — confirmed default behavior, see
-          // RefinanceLoanDto and docs/phases/PHASE_21_CLIENT_PROFILE.md.
-          coDebtorFullName: dto.coDebtorFullName ?? oldLoan.coDebtorFullName,
-          coDebtorDocumentType:
-            dto.coDebtorDocumentType ?? oldLoan.coDebtorDocumentType,
-          coDebtorDocumentNumber:
-            dto.coDebtorDocumentNumber ?? oldLoan.coDebtorDocumentNumber,
-          coDebtorPhoneNumber:
-            dto.coDebtorPhoneNumber ?? oldLoan.coDebtorPhoneNumber,
-          coDebtorAddress: dto.coDebtorAddress ?? oldLoan.coDebtorAddress,
+          // RefinanceLoanDto and docs/phases/PHASE_26_CODEBTOR_CLIENT.md.
+          // Distinguishes omitted (undefined — carry over) from explicit
+          // null (deliberately clearing the co-debtor on this refinance) —
+          // `??` alone can't tell those apart, since it treats both as
+          // "fall back". QoL fix (2026-08-30): previously unchecking "tiene
+          // codeudor" in the frontend silently had no effect, since the
+          // field was simply omitted either way.
+          coDebtorClientId:
+            dto.coDebtorClientId === undefined
+              ? oldLoan.coDebtorClientId
+              : dto.coDebtorClientId,
           coDebtorRelationship:
-            dto.coDebtorRelationship ?? oldLoan.coDebtorRelationship,
-          coDebtorIdDocumentUrl:
-            dto.coDebtorIdDocumentUrl ?? oldLoan.coDebtorIdDocumentUrl,
+            dto.coDebtorRelationship === undefined
+              ? oldLoan.coDebtorRelationship
+              : dto.coDebtorRelationship,
         },
         manager,
       );
@@ -535,8 +529,20 @@ export class LoansService {
       where: { refinancedFromLoanId: id },
     });
 
+    // Phase 26 — resolved via the relation, not a snapshot: findOneBy above
+    // doesn't eager-load it, so it's fetched explicitly here, same pattern
+    // as refinancedTo just above. withDeleted (findByIdIncludingDeleted)
+    // so a loan whose co-debtor was later deactivated still renders
+    // instead of breaking this endpoint.
+    const coDebtorClient = loan.coDebtorClientId
+      ? await this.clientsService.findByIdIncludingDeleted(
+          loan.coDebtorClientId,
+        )
+      : null;
+
     return {
       ...loan,
+      coDebtorClient,
       installments: installments.map((installment) =>
         enrichInstallment(
           installment,
@@ -594,6 +600,9 @@ export class LoansService {
 
   async update(id: string, dto: UpdateLoanDto): Promise<Loan> {
     const loan = await this.findLoanOrThrow(id);
+    if (dto.coDebtorClientId !== undefined) {
+      await this.assertCoDebtorIsValid(loan.clientId, dto.coDebtorClientId);
+    }
     Object.assign(loan, dto);
     return this.loansRepository.save(loan);
   }
@@ -921,6 +930,37 @@ export class LoansService {
     }
   }
 
+  // Phase 26 — validates coDebtorClientId before it's ever saved, both for
+  // a new loan (persistLoanWithInstallments) and an edit (update()).
+  // Two confirmed rules (2026-08-30): (1) a client cannot be both debtor
+  // and co-debtor on the same loan, and (2) the co-debtor must be an
+  // existing, active client — clientsService.findOne() already throws
+  // NotFoundException for a missing or soft-deleted id, which this
+  // re-throws as a 400 (a bad reference inside the request body reads
+  // better as a validation error than a 404, which conventionally refers
+  // to the URL's own resource). No-op when coDebtorClientId is absent — a
+  // loan with no co-debtor is the normal case, unaffected.
+  private async assertCoDebtorIsValid(
+    clientId: string,
+    coDebtorClientId: string | null | undefined,
+  ): Promise<void> {
+    if (!coDebtorClientId) {
+      return;
+    }
+    if (coDebtorClientId === clientId) {
+      throw new BadRequestException(
+        'A client cannot be both the debtor and the co-debtor on the same loan.',
+      );
+    }
+    try {
+      await this.clientsService.findOne(coDebtorClientId);
+    } catch {
+      throw new BadRequestException(
+        `coDebtorClientId ${coDebtorClientId} does not reference an existing, active client.`,
+      );
+    }
+  }
+
   // Phase 24 — replaces the old warning-only buildUsuryWarning: a loan
   // cannot be created/refinanced/previewed at all without the current
   // calendar month's certified rate on file (confirmed with the human,
@@ -957,6 +997,7 @@ export class LoansService {
       params.promissoryNoteNumber,
       loansRepository,
     );
+    await this.assertCoDebtorIsValid(params.clientId, params.coDebtorClientId);
 
     const currentRate = await this.getCurrentUsuryRateOrThrow();
     const concepts = await this.resolveConcepts(params.concepts, currentRate);
@@ -982,13 +1023,8 @@ export class LoansService {
       description: params.description ?? null,
       initialPayment: params.initialPayment ?? null,
       refinancedFromLoanId: params.refinancedFromLoanId ?? null,
-      coDebtorFullName: params.coDebtorFullName ?? null,
-      coDebtorDocumentType: params.coDebtorDocumentType ?? null,
-      coDebtorDocumentNumber: params.coDebtorDocumentNumber ?? null,
-      coDebtorPhoneNumber: params.coDebtorPhoneNumber ?? null,
-      coDebtorAddress: params.coDebtorAddress ?? null,
+      coDebtorClientId: params.coDebtorClientId ?? null,
       coDebtorRelationship: params.coDebtorRelationship ?? null,
-      coDebtorIdDocumentUrl: params.coDebtorIdDocumentUrl ?? null,
     });
 
     let savedLoan: Loan;

@@ -5,8 +5,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { plainToInstance } from 'class-transformer';
-import { validate } from 'class-validator';
 import { FindOptionsWhere, ILike, In, IsNull, Not, Repository } from 'typeorm';
 
 import { PaginatedResult } from '../common/interfaces/paginatedResult.interface';
@@ -17,11 +15,6 @@ import {
 import { Loan, LoanStatus } from '../loans/entities/loan.entity';
 import { enrichInstallment } from '../loans/installments/enrichInstallment';
 
-import {
-  ParsedClientRow,
-  parseClientsWorkbook,
-  RowError,
-} from './clientsImportParser';
 import { CreateClientDto } from './dto/createClient.dto';
 import { CreateClientReferenceDto } from './dto/createClientReference.dto';
 import { QueryClientsDto } from './dto/queryClients.dto';
@@ -34,16 +27,10 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const POSTGRES_UNIQUE_VIOLATION = '23505';
 
-export interface ImportClientsResult {
-  totalRows: number;
-  created: number;
-  skipped: RowError[];
-}
-
 // Distinguishes the two paths that build a Client from a CreateClientDto:
 // the interactive ClientForm (consent + document type required — see
-// ClientsService.create) and Excel bulk import (neither enforced — see
-// importFromExcel and docs/phases/PHASE_21_CLIENT_PROFILE.md decision 6).
+// ClientsService.create) and bulk import via ClientLoanImportService
+// (neither enforced — see docs/phases/PHASE_21_CLIENT_PROFILE.md decision 6).
 // requireDocumentType follows the client's own request that a new client
 // always have a document type on file — same reasoning and same
 // Excel-import exemption as requireConsent, so it's kept as an
@@ -85,8 +72,8 @@ export class ClientsService {
   ) {}
 
   // requireConsent/requireDocumentType both default to true (the
-  // interactive ClientsController.create path) — importFromExcel is the
-  // one caller that explicitly opts out of both, since bulk-onboarded
+  // interactive ClientsController.create path) — ClientLoanImportService
+  // is the one caller that explicitly opts out of both, since bulk-onboarded
   // clients never had a chance to sign anything or hand over an ID
   // through this software, and both get filled in later from their
   // profile. See docs/phases/PHASE_21_CLIENT_PROFILE.md decision 6, and
@@ -107,6 +94,19 @@ export class ClientsService {
     }
     if (options.requireDocumentType && !dto.documentType) {
       throw new BadRequestException('El tipo de documento es obligatorio.');
+    }
+    // Phase 26 — unlike consent/documentType above, this rule is NOT
+    // exempted for bulk import (confirmed with the human, 2026-08-30): a
+    // client record without any address at all is a data-quality problem
+    // regardless of how it was created. documentNumber's own "required"
+    // rule already lives on CreateClientDto itself (@IsNotEmpty), enforced
+    // identically for both paths — this is the same idea for "at least one
+    // of home/work address", just expressed here since a cross-field
+    // either/or can't be a single-property class-validator decorator.
+    if (!dto.homeAddress?.trim() && !dto.workAddress?.trim()) {
+      throw new BadRequestException(
+        'Debe registrar al menos una dirección (de residencia o de trabajo).',
+      );
     }
     await this.assertDocumentNumberIsUnique(dto.documentNumber);
 
@@ -345,72 +345,6 @@ export class ClientsService {
     return this.findOne(id);
   }
 
-  // Bulk onboarding from the client's own Excel process (see
-  // docs/PROJECT_ROADMAP.md Phase 8, confirmed still needed). A bad row
-  // (invalid data or a duplicate document number) is skipped and reported,
-  // not aborted — one bad row shouldn't sink the rest of a real spreadsheet.
-  // Reuses create()'s validation and uniqueness logic per row, same as a
-  // manual create would — except consent, deliberately not required here.
-  // See docs/phases/PHASE_21_CLIENT_PROFILE.md decision 6.
-  async importFromExcel(buffer: Buffer): Promise<ImportClientsResult> {
-    let parsed: { rows: ParsedClientRow[]; errors: RowError[] };
-    try {
-      parsed = await parseClientsWorkbook(buffer);
-    } catch (error) {
-      throw new BadRequestException(
-        error instanceof Error
-          ? error.message
-          : 'Could not parse the uploaded file',
-      );
-    }
-
-    const skipped: RowError[] = [...parsed.errors];
-    let created = 0;
-
-    for (const row of parsed.rows) {
-      const dto = plainToInstance(CreateClientDto, {
-        firstName: row.firstName,
-        lastName: row.lastName,
-        documentNumber: row.documentNumber,
-        phoneNumber: row.phoneNumber,
-      });
-
-      const validationErrors = await validate(dto);
-      if (validationErrors.length > 0) {
-        skipped.push({
-          row: row.row,
-          reason: validationErrors
-            .flatMap((error) => Object.values(error.constraints ?? {}))
-            .join('; '),
-        });
-        continue;
-      }
-
-      try {
-        await this.create(dto, {
-          requireConsent: false,
-          requireDocumentType: false,
-        });
-        created += 1;
-      } catch (error) {
-        if (error instanceof ConflictException) {
-          skipped.push({
-            row: row.row,
-            reason: `Document number ${dto.documentNumber} already exists`,
-          });
-        } else {
-          throw error;
-        }
-      }
-    }
-
-    return {
-      totalRows: parsed.rows.length + parsed.errors.length,
-      created,
-      skipped,
-    };
-  }
-
   // --- Client references (Phase 21) — a dynamic add/remove list, not a
   // fixed set of fields; see docs/phases/PHASE_21_CLIENT_PROFILE.md. No
   // min/max enforced here, matching the confirmed "let them add as many as
@@ -468,6 +402,18 @@ export class ClientsService {
   async findByDocumentNumber(documentNumber: string): Promise<Client | null> {
     return this.clientsRepository.findOne({
       where: { documentNumber },
+      withDeleted: true,
+    });
+  }
+
+  // Phase 26 — used by LoansService to resolve a loan's coDebtorClientId
+  // into a summary for GET /loans/:id. withDeleted (and returning null
+  // instead of throwing, unlike findOne()) so a loan whose co-debtor was
+  // later deactivated still renders — the co-debtor being soft-deleted is
+  // no reason for the loan's own detail view to break.
+  async findByIdIncludingDeleted(id: string): Promise<Client | null> {
+    return this.clientsRepository.findOne({
+      where: { id },
       withDeleted: true,
     });
   }

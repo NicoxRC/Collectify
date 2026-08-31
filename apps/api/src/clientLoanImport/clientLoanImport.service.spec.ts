@@ -124,6 +124,28 @@ describe('ClientLoanImportService', () => {
     );
   });
 
+  // Phase 26 — ClientsService.create() now unconditionally rejects a
+  // client with no address at all (see clients.service.spec.ts), even for
+  // this bulk-import caller. Confirms that rejection surfaces as a normal
+  // skipped row here (via the existing generic try/catch around
+  // clientsService.create()), not an aborted import — same "one bad row
+  // doesn't sink the rest" contract as every other row-level failure.
+  it('skips a row (without aborting the import) when ClientsService.create rejects it, e.g. no address', async () => {
+    mockParse.mockResolvedValue({ rows: [buildRow({})], errors: [] });
+    clientsService.create.mockRejectedValue(
+      new Error(
+        'Debe registrar al menos una dirección (de residencia o de trabajo).',
+      ),
+    );
+
+    const result = await service.importFromExcel(Buffer.from(''), 'normal');
+
+    expect(loansService.create).not.toHaveBeenCalled();
+    expect(result.created).toBe(0);
+    expect(result.skipped).toHaveLength(1);
+    expect(result.skipped[0].reason).toMatch(/al menos una dirección/i);
+  });
+
   it('passes skipCreditCheck: true in historical mode', async () => {
     mockParse.mockResolvedValue({ rows: [buildRow({})], errors: [] });
     clientsService.create.mockResolvedValue({

@@ -73,7 +73,10 @@ export class LoansController {
       'principalPortion and conceptBreakdown (name + amount per interest/fee concept) were computed ' +
       'once at schedule generation time and are read back as stored — see ' +
       'docs/phases/PHASE_14_INTEREST_CONCEPTS.md. ' +
-      'refinancedToLoanId is a computed reverse lookup — the loan this one was later refinanced into, if any.',
+      'refinancedToLoanId is a computed reverse lookup — the loan this one was later refinanced into, if any. ' +
+      'As of Phase 26, coDebtorClient is resolved from coDebtorClientId on read (null when the loan has ' +
+      'no co-debtor) — resolved with withDeleted so a loan whose co-debtor was later deactivated still ' +
+      'renders instead of breaking. See docs/phases/PHASE_26_CODEBTOR_CLIENT.md.',
   })
   @ApiResponse({
     status: 200,
@@ -98,7 +101,7 @@ export class LoansController {
     summary:
       'Create a loan and generate its installments (admin or granted the loans module)',
     description:
-      'The installment schedule is generated automatically from principalAmount, totalInstallments, and concepts (interest/fee concepts picked from the InterestConceptTypes catalog), solved as a level total payment ("cuota fija") — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md. Concepts apply to every installment for the whole term of the loan; they cannot vary per installment. moratoryConcepts (Phase 23) are assigned the same way but never affect the schedule — they only take effect once an installment is overdue. Due dates are auto-generated from disbursedAt + installmentFrequency. interestRate is the legacy fallback used for moratory interest only when no moratoryConcepts are assigned. As of Phase 24, a loan cannot be created without the current calendar month\'s usury rate on file (see GET /usury-rates/current), and any percentage-type concept (corriente or moratorio) is automatically priced at exactly that rate, ignoring whatever value is sent for it — only fixed_amount concepts stay admin-set. See docs/phases/PHASE_24_USURY_MANDATORY.md.',
+      'The installment schedule is generated automatically from principalAmount, totalInstallments, and concepts (interest/fee concepts picked from the InterestConceptTypes catalog), solved as a level total payment ("cuota fija") — see docs/phases/PHASE_14_INTEREST_CONCEPTS.md. Concepts apply to every installment for the whole term of the loan; they cannot vary per installment. moratoryConcepts (Phase 23) are assigned the same way but never affect the schedule — they only take effect once an installment is overdue. Due dates are auto-generated from disbursedAt + installmentFrequency. interestRate is the legacy fallback used for moratory interest only when no moratoryConcepts are assigned. As of Phase 24, a loan cannot be created without the current calendar month\'s usury rate on file (see GET /usury-rates/current), and any percentage-type concept (corriente or moratorio) is automatically priced at exactly that rate, ignoring whatever value is sent for it — only fixed_amount concepts stay admin-set. See docs/phases/PHASE_24_USURY_MANDATORY.md. As of Phase 26, coDebtorClientId optionally links an existing client as co-debtor — it must differ from this loan\'s own clientId and must reference an existing, active client, or the request is rejected. See docs/phases/PHASE_26_CODEBTOR_CLIENT.md.',
   })
   @ApiResponse({
     status: 201,
@@ -108,8 +111,9 @@ export class LoansController {
     status: 400,
     description:
       'The client is mora-blocked (an installment more than 30 days overdue), the ' +
-      "principal exceeds the client's available cupo, or the current month's usury rate " +
-      'has not been entered yet — see the error message for which one applies.',
+      "principal exceeds the client's available cupo, the current month's usury rate " +
+      'has not been entered yet, or coDebtorClientId is invalid (same as clientId, or ' +
+      'does not reference an existing, active client) — see the error message for which one applies.',
   })
   @ApiResponse({
     status: 404,
@@ -154,8 +158,22 @@ export class LoansController {
   @Patch(':id')
   @Roles(UserRole.Admin)
   @Audit('loan.update', 'loan')
-  @ApiOperation({ summary: "Update a loan's interest rate (admin only)" })
+  @ApiOperation({
+    summary:
+      "Update a loan's interest rate, description, or co-debtor (admin only)",
+    description:
+      'As of Phase 26, coDebtorClientId and coDebtorRelationship are also editable here — ' +
+      'coDebtorClientId is re-validated with the same rules as loan creation (must differ from ' +
+      "the loan's own clientId and must reference an existing, active client) whenever it is " +
+      'included in the request. See docs/phases/PHASE_26_CODEBTOR_CLIENT.md.',
+  })
   @ApiResponse({ status: 200, description: 'The loan was updated.' })
+  @ApiResponse({
+    status: 400,
+    description:
+      "coDebtorClientId is invalid (same as the loan's own clientId, or does not reference an " +
+      'existing, active client).',
+  })
   @ApiResponse({ status: 404, description: 'Loan not found.' })
   update(@Param('id') id: string, @Body() dto: UpdateLoanDto): Promise<Loan> {
     return this.loansService.update(id, dto);
@@ -271,7 +289,10 @@ export class LoansController {
       "(and near-due) installments' accrued corriente and moratory interest, so refinancing no " +
       'longer requires settling them separately first. As of Phase 24, the same hard block and ' +
       'percentage-concept auto-fill rules POST /loans uses apply here too — see ' +
-      'docs/phases/PHASE_24_USURY_MANDATORY.md.',
+      'docs/phases/PHASE_24_USURY_MANDATORY.md. As of Phase 26, the new loan carries over the old ' +
+      "loan's co-debtor (coDebtorClientId + coDebtorRelationship) by default; passing either field " +
+      'in the request overrides it, validated with the same rules as POST /loans. See ' +
+      'docs/phases/PHASE_26_CODEBTOR_CLIENT.md.',
   })
   @ApiResponse({
     status: 201,
@@ -280,8 +301,9 @@ export class LoansController {
   @ApiResponse({
     status: 400,
     description:
-      "The loan is not active (already paid or already refinanced), or the current month's " +
-      'usury rate has not been entered yet — see the description above.',
+      "The loan is not active (already paid or already refinanced), the current month's " +
+      "usury rate has not been entered yet, or coDebtorClientId is invalid (same as the loan's " +
+      'own clientId, or does not reference an existing, active client) — see the description above.',
   })
   @ApiResponse({ status: 404, description: 'Loan not found.' })
   @ApiResponse({

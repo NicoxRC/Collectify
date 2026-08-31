@@ -12,17 +12,12 @@ import {
 } from '../loans/entities/installment.entity';
 import { Loan, LoanStatus } from '../loans/entities/loan.entity';
 
-import { parseClientsWorkbook } from './clientsImportParser';
 import { ClientsService } from './clients.service';
 import { Client, DocumentType } from './entities/client.entity';
 import {
   ClientReference,
   ClientReferenceType,
 } from './entities/clientReference.entity';
-
-jest.mock('./clientsImportParser');
-
-const mockParseClientsWorkbook = parseClientsWorkbook as jest.Mock;
 
 describe('ClientsService', () => {
   let service: ClientsService;
@@ -146,6 +141,11 @@ describe('ClientsService', () => {
       phoneNumber: '+573001234567',
       documentType: DocumentType.CedulaCiudadania,
       dataProcessingConsent: true,
+      // Phase 26 — at least one address is required unconditionally now;
+      // set here so every test in this describe block that isn't
+      // specifically about the address rule itself doesn't have to repeat
+      // it. See the dedicated 'at least one address' tests below.
+      homeAddress: 'Cra 1 #2-3',
     };
 
     it('creates a client when the document number is not in use', async () => {
@@ -171,7 +171,8 @@ describe('ClientsService', () => {
     });
 
     // Phase 21 — dataProcessingConsent is required through this path
-    // (ClientsController.create), never through importFromExcel. See
+    // (ClientsController.create), never through the bulk-import path
+    // (ClientLoanImportService, which opts out explicitly). See
     // docs/phases/PHASE_21_CLIENT_PROFILE.md decision 6.
     it('rejects creating a client without data-processing consent', async () => {
       await expect(
@@ -186,6 +187,7 @@ describe('ClientsService', () => {
         lastName: createDto.lastName,
         documentNumber: createDto.documentNumber,
         phoneNumber: createDto.phoneNumber,
+        homeAddress: createDto.homeAddress,
       };
 
       await expect(service.create(withoutConsent)).rejects.toThrow(
@@ -203,6 +205,7 @@ describe('ClientsService', () => {
         documentNumber: createDto.documentNumber,
         phoneNumber: createDto.phoneNumber,
         dataProcessingConsent: createDto.dataProcessingConsent,
+        homeAddress: createDto.homeAddress,
       };
 
       await expect(service.create(withoutDocumentType)).rejects.toThrow(
@@ -220,6 +223,7 @@ describe('ClientsService', () => {
         lastName: createDto.lastName,
         documentNumber: createDto.documentNumber,
         phoneNumber: createDto.phoneNumber,
+        homeAddress: createDto.homeAddress,
       };
       await expect(
         service.create(withoutDocumentType, {
@@ -251,10 +255,65 @@ describe('ClientsService', () => {
         lastName: createDto.lastName,
         documentNumber: createDto.documentNumber,
         phoneNumber: createDto.phoneNumber,
+        homeAddress: createDto.homeAddress,
       };
       await expect(
         service.create(withoutConsent, { requireConsent: false }),
       ).resolves.toEqual(mockClient);
+    });
+
+    // Phase 26 — confirmed with the human (2026-08-30): unlike consent and
+    // documentType, this rule is NOT exempted anywhere, including bulk
+    // import (see ClientLoanImportService, which catches this
+    // BadRequestException per-row via its existing error-handling path —
+    // no import-specific test needed here, that's covered on the
+    // ClientLoanImportService side).
+    it('rejects creating a client with no address at all', async () => {
+      const withoutAddress = {
+        firstName: createDto.firstName,
+        lastName: createDto.lastName,
+        documentNumber: createDto.documentNumber,
+        phoneNumber: createDto.phoneNumber,
+        documentType: createDto.documentType,
+        dataProcessingConsent: createDto.dataProcessingConsent,
+      };
+
+      await expect(service.create(withoutAddress)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(repository.save).not.toHaveBeenCalled();
+    });
+
+    it('accepts a client with only a work address (no home address)', async () => {
+      repository.findOne.mockResolvedValue(null);
+      repository.save.mockResolvedValue(mockClient);
+
+      const workAddressOnly = {
+        firstName: createDto.firstName,
+        lastName: createDto.lastName,
+        documentNumber: createDto.documentNumber,
+        phoneNumber: createDto.phoneNumber,
+        documentType: createDto.documentType,
+        dataProcessingConsent: createDto.dataProcessingConsent,
+        workAddress: 'Av. Siempre Viva 742',
+      };
+
+      await expect(service.create(workAddressOnly)).resolves.toEqual(
+        mockClient,
+      );
+    });
+
+    it('rejects a client whose address fields are present but blank', async () => {
+      const blankAddresses = {
+        ...createDto,
+        homeAddress: '   ',
+        workAddress: '',
+      };
+
+      await expect(service.create(blankAddresses)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(repository.save).not.toHaveBeenCalled();
     });
   });
 
@@ -381,138 +440,6 @@ describe('ClientsService', () => {
         ConflictException,
       );
       expect(repository.softDelete).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('importFromExcel', () => {
-    const buffer = Buffer.from('fake-xlsx');
-
-    beforeEach(() => {
-      mockParseClientsWorkbook.mockReset();
-    });
-
-    it('creates every valid row and reports the total', async () => {
-      mockParseClientsWorkbook.mockResolvedValue({
-        rows: [
-          {
-            row: 2,
-            firstName: 'Juana',
-            lastName: 'Pérez',
-            documentNumber: '1234567890',
-            phoneNumber: '+573001234567',
-          },
-          {
-            row: 3,
-            firstName: 'Carlos',
-            lastName: 'Gomez',
-            documentNumber: '9876543210',
-            phoneNumber: '+573002222222',
-          },
-        ],
-        errors: [],
-      });
-      repository.findOne.mockResolvedValue(null);
-      repository.save.mockImplementation((client: Partial<Client>) =>
-        Promise.resolve({ ...mockClient, ...client }),
-      );
-
-      const result = await service.importFromExcel(buffer);
-
-      expect(result).toEqual({ totalRows: 2, created: 2, skipped: [] });
-      expect(repository.save).toHaveBeenCalledTimes(2);
-    });
-
-    it('carries parse-level row errors straight into skipped', async () => {
-      mockParseClientsWorkbook.mockResolvedValue({
-        rows: [],
-        errors: [{ row: 5, reason: 'Missing value(s) for: lastName' }],
-      });
-
-      const result = await service.importFromExcel(buffer);
-
-      expect(result).toEqual({
-        totalRows: 1,
-        created: 0,
-        skipped: [{ row: 5, reason: 'Missing value(s) for: lastName' }],
-      });
-    });
-
-    it('skips a row that fails DTO validation instead of aborting the import', async () => {
-      mockParseClientsWorkbook.mockResolvedValue({
-        rows: [
-          {
-            row: 2,
-            firstName: 'Juana',
-            lastName: 'Pérez',
-            documentNumber: '1234567890',
-            phoneNumber: 'not-a-phone-number',
-          },
-          {
-            row: 3,
-            firstName: 'Carlos',
-            lastName: 'Gomez',
-            documentNumber: '9876543210',
-            phoneNumber: '+573002222222',
-          },
-        ],
-        errors: [],
-      });
-      repository.findOne.mockResolvedValue(null);
-      repository.save.mockImplementation((client: Partial<Client>) =>
-        Promise.resolve({ ...mockClient, ...client }),
-      );
-
-      const result = await service.importFromExcel(buffer);
-
-      expect(result.created).toBe(1);
-      expect(result.skipped).toHaveLength(1);
-      expect(result.skipped[0].row).toBe(2);
-    });
-
-    it('skips a row whose document number already exists instead of aborting the import', async () => {
-      mockParseClientsWorkbook.mockResolvedValue({
-        rows: [
-          {
-            row: 2,
-            firstName: 'Juana',
-            lastName: 'Pérez',
-            documentNumber: '1234567890',
-            phoneNumber: '+573001234567',
-          },
-          {
-            row: 3,
-            firstName: 'Carlos',
-            lastName: 'Gomez',
-            documentNumber: '9876543210',
-            phoneNumber: '+573002222222',
-          },
-        ],
-        errors: [],
-      });
-      repository.findOne
-        .mockResolvedValueOnce(mockClient) // row 2 — duplicate
-        .mockResolvedValueOnce(null); // row 3 — unique
-      repository.save.mockImplementation((client: Partial<Client>) =>
-        Promise.resolve({ ...mockClient, ...client }),
-      );
-
-      const result = await service.importFromExcel(buffer);
-
-      expect(result.created).toBe(1);
-      expect(result.skipped).toEqual([
-        { row: 2, reason: 'Document number 1234567890 already exists' },
-      ]);
-    });
-
-    it('wraps a structural parse failure in BadRequestException', async () => {
-      mockParseClientsWorkbook.mockRejectedValue(
-        new Error('The file is missing required column(s): phoneNumber'),
-      );
-
-      await expect(service.importFromExcel(buffer)).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(repository.save).not.toHaveBeenCalled();
     });
   });
 

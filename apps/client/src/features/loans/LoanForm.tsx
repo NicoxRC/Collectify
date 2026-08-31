@@ -3,12 +3,7 @@ import { useState } from 'react';
 import { CloseButton } from '@/components/ui/CloseButton';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { DatePicker } from '@/components/ui/DatePicker';
-import { FileUploadField } from '@/components/ui/FileUploadField';
 import { Select } from '@/components/ui/Select';
-import {
-  DOCUMENT_TYPE_LABELS,
-  DocumentType,
-} from '@/features/clients/clientsApi';
 import { useAuth } from '@/features/auth/useAuth';
 import { useClient, useClients } from '@/features/clients/useClients';
 import { InterestConceptTypeForm } from '@/features/interestConceptTypes/InterestConceptTypeForm';
@@ -30,7 +25,6 @@ import { StaleUsuryRateBanner } from '@/features/usuryRates/StaleUsuryRateBanner
 import { useCurrentUsuryRate } from '@/features/usuryRates/useUsuryRates';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatDateOnly } from '@/lib/format';
-import { ImageUploadError, uploadDocument } from '@/lib/imageUpload';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 
 import type { Client, ClientDetail } from '@/features/clients/clientsApi';
@@ -63,16 +57,8 @@ type FieldName =
   | 'totalInstallments'
   | 'concepts'
   | 'moratoryConcepts'
-  | 'coDebtorFullName';
+  | 'coDebtorClientId';
 type FieldErrors = Partial<Record<FieldName, string>>;
-
-const CO_DEBTOR_DOCUMENT_TYPE_OPTIONS = [
-  { value: '', label: 'Sin especificar' },
-  ...Object.values(DocumentType).map((type) => ({
-    value: type,
-    label: DOCUMENT_TYPE_LABELS[type],
-  })),
-];
 
 let nextRowId = 0;
 function makeRowId(): string {
@@ -142,23 +128,33 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
   const [initialPayment, setInitialPayment] = useState(0);
   const [description, setDescription] = useState('');
 
-  // Phase 21 — optional codeudor, off by default so the common
-  // no-codeudor case doesn't add clutter; checking it reveals the fields
-  // below. See docs/phasesClient/PHASE_21_CLIENT_PROFILE.md.
+  // Phase 26 — optional codeudor, off by default so the common
+  // no-codeudor case doesn't add clutter; checking it reveals the picker
+  // below. A codeudor is now an existing Client, searched/selected the
+  // same way the loan's own client is above — no more free-typed details.
+  // See docs/phasesClient/PHASE_26_CODEBTOR_CLIENT.md.
   const [hasCoDebtor, setHasCoDebtor] = useState(false);
-  const [coDebtorFullName, setCoDebtorFullName] = useState('');
-  const [coDebtorDocumentType, setCoDebtorDocumentType] = useState('');
-  const [coDebtorDocumentNumber, setCoDebtorDocumentNumber] = useState('');
-  const [coDebtorPhoneNumber, setCoDebtorPhoneNumber] = useState('');
-  const [coDebtorAddress, setCoDebtorAddress] = useState('');
+  const [coDebtorClient, setCoDebtorClient] = useState<Client | null>(null);
+  const [coDebtorSearch, setCoDebtorSearch] = useState('');
+  const { data: coDebtorResults } = useClients(
+    { search: coDebtorSearch, isActive: true },
+    // QoL — if the admin opens "créalo aquí" in a new tab to create the
+    // codeudor, then comes back here, refetch automatically instead of
+    // requiring them to retype the search. staleTime: 0 matters too —
+    // otherwise refetchOnWindowFocus is a no-op while still under the
+    // app-wide 30s staleTime.
+    { refetchOnWindowFocus: true, staleTime: 0 },
+  );
   const [coDebtorRelationship, setCoDebtorRelationship] = useState('');
-  const [coDebtorIdDocumentFile, setCoDebtorIdDocumentFile] =
-    useState<File | null>(null);
+  // QoL — never offer the loan's own client as a codeudor candidate, so
+  // there's nothing to pick that would only get rejected at submit time.
+  const coDebtorSearchResults = (coDebtorResults?.items ?? []).filter(
+    (client) => client.id !== selectedClient?.id,
+  );
 
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
   // Which repeater "Crear nuevo tipo" was clicked from — determines the new
   // type's pre-selected category and which list it gets appended to. null
   // = the dialog is closed.
@@ -305,9 +301,16 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
       errors.moratoryConcepts =
         'Selecciona un tipo para cada cargo moratorio agregado.';
     }
-    if (hasCoDebtor && !coDebtorFullName.trim()) {
-      errors.coDebtorFullName =
-        'El nombre del codeudor es obligatorio si se marca esta sección.';
+    if (hasCoDebtor && !coDebtorClient) {
+      errors.coDebtorClientId = 'Selecciona un cliente como codeudor.';
+    } else if (
+      hasCoDebtor &&
+      coDebtorClient &&
+      selectedClient &&
+      coDebtorClient.id === selectedClient.id
+    ) {
+      errors.coDebtorClientId =
+        'El codeudor no puede ser el mismo cliente del préstamo.';
     }
     return errors;
   };
@@ -366,26 +369,6 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
     }
     setFieldErrors({});
 
-    // Deferred upload, same pattern as ClientForm.tsx/
-    // RegisterPaymentDialog.tsx — the file is only actually sent once the
-    // rest of the form has already passed validation.
-    let coDebtorIdDocumentUrl: string | undefined;
-    if (hasCoDebtor && coDebtorIdDocumentFile) {
-      setIsUploading(true);
-      try {
-        coDebtorIdDocumentUrl = await uploadDocument(coDebtorIdDocumentFile);
-      } catch (err) {
-        setFormError(
-          err instanceof ImageUploadError
-            ? err.message
-            : 'No se pudo subir el documento del codeudor. Intenta de nuevo.',
-        );
-        setIsUploading(false);
-        return;
-      }
-      setIsUploading(false);
-    }
-
     setIsSubmitting(true);
 
     try {
@@ -401,25 +384,12 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
         moratoryConcepts: toMoratoryConceptAssignments(),
         initialPayment: initialPayment > 0 ? initialPayment : undefined,
         description: description.trim() || undefined,
-        ...(hasCoDebtor
+        ...(hasCoDebtor && coDebtorClient
           ? {
-              coDebtorFullName: coDebtorFullName.trim(),
-              ...(coDebtorDocumentType
-                ? { coDebtorDocumentType: coDebtorDocumentType as DocumentType }
-                : {}),
-              ...(coDebtorDocumentNumber.trim()
-                ? { coDebtorDocumentNumber: coDebtorDocumentNumber.trim() }
-                : {}),
-              ...(coDebtorPhoneNumber.trim()
-                ? { coDebtorPhoneNumber: coDebtorPhoneNumber.trim() }
-                : {}),
-              ...(coDebtorAddress.trim()
-                ? { coDebtorAddress: coDebtorAddress.trim() }
-                : {}),
+              coDebtorClientId: coDebtorClient.id,
               ...(coDebtorRelationship.trim()
                 ? { coDebtorRelationship: coDebtorRelationship.trim() }
                 : {}),
-              ...(coDebtorIdDocumentUrl ? { coDebtorIdDocumentUrl } : {}),
             }
           : {}),
       });
@@ -935,8 +905,10 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
               </Field>
             </FormSection>
 
-            {/* Phase 21 — optional, off by default. See
-                docs/phasesClient/PHASE_21_CLIENT_PROFILE.md. */}
+            {/* Phase 26 — optional, off by default. A codeudor is now an
+                existing Client, picked via search the same way the loan's
+                own client is above — no more free-typed details. See
+                docs/phasesClient/PHASE_26_CODEBTOR_CLIENT.md. */}
             <div className="flex flex-col gap-3.5 rounded border border-border bg-input p-3">
               <label className="flex items-center gap-2.5">
                 <input
@@ -944,9 +916,14 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
                   checked={hasCoDebtor}
                   onChange={(event) => {
                     setHasCoDebtor(event.target.checked);
+                    if (!event.target.checked) {
+                      setCoDebtorClient(null);
+                      setCoDebtorSearch('');
+                      setCoDebtorRelationship('');
+                    }
                     setFieldErrors((prev) => ({
                       ...prev,
-                      coDebtorFullName: undefined,
+                      coDebtorClientId: undefined,
                     }));
                   }}
                   className="size-4 shrink-0 rounded border-border bg-background accent-white"
@@ -958,82 +935,92 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
 
               {hasCoDebtor && (
                 <div className="flex flex-col gap-3">
-                  <Field
-                    label="Nombre completo"
-                    error={fieldErrors.coDebtorFullName}
-                  >
-                    <input
-                      value={coDebtorFullName}
-                      onChange={(event) => {
-                        setCoDebtorFullName(event.target.value);
-                        setFieldErrors((prev) => ({
-                          ...prev,
-                          coDebtorFullName: undefined,
-                        }));
-                      }}
-                      placeholder="Ej: Carlos Gómez"
-                      className={inputClassName(
-                        Boolean(fieldErrors.coDebtorFullName),
-                      )}
-                    />
+                  <Field label="Codeudor" error={fieldErrors.coDebtorClientId}>
+                    {coDebtorClient ? (
+                      <div className="flex items-center justify-between rounded border border-border bg-input px-3.5 py-2.5">
+                        <span className="text-control text-white">
+                          {coDebtorClient.firstName} {coDebtorClient.lastName} ·
+                          CC {coDebtorClient.documentNumber}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCoDebtorClient(null);
+                            setFieldErrors((prev) => ({
+                              ...prev,
+                              coDebtorClientId: undefined,
+                            }));
+                          }}
+                          className="text-meta text-muted hover:text-white"
+                        >
+                          Cambiar
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <input
+                          value={coDebtorSearch}
+                          onChange={(event) =>
+                            setCoDebtorSearch(event.target.value)
+                          }
+                          placeholder="Buscar cliente por nombre o cédula…"
+                          className={inputClassName(
+                            Boolean(fieldErrors.coDebtorClientId),
+                          )}
+                        />
+                        {coDebtorSearch && coDebtorSearchResults.length > 0 && (
+                          <div className="absolute z-10 mt-1 w-full rounded border border-border bg-input shadow-lg">
+                            {coDebtorSearchResults.slice(0, 5).map((client) => (
+                              <button
+                                key={client.id}
+                                type="button"
+                                onClick={() => {
+                                  setCoDebtorClient(client);
+                                  setCoDebtorSearch('');
+                                  setFieldErrors((prev) => ({
+                                    ...prev,
+                                    coDebtorClientId: undefined,
+                                  }));
+                                }}
+                                className="flex w-full flex-col items-start gap-0.5 px-3.5 py-2 text-left hover:bg-border"
+                              >
+                                <span className="text-control text-white">
+                                  {client.firstName} {client.lastName}
+                                </span>
+                                <span className="text-meta text-muted">
+                                  CC {client.documentNumber}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {coDebtorSearch &&
+                          coDebtorSearchResults.length === 0 && (
+                            <p className="mt-2 text-meta text-muted">
+                              No se encontró ningún cliente. El codeudor debe
+                              existir como cliente primero —{' '}
+                              <a
+                                href="/clientes"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-white underline"
+                              >
+                                créalo aquí
+                              </a>{' '}
+                              y luego búscalo de nuevo.
+                            </p>
+                          )}
+                      </div>
+                    )}
                   </Field>
-                  <div className="flex gap-4">
-                    <Field label="Tipo de documento (opcional)">
-                      <Select
-                        value={coDebtorDocumentType}
-                        onChange={setCoDebtorDocumentType}
-                        options={CO_DEBTOR_DOCUMENT_TYPE_OPTIONS}
-                        className="w-full"
-                      />
-                    </Field>
-                    <Field label="N° de documento (opcional)">
-                      <input
-                        value={coDebtorDocumentNumber}
-                        onChange={(event) =>
-                          setCoDebtorDocumentNumber(event.target.value)
-                        }
-                        placeholder="Ej: 1122334455"
-                        className={inputClassName(false)}
-                      />
-                    </Field>
-                  </div>
-                  <div className="flex gap-4">
-                    <Field label="Teléfono (opcional)">
-                      <input
-                        value={coDebtorPhoneNumber}
-                        onChange={(event) =>
-                          setCoDebtorPhoneNumber(event.target.value)
-                        }
-                        placeholder="Ej: +573007778899"
-                        className={inputClassName(false)}
-                      />
-                    </Field>
-                    <Field label="Relación con el deudor (opcional)">
-                      <input
-                        value={coDebtorRelationship}
-                        onChange={(event) =>
-                          setCoDebtorRelationship(event.target.value)
-                        }
-                        placeholder="Ej: Hermano del deudor"
-                        className={inputClassName(false)}
-                      />
-                    </Field>
-                  </div>
-                  <Field label="Dirección (opcional)">
+                  <Field label="Relación con el deudor (opcional)">
                     <input
-                      value={coDebtorAddress}
+                      value={coDebtorRelationship}
                       onChange={(event) =>
-                        setCoDebtorAddress(event.target.value)
+                        setCoDebtorRelationship(event.target.value)
                       }
-                      placeholder="Ej: Cra 10 #20-30"
+                      placeholder="Ej: Hermano del deudor"
                       className={inputClassName(false)}
-                    />
-                  </Field>
-                  <Field label="Documento de identidad (opcional)">
-                    <FileUploadField
-                      file={coDebtorIdDocumentFile}
-                      onFileChange={setCoDebtorIdDocumentFile}
-                      disabled={isSubmitting || isUploading}
                     />
                   </Field>
                 </div>
@@ -1059,19 +1046,10 @@ export function LoanForm({ onSubmit, onClose }: LoanFormProps) {
             </button>
             <button
               type="submit"
-              disabled={
-                isSubmitting ||
-                isUploading ||
-                isMoraBlocked ||
-                !hasUsableUsuryRate
-              }
+              disabled={isSubmitting || isMoraBlocked || !hasUsableUsuryRate}
               className="rounded bg-white px-4 py-2.5 text-small font-semibold text-background hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isUploading
-                ? 'Subiendo archivo…'
-                : isSubmitting
-                  ? 'Creando…'
-                  : 'Crear préstamo'}
+              {isSubmitting ? 'Creando…' : 'Crear préstamo'}
             </button>
           </div>
         </form>
