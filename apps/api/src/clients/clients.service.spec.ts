@@ -14,6 +14,7 @@ import { Loan, LoanStatus } from '../loans/entities/loan.entity';
 
 import { ClientsService } from './clients.service';
 import { Client, DocumentType } from './entities/client.entity';
+import { ClientMessageFrequency } from './entities/clientMessageFrequency.entity';
 import {
   ClientReference,
   ClientReferenceType,
@@ -38,6 +39,12 @@ describe('ClientsService', () => {
     find: jest.Mock;
     findOneBy: jest.Mock;
     remove: jest.Mock;
+  };
+  let clientMessageFrequenciesRepository: {
+    create: jest.Mock;
+    save: jest.Mock;
+    findOneBy: jest.Mock;
+    delete: jest.Mock;
   };
 
   const mockClient: Client = {
@@ -106,6 +113,17 @@ describe('ClientsService', () => {
       findOneBy: jest.fn(),
       remove: jest.fn(),
     };
+    clientMessageFrequenciesRepository = {
+      // Spread into a new object, not the same reference — the service
+      // mutates the entity returned by create() (sets
+      // minimumDaysBetweenMessages after the fact), so an identity-echoing
+      // mock like `(dto) => dto` would let that later mutation leak
+      // backward into what toHaveBeenCalledWith() already recorded.
+      create: jest.fn((dto: Partial<ClientMessageFrequency>) => ({ ...dto })),
+      save: jest.fn(),
+      findOneBy: jest.fn().mockResolvedValue(null),
+      delete: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -119,6 +137,10 @@ describe('ClientsService', () => {
         {
           provide: getRepositoryToken(ClientReference),
           useValue: clientReferencesRepository,
+        },
+        {
+          provide: getRepositoryToken(ClientMessageFrequency),
+          useValue: clientMessageFrequenciesRepository,
         },
       ],
     }).compile();
@@ -877,6 +899,126 @@ describe('ClientsService', () => {
           service.removeReference(mockClient.id, 'missing-reference'),
         ).rejects.toThrow(NotFoundException);
         expect(clientReferencesRepository.remove).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  // Phase 27 — throttles overdue/upcoming_due frequency, never eligibility.
+  // See docs/phases/PHASE_27_MESSAGE_FREQUENCY.md.
+  describe('messageFrequency', () => {
+    describe('getMessageFrequency', () => {
+      it('returns null when the client has no whitelist entry', async () => {
+        clientMessageFrequenciesRepository.findOneBy.mockResolvedValue(null);
+
+        const result = await service.getMessageFrequency(mockClient.id);
+
+        expect(result).toBeNull();
+        expect(
+          clientMessageFrequenciesRepository.findOneBy,
+        ).toHaveBeenCalledWith({ clientId: mockClient.id });
+      });
+
+      it('returns the existing entry', async () => {
+        const entry: ClientMessageFrequency = {
+          id: 'freq-1',
+          clientId: mockClient.id,
+          client: {} as never,
+          minimumDaysBetweenMessages: 7,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        clientMessageFrequenciesRepository.findOneBy.mockResolvedValue(entry);
+
+        const result = await service.getMessageFrequency(mockClient.id);
+
+        expect(result).toEqual(entry);
+      });
+    });
+
+    describe('setMessageFrequency', () => {
+      it('creates a new entry when the client has none', async () => {
+        repository.findOneBy.mockResolvedValue(mockClient);
+        clientMessageFrequenciesRepository.findOneBy.mockResolvedValue(null);
+        clientMessageFrequenciesRepository.save.mockImplementation(
+          (entry: Partial<ClientMessageFrequency>) =>
+            Promise.resolve({ id: 'freq-1', ...entry }),
+        );
+
+        const result = await service.setMessageFrequency(mockClient.id, {
+          minimumDaysBetweenMessages: 7,
+        });
+
+        expect(clientMessageFrequenciesRepository.create).toHaveBeenCalledWith({
+          clientId: mockClient.id,
+        });
+        expect(result.minimumDaysBetweenMessages).toBe(7);
+      });
+
+      it('updates the existing entry in place instead of creating a duplicate', async () => {
+        repository.findOneBy.mockResolvedValue(mockClient);
+        const existing: ClientMessageFrequency = {
+          id: 'freq-1',
+          clientId: mockClient.id,
+          client: {} as never,
+          minimumDaysBetweenMessages: 7,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        clientMessageFrequenciesRepository.findOneBy.mockResolvedValue(
+          existing,
+        );
+        clientMessageFrequenciesRepository.save.mockImplementation(
+          (entry: Partial<ClientMessageFrequency>) => Promise.resolve(entry),
+        );
+
+        const result = await service.setMessageFrequency(mockClient.id, {
+          minimumDaysBetweenMessages: 14,
+        });
+
+        expect(
+          clientMessageFrequenciesRepository.create,
+        ).not.toHaveBeenCalled();
+        expect(clientMessageFrequenciesRepository.save).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: 'freq-1',
+            minimumDaysBetweenMessages: 14,
+          }),
+        );
+        expect(result.minimumDaysBetweenMessages).toBe(14);
+      });
+
+      it('throws NotFoundException when the client does not exist', async () => {
+        repository.findOneBy.mockResolvedValue(null);
+
+        await expect(
+          service.setMessageFrequency('missing-id', {
+            minimumDaysBetweenMessages: 7,
+          }),
+        ).rejects.toThrow(NotFoundException);
+        expect(clientMessageFrequenciesRepository.save).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('clearMessageFrequency', () => {
+      it('deletes the entry for the given client', async () => {
+        repository.findOneBy.mockResolvedValue(mockClient);
+
+        await service.clearMessageFrequency(mockClient.id);
+
+        expect(clientMessageFrequenciesRepository.delete).toHaveBeenCalledWith({
+          clientId: mockClient.id,
+        });
+      });
+
+      it('throws NotFoundException when the client does not exist', async () => {
+        repository.findOneBy.mockResolvedValue(null);
+
+        await expect(
+          service.clearMessageFrequency('missing-id'),
+        ).rejects.toThrow(NotFoundException);
+        expect(
+          clientMessageFrequenciesRepository.delete,
+        ).not.toHaveBeenCalled();
       });
     });
   });
