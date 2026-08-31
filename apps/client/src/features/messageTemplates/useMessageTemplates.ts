@@ -1,11 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 
 import {
   MESSAGE_TYPE_ORDER,
   messageTemplatesApi,
 } from '@/features/messageTemplates/messageTemplatesApi';
-
-import type { MessageType } from '@/features/messageTemplates/messageTemplatesApi';
 
 // Fase 9: all four types are now shown (previously filtered to `overdue`
 // only — that scoping made sense before the backend made templates
@@ -28,23 +26,6 @@ export function useMessageTemplates() {
   });
 }
 
-// Phase 18 — the curated audience attached to one template. null means
-// none has been set yet (PUT creates it on first save).
-export function useMessageAudience(type: MessageType) {
-  return useQuery({
-    queryKey: ['messageTemplates', type, 'audience'],
-    queryFn: () => messageTemplatesApi.getAudience(type),
-  });
-}
-
-export function useUpdateMessageAudience(type: MessageType) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (clientIds: string[]) =>
-      messageTemplatesApi.updateAudience(type, clientIds),
-    onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: ['messageTemplates', type, 'audience'],
-      }),
-  });
-}
+// useMessageAudience/useUpdateMessageAudience (Phase 18) removed in
+// Phase 27 — the overdue/upcoming_due audience concept no longer exists.
+// See docs/phases/PHASE_27_MESSAGE_FREQUENCY.md.

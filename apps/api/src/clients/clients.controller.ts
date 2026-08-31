@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import {
@@ -26,9 +27,11 @@ import { ClientDetail, ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/createClient.dto';
 import { CreateClientReferenceDto } from './dto/createClientReference.dto';
 import { QueryClientsDto } from './dto/queryClients.dto';
+import { SetClientMessageFrequencyDto } from './dto/setClientMessageFrequency.dto';
 import { UpdateClientDto } from './dto/updateClient.dto';
 import { UpdateClientReferenceDto } from './dto/updateClientReference.dto';
 import { Client } from './entities/client.entity';
+import { ClientMessageFrequency } from './entities/clientMessageFrequency.entity';
 import { ClientReference } from './entities/clientReference.entity';
 
 @ApiTags('clients')
@@ -150,6 +153,66 @@ export class ClientsController {
     @Param('referenceId') referenceId: string,
   ): Promise<void> {
     return this.clientsService.removeReference(id, referenceId);
+  }
+
+  // --- Message frequency whitelist (Phase 27) — replaces the overdue/
+  // upcoming_due curated audience: throttles how often those two reminder
+  // types reach this client, never whether they're eligible. See
+  // docs/phases/PHASE_27_MESSAGE_FREQUENCY.md. ---
+
+  @Get(':id/message-frequency')
+  @Roles(UserRole.Admin)
+  @ApiOperation({
+    summary: "View a client's message frequency override (admin only)",
+    description:
+      'Returns the whitelist entry throttling overdue/upcoming_due reminders for this ' +
+      'client, or null if none is set (meaning the client is never throttled).',
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Returns the client's message frequency entry, or null.",
+  })
+  @ApiResponse({ status: 404, description: 'Client not found.' })
+  async getMessageFrequency(
+    @Param('id') id: string,
+  ): Promise<ClientMessageFrequency | null> {
+    await this.clientsService.findOne(id);
+    return this.clientsService.getMessageFrequency(id);
+  }
+
+  @Put(':id/message-frequency')
+  @Roles(UserRole.Admin)
+  @Audit('client.setMessageFrequency', 'client')
+  @ApiOperation({
+    summary: "Set a client's message frequency override (admin only)",
+    description:
+      'Creates or updates the minimum number of days between overdue/upcoming_due ' +
+      'reminders for this client. Does not affect eligibility — only how often an ' +
+      'already-qualifying client is messaged.',
+  })
+  @ApiResponse({ status: 200, description: 'The frequency entry was saved.' })
+  @ApiResponse({ status: 404, description: 'Client not found.' })
+  setMessageFrequency(
+    @Param('id') id: string,
+    @Body() dto: SetClientMessageFrequencyDto,
+  ): Promise<ClientMessageFrequency> {
+    return this.clientsService.setMessageFrequency(id, dto);
+  }
+
+  @Delete(':id/message-frequency')
+  @Roles(UserRole.Admin)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Audit('client.clearMessageFrequency', 'client')
+  @ApiOperation({
+    summary: "Clear a client's message frequency override (admin only)",
+    description:
+      'Removes the whitelist entry — the client goes back to being messaged on every ' +
+      'qualifying cron run, same as a client who was never on the whitelist.',
+  })
+  @ApiResponse({ status: 204, description: 'The frequency entry was removed.' })
+  @ApiResponse({ status: 404, description: 'Client not found.' })
+  clearMessageFrequency(@Param('id') id: string): Promise<void> {
+    return this.clientsService.clearMessageFrequency(id);
   }
 
   @Delete(':id')

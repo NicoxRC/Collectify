@@ -17,7 +17,7 @@ import { enrichInstallment } from '../loans/installments/enrichInstallment';
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
-import { MessageAudiencesService } from './messageAudiences/messageAudiences.service';
+import { MessageFrequencyThrottleService } from './messageFrequencyThrottle.service';
 import { MessageType } from './messageType.enum';
 import { renderOverdueReminderMessage } from './messageRenderer';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
@@ -37,28 +37,27 @@ export class OverdueReminderService {
     @InjectRepository(MessageLogItem)
     private readonly messageLogItemsRepository: Repository<MessageLogItem>,
     private readonly messageTemplatesService: MessageTemplatesService,
-    private readonly messageAudiencesService: MessageAudiencesService,
+    private readonly messageFrequencyThrottleService: MessageFrequencyThrottleService,
     private readonly whatsAppService: WhatsAppService,
   ) {}
 
   // Weekly job entry point — one client at a time, so one client's failure
-  // doesn't stop the rest from being reminded. The curated audience is a
-  // required filter, not additive (reopened and corrected after client QA,
-  // 2026-08-18 — originally additive, see docs/phases/PHASE_18_MESSAGE_AUDIENCES.md
-  // "Extended after client QA"): only clients who BOTH dynamically qualify
-  // (have an overdue installment) AND are members of this template's
-  // audience get reminded. An empty/unpopulated audience means nobody is
-  // reminded, even if clients are overdue — the admin must explicitly
-  // enroll every client this job should ever reach.
+  // doesn't stop the rest from being reminded. Phase 27 reverses Phase
+  // 18's "curated audience is a required filter" design: every client who
+  // dynamically qualifies (has an overdue installment) is messaged again,
+  // with no group to populate first. A whitelisted client's frequency is
+  // then throttled — see MessageFrequencyThrottleService — but the
+  // whitelist only narrows further, it never adds eligibility and an
+  // empty/nonexistent whitelist never blocks anyone. See
+  // docs/phases/PHASE_27_MESSAGE_FREQUENCY.md (and
+  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md for the design this replaces).
   async runWeeklyReminder(): Promise<void> {
-    const [dynamicClientIds, audienceClientIds] = await Promise.all([
-      this.findClientIdsWithOverdueInstallments(),
-      this.messageAudiencesService.getClientIdsForTemplateType(
+    const dynamicClientIds = await this.findClientIdsWithOverdueInstallments();
+    const clientIds =
+      await this.messageFrequencyThrottleService.filterOutThrottledClients(
+        dynamicClientIds,
         MessageType.Overdue,
-      ),
-    ]);
-    const audienceSet = new Set(audienceClientIds);
-    const clientIds = dynamicClientIds.filter((id) => audienceSet.has(id));
+      );
     this.logger.log(
       `Weekly overdue reminder: ${clientIds.length} client(s) to notify`,
     );
@@ -81,11 +80,11 @@ export class OverdueReminderService {
   //
   // allowEmpty (default false, unchanged for the manual on-demand
   // controller endpoint): every client the weekly cron now calls this with
-  // already dynamically qualifies (the audience filter only narrows, never
-  // adds), so it never needs allowEmpty. Still used by the manual "retry a
-  // failed message" flow (MessageLogsService), which resends regardless of
-  // the client's current mora status. See
-  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md.
+  // already dynamically qualifies (the frequency throttle only narrows,
+  // never adds — see docs/phases/PHASE_27_MESSAGE_FREQUENCY.md), so it
+  // never needs allowEmpty. Still used by the manual "retry a failed
+  // message" flow (MessageLogsService), which resends regardless of the
+  // client's current mora status.
   async sendReminderForClient(
     clientId: string,
     options?: { allowEmpty?: boolean },

@@ -16,7 +16,7 @@ import {
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
-import { MessageAudiencesService } from './messageAudiences/messageAudiences.service';
+import { MessageFrequencyThrottleService } from './messageFrequencyThrottle.service';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
 import { UpcomingDueReminderService } from './upcomingDueReminder.service';
@@ -29,7 +29,7 @@ describe('UpcomingDueReminderService', () => {
   let messageLogsRepository: { create: jest.Mock; save: jest.Mock };
   let messageLogItemsRepository: { create: jest.Mock; save: jest.Mock };
   let messageTemplatesService: { findByTypeOrThrow: jest.Mock };
-  let messageAudiencesService: { getClientIdsForTemplateType: jest.Mock };
+  let messageFrequencyThrottleService: { filterOutThrottledClients: jest.Mock };
   let whatsAppService: { sendTextMessage: jest.Mock };
 
   const mockClient: Client = {
@@ -119,8 +119,12 @@ describe('UpcomingDueReminderService', () => {
       save: jest.fn((items: unknown[]) => Promise.resolve(items)),
     };
     messageTemplatesService = { findByTypeOrThrow: jest.fn() };
-    messageAudiencesService = {
-      getClientIdsForTemplateType: jest.fn().mockResolvedValue([]),
+    // Default: no throttling — passes every dynamically-qualifying client
+    // straight through, matching "no whitelist entries" behavior.
+    messageFrequencyThrottleService = {
+      filterOutThrottledClients: jest
+        .fn()
+        .mockImplementation((ids: string[]) => Promise.resolve(ids)),
     };
     whatsAppService = { sendTextMessage: jest.fn() };
 
@@ -142,8 +146,8 @@ describe('UpcomingDueReminderService', () => {
         },
         { provide: MessageTemplatesService, useValue: messageTemplatesService },
         {
-          provide: MessageAudiencesService,
-          useValue: messageAudiencesService,
+          provide: MessageFrequencyThrottleService,
+          useValue: messageFrequencyThrottleService,
         },
         { provide: WhatsAppService, useValue: whatsAppService },
         {
@@ -250,18 +254,14 @@ describe('UpcomingDueReminderService', () => {
   });
 
   describe('runDailyReminder', () => {
-    // Confirmed with the human (2026-08-18), reopening the original
-    // additive/union design: the audience is now a required filter — a
-    // client is only reminded when they're both dynamically approaching
-    // due AND a member of the audience.
-    it('sends a reminder only to clients who are both upcoming and in the audience', async () => {
+    // Phase 27 reverses Phase 18's "audience is a required filter" design
+    // (docs/phases/PHASE_27_MESSAGE_FREQUENCY.md): every dynamically-
+    // qualifying client is messaged again, with no group to populate
+    // first — no audience/whitelist involved at all in this case.
+    it('sends a reminder to every dynamically-upcoming client with no whitelist involved', async () => {
       installmentsRepository.find.mockResolvedValue([
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),
-      ]);
-      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([
-        'client-1',
-        'client-2',
       ]);
       const sendSpy = jest
         .spyOn(service, 'sendReminderForClient')
@@ -273,14 +273,30 @@ describe('UpcomingDueReminderService', () => {
       expect(sendSpy).toHaveBeenCalledWith('client-2');
     });
 
-    it('excludes an upcoming client who is not in the audience', async () => {
+    it('passes the dynamically-upcoming client ids through the frequency throttle before sending', async () => {
       installmentsRepository.find.mockResolvedValue([
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),
       ]);
-      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([
-        'client-1',
+      jest
+        .spyOn(service, 'sendReminderForClient')
+        .mockResolvedValue({} as MessageLog);
+
+      await service.runDailyReminder();
+
+      expect(
+        messageFrequencyThrottleService.filterOutThrottledClients,
+      ).toHaveBeenCalledWith(['client-1', 'client-2'], MessageType.UpcomingDue);
+    });
+
+    it('only sends to the clients the frequency throttle actually returns', async () => {
+      installmentsRepository.find.mockResolvedValue([
+        upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
+        upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),
       ]);
+      messageFrequencyThrottleService.filterOutThrottledClients.mockResolvedValue(
+        ['client-1'],
+      );
       const sendSpy = jest
         .spyOn(service, 'sendReminderForClient')
         .mockResolvedValue({} as MessageLog);
@@ -289,48 +305,12 @@ describe('UpcomingDueReminderService', () => {
 
       expect(sendSpy).toHaveBeenCalledTimes(1);
       expect(sendSpy).toHaveBeenCalledWith('client-1');
-    });
-
-    it('does not notify an audience member who has nothing upcoming', async () => {
-      installmentsRepository.find.mockResolvedValue([
-        upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
-      ]);
-      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([
-        'client-1',
-        'client-3',
-      ]);
-      const sendSpy = jest
-        .spyOn(service, 'sendReminderForClient')
-        .mockResolvedValue({} as MessageLog);
-
-      await service.runDailyReminder();
-
-      expect(sendSpy).toHaveBeenCalledTimes(1);
-      expect(sendSpy).toHaveBeenCalledWith('client-1');
-    });
-
-    it('notifies nobody when the audience is empty, even with upcoming clients', async () => {
-      installmentsRepository.find.mockResolvedValue([
-        upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
-      ]);
-      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([]);
-      const sendSpy = jest
-        .spyOn(service, 'sendReminderForClient')
-        .mockResolvedValue({} as MessageLog);
-
-      await service.runDailyReminder();
-
-      expect(sendSpy).not.toHaveBeenCalled();
     });
 
     it('continues with the next client when one fails', async () => {
       installmentsRepository.find.mockResolvedValue([
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-1' } }),
         upcomingInstallment({ loan: { ...mockLoan, clientId: 'client-2' } }),
-      ]);
-      messageAudiencesService.getClientIdsForTemplateType.mockResolvedValue([
-        'client-1',
-        'client-2',
       ]);
       const sendSpy = jest
         .spyOn(service, 'sendReminderForClient')

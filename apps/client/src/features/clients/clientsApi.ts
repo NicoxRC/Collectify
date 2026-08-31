@@ -97,16 +97,29 @@ export interface Client {
   deletedAt: string | null;
 }
 
+// Phase 27 — throttles how often overdue/upcoming_due reminders reach this
+// client; never controls eligibility. null (on ClientDetail) means the
+// client is never throttled. See docs/phases/PHASE_27_MESSAGE_FREQUENCY.md.
+export interface ClientMessageFrequency {
+  id: string;
+  clientId: string;
+  minimumDaysBetweenMessages: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // What GET /clients/:id returns — Client plus fields computed on read by
 // ClientsService.findOneDetail, never stored, plus this client's
-// references (Phase 21). GET /clients (list) returns plain Client rows
-// without any of these, per the backend's findAll/findOneDetail split. See
+// references (Phase 21) and message frequency override (Phase 27). GET
+// /clients (list) returns plain Client rows without any of these, per the
+// backend's findAll/findOneDetail split. See
 // docs/phases/PHASE_10_CLIENT_CAPACITY.md.
 export interface ClientDetail extends Client {
   creditUsed: number;
   creditAvailable: number | null;
   isMoraBlocked: boolean;
   references: ClientReference[];
+  messageFrequency: ClientMessageFrequency | null;
 }
 
 export interface ClientsQueryParams {
@@ -240,5 +253,23 @@ export const clientsApi = {
     referenceId: string,
   ): Promise<void> => {
     await apiClient.delete(`/clients/${clientId}/references/${referenceId}`);
+  },
+
+  // Phase 27 — message frequency whitelist. setMessageFrequency both
+  // creates and updates (PUT upsert); clearMessageFrequency removes the
+  // entry outright, going back to "never throttled".
+  setMessageFrequency: async (
+    clientId: string,
+    minimumDaysBetweenMessages: number,
+  ): Promise<ClientMessageFrequency> => {
+    const { data } = await apiClient.put<ClientMessageFrequency>(
+      `/clients/${clientId}/message-frequency`,
+      { minimumDaysBetweenMessages },
+    );
+    return data;
+  },
+
+  clearMessageFrequency: async (clientId: string): Promise<void> => {
+    await apiClient.delete(`/clients/${clientId}/message-frequency`);
   },
 };

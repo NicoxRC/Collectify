@@ -52,8 +52,7 @@ export class UserModulePermissionsService {
     return result;
   }
 
-  // Replaces the full set for this user, same PUT-replace convention as
-  // MessageAudiencesService.upsertForType — delete then bulk-insert inside
+  // Replaces the full set for this user — delete then bulk-insert inside
   // a transaction so a partial write is never observable.
   async setModulesForUser(
     userId: string,

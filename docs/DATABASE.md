@@ -25,7 +25,7 @@ Tables and columns use **snake_case**; TypeORM maps this automatically to camelC
 
 ### Table names — plural, snake_case
 
-`clients`, `loans`, `installments`, `payments`, `payment_images`, `message_templates`, `message_audiences`, `message_audience_clients`, `message_logs`, `message_log_items`, `users`, `audit_logs`.
+`clients`, `loans`, `installments`, `payments`, `payment_images`, `message_templates`, `message_audiences`, `message_audience_clients`, `client_message_frequencies`, `message_logs`, `message_log_items`, `users`, `audit_logs`.
 
 ### Timestamps — every table has them
 
@@ -389,9 +389,9 @@ One row per reminder **actually sent to a client** — not per installment.
 | `retry_of_message_log_id` | UUID, nullable | Added Phase 18 — self-referencing FK → `message_logs.id`, `ON DELETE SET NULL`. Set on the NEW row created by a retry, pointing back at the original it retried. Both columns null on rows never retried; a retry that itself fails can be retried again, chaining further. |
 | `created_at` | TIMESTAMPTZ | append-only, no `updated_at`/`deleted_at` |
 
-### `message_audiences`
+### `message_audiences` / `message_audience_clients` (retired — Phase 27)
 
-Added Phase 18 — a curated group of clients attached to one `message_template`. See "Message audience" in `GLOSSARY.md` for the additive-vs-audience-only semantics per type.
+Added Phase 18 — a curated group of clients attached to one `message_template`. **Retired as of Phase 27** for `overdue`/`upcoming_due` (the only two types that ever used it — see "Message audience" in `GLOSSARY.md`): no service reads these tables anymore, and the `GET`/`PUT /message-templates/:type/audience` endpoints and `MessageAudiencesService` were removed entirely. The tables themselves are **deliberately NOT dropped** — they may still hold historical meaning, and dropping schema is its own confirmed decision, not a side effect of the Phase 27 migration. The `MessageAudience` entity class still exists (still picked up by TypeORM's glob-based entity loading, for migrations) but is no longer registered in `WhatsappModule`'s DI, since nothing injects its repository anymore.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -400,16 +400,20 @@ Added Phase 18 — a curated group of clients attached to one `message_template`
 | `name` | VARCHAR | |
 | `created_at`, `updated_at`, `deleted_at` | TIMESTAMPTZ | standard |
 
-The schema allows multiple audiences per template, but the confirmed UI/service surface is exactly one — `MessageAudiencesService` always operates on the most-recently-created audience for a template, creating it on first `PUT`.
+`message_audience_clients` was `message_audiences`' TypeORM-managed `@ManyToMany`/`@JoinTable` join table (`message_audience_id`, `client_id`, both PK/FK composite) — no separate entity class.
 
-### `message_audience_clients`
+### `client_message_frequencies`
 
-TypeORM-managed `@ManyToMany`/`@JoinTable` join table, no separate entity class — plain composite-PK shape.
+Added Phase 27 — replaces `message_audiences` for `overdue`/`upcoming_due`, but with a different semantic: this throttles how OFTEN a client is messaged, never WHETHER they're eligible (that stays purely dynamic). See "Message frequency whitelist" in `GLOSSARY.md`.
 
 | Column | Type | Notes |
 |---|---|---|
-| `message_audience_id` | UUID | PK (composite), FK → `message_audiences.id`, `ON DELETE CASCADE` |
-| `client_id` | UUID | PK (composite), FK → `clients.id`, `ON DELETE CASCADE` |
+| `id` | UUID | PK |
+| `client_id` | UUID | FK → `clients.id`, `ON DELETE CASCADE`, **UNIQUE** |
+| `minimum_days_between_messages` | INT | Set freely by the admin per client (`PUT /clients/:id/message-frequency`) — no hardcoded default, confirmed with the human rather than guessed. |
+| `created_at`, `updated_at` | TIMESTAMPTZ | standard — no `deleted_at`; the entry is deleted outright (`DELETE /clients/:id/message-frequency`) when an admin clears it, matching `client_references`' no-soft-delete precedent. |
+
+Unlike `message_audiences` (multiple rows allowed per template, service always uses "the most recently created one"), `client_message_frequencies` has a genuine 1:1 relationship with its client — a DB-level `UNIQUE` constraint on `client_id` plus a find-or-create upsert in `ClientsService` removes any "which row is canonical" ambiguity that pattern would otherwise need. Read by `MessageFrequencyThrottleService` (in the whatsapp module, not the clients module, since it also needs `message_logs` to compute "days since last message") — see `docs/phases/PHASE_27_MESSAGE_FREQUENCY.md`.
 
 ### `message_log_items`
 

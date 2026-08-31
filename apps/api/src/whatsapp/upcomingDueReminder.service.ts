@@ -20,7 +20,7 @@ import { calculateDaysUntilDue } from '../loans/installments/installmentCalculat
 
 import { MessageLog, MessageLogStatus } from './entities/messageLog.entity';
 import { MessageLogItem } from './entities/messageLogItem.entity';
-import { MessageAudiencesService } from './messageAudiences/messageAudiences.service';
+import { MessageFrequencyThrottleService } from './messageFrequencyThrottle.service';
 import { renderUpcomingDueMessage } from './messageRenderer';
 import { MessageTemplatesService } from './messageTemplates/messageTemplates.service';
 import { MessageType } from './messageType.enum';
@@ -44,28 +44,26 @@ export class UpcomingDueReminderService {
     @InjectRepository(MessageLogItem)
     private readonly messageLogItemsRepository: Repository<MessageLogItem>,
     private readonly messageTemplatesService: MessageTemplatesService,
-    private readonly messageAudiencesService: MessageAudiencesService,
+    private readonly messageFrequencyThrottleService: MessageFrequencyThrottleService,
     private readonly whatsAppService: WhatsAppService,
     private readonly configService: ConfigService<Configuration, true>,
   ) {}
 
-  // The curated audience is a required filter, not additive (reopened and
-  // corrected after client QA, 2026-08-18 — originally additive, see
-  // docs/phases/PHASE_18_MESSAGE_AUDIENCES.md "Extended after client QA"):
-  // only clients who BOTH dynamically qualify (an installment approaching
-  // due date) AND are members of this template's audience get reminded.
-  // An empty/unpopulated audience means nobody is reminded, even if
-  // clients have installments coming due — the admin must explicitly
-  // enroll every client this job should ever reach.
+  // Phase 27 reverses Phase 18's "curated audience is a required filter"
+  // design: every client who dynamically qualifies (an installment
+  // approaching due date) is messaged again, with no group to populate
+  // first. A whitelisted client's frequency is then throttled — see
+  // MessageFrequencyThrottleService — but the whitelist only narrows
+  // further, it never adds eligibility, and an empty/nonexistent
+  // whitelist never blocks anyone. See
+  // docs/phases/PHASE_27_MESSAGE_FREQUENCY.md.
   async runDailyReminder(): Promise<void> {
-    const [dynamicClientIds, audienceClientIds] = await Promise.all([
-      this.findClientIdsWithUpcomingInstallments(),
-      this.messageAudiencesService.getClientIdsForTemplateType(
+    const dynamicClientIds = await this.findClientIdsWithUpcomingInstallments();
+    const clientIds =
+      await this.messageFrequencyThrottleService.filterOutThrottledClients(
+        dynamicClientIds,
         MessageType.UpcomingDue,
-      ),
-    ]);
-    const audienceSet = new Set(audienceClientIds);
-    const clientIds = dynamicClientIds.filter((id) => audienceSet.has(id));
+      );
     this.logger.log(
       `Daily upcoming-due reminder: ${clientIds.length} client(s) to notify`,
     );

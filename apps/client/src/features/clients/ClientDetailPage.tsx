@@ -10,8 +10,10 @@ import {
 } from '@/features/clients/clientsApi';
 import { DeactivateClientDialog } from '@/features/clients/DeactivateClientDialog';
 import {
+  useClearClientMessageFrequency,
   useClient,
   useDeleteClient,
+  useSetClientMessageFrequency,
   useUpdateClient,
 } from '@/features/clients/useClients';
 import {
@@ -37,6 +39,7 @@ import {
 } from '@/lib/format';
 
 import type { ReactNode } from 'react';
+import type { ClientDetail } from '@/features/clients/clientsApi';
 
 // Matches Figma frame 40:554 ("F-14 / Detalle cliente"). The loans section
 // was left as a placeholder when Phase 4 shipped — the loans feature
@@ -426,6 +429,8 @@ export function ClientDetailPage() {
               </button>
             ))}
         </div>
+
+        <MessageFrequencySection client={client} isAdmin={isAdmin} />
       </div>
 
       <div className="flex flex-col gap-2.5">
@@ -772,6 +777,149 @@ function Legend({ color, label }: { color: string; label: string }) {
 // "empty section" collapse) so the page's shape stays predictable even
 // when every field inside is blank — the individual DetailFields below
 // handle the empty-value case instead.
+// Phase 27 — replaces the old overdue/upcoming_due "curated audience"
+// editor (Phase 18, MessageTemplatesPage.tsx), which controlled whether a
+// client was reminded at all. This instead throttles HOW OFTEN an already-
+// qualifying client is reminded — it never changes eligibility. Visible to
+// every role (so a cobrador can see a client is on the whitelist), but
+// only an admin can set/clear it, matching the backend's @Roles(Admin) on
+// PUT/DELETE /clients/:id/message-frequency. See
+// docs/phases/PHASE_27_MESSAGE_FREQUENCY.md.
+function MessageFrequencySection({
+  client,
+  isAdmin,
+}: {
+  client: ClientDetail;
+  isAdmin: boolean;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [days, setDays] = useState(
+    () => client.messageFrequency?.minimumDaysBetweenMessages ?? 7,
+  );
+  const [error, setError] = useState<string | null>(null);
+  const setFrequency = useSetClientMessageFrequency();
+  const clearFrequency = useClearClientMessageFrequency();
+
+  const handleSave = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+    try {
+      await setFrequency.mutateAsync({
+        clientId: client.id,
+        minimumDaysBetweenMessages: days,
+      });
+      setIsEditing(false);
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : 'No se pudo guardar la frecuencia.',
+      );
+    }
+  };
+
+  const handleClear = async () => {
+    setError(null);
+    try {
+      await clearFrequency.mutateAsync(client.id);
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : 'No se pudo quitar la frecuencia.',
+      );
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2.5 rounded border border-border bg-surface px-6 py-5">
+      <span className="text-section-label font-medium tracking-[0.36px] text-muted">
+        FRECUENCIA DE MENSAJES
+      </span>
+      <p className="text-meta text-muted">
+        Solo ajusta cada cuántos días como mínimo recibe recordatorios de mora o
+        aviso — no afecta si los recibe o no.
+      </p>
+
+      {isEditing ? (
+        <form
+          onSubmit={(event) => void handleSave(event)}
+          className="flex flex-wrap items-center gap-2.5"
+        >
+          <span className="text-small text-white">Cada</span>
+          <input
+            type="number"
+            min={1}
+            value={days}
+            onChange={(event) => setDays(Number(event.target.value))}
+            className="h-9 w-20 rounded border border-border bg-input px-2 text-meta text-white focus:outline-none"
+          />
+          <span className="text-small text-white">días como mínimo</span>
+          <button
+            type="submit"
+            disabled={setFrequency.isPending}
+            className="rounded border border-border bg-input px-3 py-1.5 text-meta text-white hover:border-subtle disabled:opacity-50"
+          >
+            {setFrequency.isPending ? 'Guardando…' : 'Guardar'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsEditing(false)}
+            className="text-meta text-muted hover:text-white"
+          >
+            Cancelar
+          </button>
+        </form>
+      ) : client.messageFrequency ? (
+        <div className="flex items-center gap-3">
+          <span className="rounded-[3px] border border-border bg-input px-2 py-[3px] text-meta font-medium text-white">
+            Cada {client.messageFrequency.minimumDaysBetweenMessages} días
+          </span>
+          {isAdmin && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setDays(client.messageFrequency!.minimumDaysBetweenMessages);
+                  setIsEditing(true);
+                }}
+                className="text-meta text-muted hover:text-white"
+              >
+                Editar
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleClear()}
+                disabled={clearFrequency.isPending}
+                className="text-meta text-muted hover:text-red-400 disabled:opacity-50"
+              >
+                {clearFrequency.isPending ? 'Quitando…' : 'Quitar'}
+              </button>
+            </>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center gap-3">
+          <span className="text-small text-muted">
+            Sin frecuencia personalizada — recibe todos los envíos que
+            califiquen.
+          </span>
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setIsEditing(true)}
+              className="text-meta text-muted hover:text-white"
+            >
+              Ajustar
+            </button>
+          )}
+        </div>
+      )}
+      {error && <p className="text-meta text-red-400">{error}</p>}
+    </div>
+  );
+}
+
 function DetailSection({
   title,
   children,

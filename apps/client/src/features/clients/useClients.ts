@@ -129,3 +129,31 @@ export function useRemoveClientReference() {
       queryClient.invalidateQueries({ queryKey: ['clients', clientId] }),
   });
 }
+
+// Phase 27 — message frequency whitelist. Both invalidate the ClientDetail
+// query (['clients', clientId]), which is what carries messageFrequency —
+// same pattern as the reference mutations above.
+export function useSetClientMessageFrequency() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      clientId,
+      minimumDaysBetweenMessages,
+    }: {
+      clientId: string;
+      minimumDaysBetweenMessages: number;
+    }) => clientsApi.setMessageFrequency(clientId, minimumDaysBetweenMessages),
+    onSuccess: (_data, { clientId }) =>
+      queryClient.invalidateQueries({ queryKey: ['clients', clientId] }),
+  });
+}
+
+export function useClearClientMessageFrequency() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (clientId: string) =>
+      clientsApi.clearMessageFrequency(clientId),
+    onSuccess: (_data, clientId) =>
+      queryClient.invalidateQueries({ queryKey: ['clients', clientId] }),
+  });
+}
