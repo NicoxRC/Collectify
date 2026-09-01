@@ -1572,65 +1572,6 @@ describe('LoansService', () => {
     });
   });
 
-  describe('markAsPaid', () => {
-    beforeEach(() => {
-      loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });
-      loansRepository.findOne.mockResolvedValue(null); // no refinancedTo
-      installmentsRepository.find.mockResolvedValue([]);
-    });
-
-    it('sets the loan to paid and every pending installment to paid', async () => {
-      await service.markAsPaid(mockLoan.id);
-
-      expect(loansRepository.update).toHaveBeenCalledWith(
-        { id: mockLoan.id },
-        { status: LoanStatus.Paid },
-      );
-      expect(installmentsRepository.update).toHaveBeenCalledWith(
-        { loanId: mockLoan.id, status: InstallmentStatus.Pending },
-        { status: InstallmentStatus.Paid },
-      );
-    });
-
-    it('does not create any payment record', async () => {
-      await service.markAsPaid(mockLoan.id);
-
-      expect(paymentsRepository.find).not.toHaveBeenCalled();
-    });
-
-    it('rejects a loan that is already paid', async () => {
-      loansRepository.findOneBy.mockResolvedValue({
-        ...mockLoan,
-        status: LoanStatus.Paid,
-      });
-
-      await expect(service.markAsPaid(mockLoan.id)).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(loansRepository.update).not.toHaveBeenCalled();
-    });
-
-    it('rejects a loan that has already been refinanced', async () => {
-      loansRepository.findOneBy.mockResolvedValue({
-        ...mockLoan,
-        status: LoanStatus.Refinanced,
-      });
-
-      await expect(service.markAsPaid(mockLoan.id)).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(loansRepository.update).not.toHaveBeenCalled();
-    });
-
-    it('throws NotFoundException when the loan does not exist', async () => {
-      loansRepository.findOneBy.mockResolvedValue(null);
-
-      await expect(service.markAsPaid('missing-id')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-  });
-
   describe('remove', () => {
     beforeEach(() => {
       loansRepository.findOneBy.mockResolvedValue({ ...mockLoan });

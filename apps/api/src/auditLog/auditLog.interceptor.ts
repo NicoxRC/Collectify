@@ -232,7 +232,7 @@ export class AuditLogInterceptor implements NestInterceptor {
   // Prefers the id on whatever the handler actually returned — this is the
   // entity the action produced or affected, and for most endpoints that's
   // the same value as the route's own :id anyway (update/deactivate/
-  // reactivate/markAsPaid all return the same record they were called on).
+  // reactivate all return the same record they were called on).
   // It matters for the cases where it *isn't* the same: POST
   // /installments/:id/payments's :id is the INSTALLMENT, not the payment
   // being logged (entityType 'payment') — using the response's id avoids
