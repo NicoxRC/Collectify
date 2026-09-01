@@ -55,14 +55,6 @@ export function useUpdateLoan() {
   });
 }
 
-export function useMarkLoanAsPaid() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: loansApi.markAsPaid,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['loans'] }),
-  });
-}
-
 // Not a useQuery — fetched on demand when the "Liquidar anticipadamente"
 // dialog opens (via .mutateAsync), same pattern as usePreviewSchedule.
 export function usePayoffQuote() {

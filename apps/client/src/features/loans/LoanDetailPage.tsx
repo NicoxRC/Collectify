@@ -25,13 +25,11 @@ import {
   moraBadgeClasses,
 } from '@/features/loans/loanStatusDisplay';
 import { LoanStatus } from '@/features/loans/loansApi';
-import { MarkAsPaidDialog } from '@/features/loans/MarkAsPaidDialog';
 import { PayoffDialog } from '@/features/loans/PayoffDialog';
 import { RefinanceLoanForm } from '@/features/loans/RefinanceLoanForm';
 import {
   useLoan,
   useLoanPayments,
-  useMarkLoanAsPaid,
   usePayoffLoan,
   useRefinanceLoan,
   useRemoveLoan,
@@ -70,7 +68,6 @@ export function LoanDetailPage() {
   const { data: payments } = useLoanPayments(id ?? '');
   const registerPayment = useRegisterPayment(id ?? '');
   const registerBulkPayments = useRegisterBulkPayments(id ?? '');
-  const markAsPaid = useMarkLoanAsPaid();
   const payoffLoan = usePayoffLoan();
   const updateLoan = useUpdateLoan();
   const refinanceLoan = useRefinanceLoan();
@@ -115,7 +112,6 @@ export function LoanDetailPage() {
     Set<string>
   >(new Set());
   const [isBulkPaying, setIsBulkPaying] = useState(false);
-  const [isChangingStatus, setIsChangingStatus] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isRefinancing, setIsRefinancing] = useState(false);
   const [isPayingOff, setIsPayingOff] = useState(false);
@@ -185,10 +181,8 @@ export function LoanDetailPage() {
     : '…';
   // Phase 30 — mirrors the backend's own delete precondition (any
   // registered Payment row on any installment) rather than re-deriving it
-  // from installment status: markAsPaid() flips installments to Paid
-  // without ever creating a Payment row, so installment.status alone
-  // isn't a reliable stand-in for "has this loan received a real payment."
-  // `payments` is already fetched above for the payment-history table.
+  // from installment status. `payments` is already fetched above for the
+  // payment-history table.
   const hasPayments = (payments ?? []).length > 0;
   const outstandingBalance = pendingInstallments.reduce(
     (sum, installment) => sum + installment.totalDue,
@@ -291,16 +285,6 @@ export function LoanDetailPage() {
               className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white"
             >
               Editar
-            </button>
-          )}
-          {isAdmin && (
-            <button
-              type="button"
-              disabled={loan.status !== LoanStatus.Active}
-              onClick={() => setIsChangingStatus(true)}
-              className="rounded border border-border bg-input px-4 py-2.5 text-small text-muted hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Cambiar estado
             </button>
           )}
           {isAdmin && (
@@ -576,14 +560,6 @@ export function LoanDetailPage() {
             setSelectedInstallmentIds(new Set());
             return result;
           }}
-        />
-      )}
-
-      {isChangingStatus && (
-        <MarkAsPaidDialog
-          loanLabel={`${loan.promissoryNoteNumber} — ${clientFullName}`}
-          onClose={() => setIsChangingStatus(false)}
-          onConfirm={() => markAsPaid.mutateAsync(loan.id)}
         />
       )}
 
