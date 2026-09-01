@@ -6,8 +6,8 @@ Expose a "delete loan" action on the loan detail view, available only when the b
 
 ## Scope
 
-- [x] Loan detail view: shows a "Eliminar préstamo" action (admin only, next to the other admin-only actions), disabled with an explanatory `title` tooltip once the loan has any registered payment. Mirrors the backend's precondition using the already-fetched `useLoanPayments` data (`(payments ?? []).length > 0`) rather than re-deriving it from installment status — `markAsPaid()` can flip an installment to Paid without ever creating a `Payment` row, so installment status alone isn't a reliable stand-in for "has this loan received a real payment."
-- [x] New `DeleteLoanDialog`: confirmation before deleting, explaining the action can't be undone from the panel — same messaging pattern as `DeactivateClientDialog`/`MarkAsPaidDialog`.
+- [x] Loan detail view: shows a "Eliminar préstamo" action (admin only, next to the other admin-only actions), disabled with an explanatory `title` tooltip once the loan has any registered payment. Mirrors the backend's precondition using the already-fetched `useLoanPayments` data (`(payments ?? []).length > 0`) rather than re-deriving it from installment status.
+- [x] New `DeleteLoanDialog`: confirmation before deleting, explaining the action can't be undone from the panel — same messaging pattern as `DeactivateClientDialog`.
 - [x] Unlike those two existing dialogs (which let a rejection fail silently), `DeleteLoanDialog` catches the mutation and shows the api's error message inline — covers the explicit race-condition case (a payment registered between page load and the delete click, so the backend's own check rejects it even though the button looked enabled).
 - [x] On success, navigates back to `/prestamos` — the loan detail page has nothing left to show.
 

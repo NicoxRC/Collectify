@@ -33,7 +33,7 @@ These answers are final for this phase — do not revisit them without a new con
 
 ### Tests (mandatory)
 - [x] `calculatePayoff()`: single overdue installment, multiple overdue installments, mix of overdue and not-yet-due, presence of an initial installment, an installment due exactly today, the `principalPortion: null` legacy fallback, an empty installment list.
-- [x] The chosen endpoint correctly registers the resulting split payments and updates installment/loan status accordingly — plus rejects a non-active loan, matching `markAsPaid()`'s guard.
+- [x] The chosen endpoint correctly registers the resulting split payments and updates installment/loan status accordingly — plus rejects a non-active loan.
 
 ### Swagger
 - [x] New endpoint(s) documented, including a clear explanation of the allocation rule in the description.

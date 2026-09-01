@@ -96,7 +96,7 @@ Seen on frame `30:2` but not needed until a later phase — noted here so we don
 | 4 — F-18 Nuevo préstamo (modal) | `52:415` | Built — `features/loans/LoanForm.tsx` |
 | 4 — F-19 Detalle préstamo (desktop 1440) | `52:537` | Built (partial — see gaps below) — `features/loans/LoanDetailPage.tsx` |
 | 4 — F-20 Registrar pago (modal) | `52:765` | Built, matches exactly — `features/installments/RegisterPaymentDialog.tsx` |
-| 4 — F-22 Cambiar estado (dialog) | `52:945` | Built (replaced with a single confirmation — see gaps below) — `features/loans/MarkAsPaidDialog.tsx` |
+| 4 — F-22 Cambiar estado (dialog) | `52:945` | Removed (2026-08-31) — the manual "mark as paid without a payment trail" override was judged unnecessary; every loan closure now goes through a real, calculated flow (`Liquidar anticipadamente`) or a normal payment. See `docs/phases/PHASE_16_EARLY_PAYOFF.md`. |
 | 4 — F-21 Mensaje manual de WhatsApp | *(not reviewed — client flagged it as likely a later phase)* | Deferred to Phase 5/9 |
 | 5 — F-23 Mensajes (desktop 1440) | `58:149` | Built (partial — see gaps below) — `features/messageLogs/MessageLogsPage.tsx`. Reviewed from a screenshot the client pasted directly (Figma MCP rate limit) |
 | 5 — F-24 Mensajes — Drawer lateral | `58:388` | Built (partial — see gaps below) — `features/messageLogs/MessageLogDrawer.tsx`. Reviewed from a pasted screenshot |
