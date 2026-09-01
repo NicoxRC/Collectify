@@ -11,10 +11,10 @@ interface DeleteLoanDialogProps {
 
 // Phase 30 — no Figma frame exists for this (see DESIGN_TOKENS.md's
 // "Known design/backend gaps"); styled after the closest existing
-// confirmation, DeactivateClientDialog. Unlike that one (and
-// MarkAsPaidDialog), this surfaces the api's rejection message inline
-// instead of letting it fail silently — the phase brief explicitly calls
-// out the race-condition case (a payment was registered between page load
+// confirmation, DeactivateClientDialog. Unlike that one, this surfaces
+// the api's rejection message inline instead of letting it fail
+// silently — the phase brief explicitly calls out the race-condition
+// case (a payment was registered between page load
 // and the delete click, so the backend's own no-payments check rejects it
 // even though the button looked enabled) as something to show clearly
 // rather than as a generic failure.

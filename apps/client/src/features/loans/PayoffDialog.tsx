@@ -14,8 +14,8 @@ interface PayoffDialogProps {
 }
 
 // "Liquidar anticipadamente" — docs/phases/PHASE_16_EARLY_PAYOFF.md /
-// docs/phasesClient/PHASE_16_EARLY_PAYOFF.md. Same read-only-summary +
-// single-confirm-action shape as MarkAsPaidDialog.tsx, but shows the real
+// docs/phasesClient/PHASE_16_EARLY_PAYOFF.md. A read-only-summary +
+// single-confirm-action shape, but shows the real
 // GET /loans/:id/payoff-quote breakdown first — interest owed (moratory +
 // Phase 14 concepts on matured installments only) vs. principal, per
 // installment — instead of a static confirmation sentence. Confirmed with

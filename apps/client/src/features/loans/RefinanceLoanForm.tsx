@@ -620,7 +620,10 @@ export function RefinanceLoanForm({
                 />
                 <span className="mt-1 text-meta text-muted">
                   Se resta del monto sugerido — el campo "Monto renegociado"
-                  sigue siendo editable después.
+                  sigue siendo editable después. Si este refinanciamiento es
+                  solo para abonar a capital, contá en la Descripción (más
+                  abajo) cuánto se abonó — así queda identificable en el pagaré
+                  nuevo y en el registro de auditoría.
                 </span>
               </Field>
 
@@ -906,7 +909,7 @@ export function RefinanceLoanForm({
                 <textarea
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
-                  placeholder="Ej: Refinanciación del pagaré anterior…"
+                  placeholder="Ej: Refinanciación del pagaré anterior, o Abono a capital de $100.000…"
                   rows={2}
                   className="w-full resize-none rounded border border-border bg-input px-3.5 py-2 text-control text-white placeholder-mid focus:border-subtle focus:outline-none"
                 />

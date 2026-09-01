@@ -309,18 +309,6 @@ export const loansApi = {
     return data;
   },
 
-  // Backs F-22 "Cambiar estado" — but only the "Pagado" transition is
-  // real; "Al día"/"En mora" aren't stored states (see the gaps note in
-  // DESIGN_TOKENS.md), so this is the one manual override that exists:
-  // closing a loan out as paid without a per-installment payment trail
-  // (e.g. the client paid in cash outside the system). Admin only.
-  markAsPaid: async (id: string): Promise<LoanDetail> => {
-    const { data } = await apiClient.post<LoanDetail>(
-      `/loans/${id}/mark-as-paid`,
-    );
-    return data;
-  },
-
   // Read-only, safe to call regardless of the loan's status — see
   // docs/phases/PHASE_16_EARLY_PAYOFF.md.
   getPayoffQuote: async (id: string): Promise<PayoffQuote> => {

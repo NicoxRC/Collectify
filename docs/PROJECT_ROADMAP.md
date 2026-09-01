@@ -248,6 +248,8 @@ Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_28_MULT
 
 ## Phase 29 — Principal paydowns (abonos al capital)
 
+**Done — turned out to need no new code.** See `docs/phases/PHASE_29_PRINCIPAL_PAYDOWN.md`: a principal paydown is a refinance with a lower resulting principal, a mechanism Phase 17 already built. Only a copy/UX clarification shipped under this phase.
+
 Requested by the client (reunión 2026-08-25) — see `docs/phases/PHASE_29_PRINCIPAL_PAYDOWN.md`.
 
 - A payment that reduces a loan's outstanding principal directly, separate from an ordinary installment payment

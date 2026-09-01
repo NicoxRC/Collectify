@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 
 // Shared across every modal/dialog/drawer in the app (ClientForm,
-// DeactivateClientDialog, LoanForm, MarkAsPaidDialog, RegisterPaymentDialog,
+// DeactivateClientDialog, LoanForm, RegisterPaymentDialog,
 // MessageTemplateForm, ActivateTemplateDialog, DeleteTemplateDialog,
 // MessageLogDrawer) so Escape closes whichever one is open — a single
 // listener per open dialog, removed on unmount.

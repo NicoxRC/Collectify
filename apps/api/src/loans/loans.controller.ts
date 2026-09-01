@@ -179,30 +179,6 @@ export class LoansController {
     return this.loansService.update(id, dto);
   }
 
-  @Post(':id/mark-as-paid')
-  @Roles(UserRole.Admin)
-  @Audit('loan.markAsPaid', 'loan')
-  @ApiOperation({
-    summary:
-      'Manually close a loan out as paid (admin only) — for payments received outside the system',
-    description:
-      "Sets the loan's status to 'paid' and every still-pending installment to " +
-      "'paid' as well, so the loan and its installments stay consistent. Does " +
-      'NOT create Payment rows — there is no per-installment amount/date to ' +
-      'record for this kind of manual override. Only active loans can be ' +
-      "marked paid this way; 'al día'/'en mora' are not stored states (see " +
-      'docs/DATABASE.md) so there is nothing to set for those.',
-  })
-  @ApiResponse({ status: 200, description: 'The loan was marked as paid.' })
-  @ApiResponse({
-    status: 400,
-    description: 'The loan is not active (already paid or refinanced).',
-  })
-  @ApiResponse({ status: 404, description: 'Loan not found.' })
-  markAsPaid(@Param('id') id: string): Promise<LoanDetail> {
-    return this.loansService.markAsPaid(id);
-  }
-
   @Get(':id/payoff-quote')
   @ApiOperation({
     summary: 'Quote how much it costs to close this loan out today',

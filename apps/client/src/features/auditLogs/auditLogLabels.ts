@@ -20,7 +20,6 @@ export const ACTION_LABELS: Record<string, string> = {
   'client.removeReference': 'Eliminó una referencia',
   'loan.create': 'Creó un préstamo',
   'loan.update': 'Editó un préstamo',
-  'loan.markAsPaid': 'Marcó un préstamo como pagado',
   'loan.payoff': 'Liquidó un préstamo',
   'loan.refinance': 'Refinanció un préstamo',
   'payment.register': 'Registró un pago',

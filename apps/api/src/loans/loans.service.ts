@@ -607,35 +607,6 @@ export class LoansService {
     return this.loansRepository.save(loan);
   }
 
-  // Added for F-22 "Cambiar estado" — but only the "Pagado" transition maps
-  // to anything real on the backend. "Al día" and "En mora" are NOT stored
-  // states (docs/DATABASE.md: overdue is derived per-installment from due
-  // dates, never a loan-level flag someone sets), so there's nothing for
-  // those two to actually change — they're already always correct,
-  // automatically. This is for the manual case Figma doesn't distinguish
-  // from the others: the client paid in cash/outside the system, and an
-  // admin needs to close the loan out without a payment trail through
-  // every remaining cuota. Marks every still-pending installment Paid too,
-  // so the loan doesn't show "Pagado" while its installments still read as
-  // pending/overdue — but no Payment rows are created, since there's no
-  // real amount/date to record per installment for this kind of override.
-  async markAsPaid(id: string): Promise<LoanDetail> {
-    const loan = await this.findLoanOrThrow(id);
-    if (loan.status !== LoanStatus.Active) {
-      throw new BadRequestException(
-        `Loan ${id} cannot be marked as paid because its status is '${loan.status}' — only active loans can be marked paid this way`,
-      );
-    }
-
-    await this.loansRepository.update({ id }, { status: LoanStatus.Paid });
-    await this.installmentsRepository.update(
-      { loanId: id, status: InstallmentStatus.Pending },
-      { status: InstallmentStatus.Paid },
-    );
-
-    return this.findOne(id);
-  }
-
   // Phase 30 — lets an admin remove a loan created by mistake, but only
   // before it has any real financial history: once a single Payment
   // exists anywhere on the loan (any installment), deletion is refused —
@@ -701,8 +672,7 @@ export class LoansService {
   // Separate, explicit flow from registerPayment (confirmed with the
   // human — see the phase doc's "Resolved" point 5): always settles the
   // loan for its FULL quoted amount, closing it out entirely. Registers
-  // one real Payment row per still-pending installment (unlike
-  // markAsPaid(), which records no payment trail at all) so the payoff
+  // one real Payment row per still-pending installment, so the payoff
   // leaves the same kind of historical record an ordinary payment would.
   async payoff(id: string): Promise<LoanDetail> {
     const loan = await this.findLoanOrThrow(id);
